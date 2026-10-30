@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#232852" />
+    <!--
+      Strict CSP (M16 security requirement). No inline scripts, no external origins,
+      and `connect-src` is narrowed at deploy time to the API origin. `dangerouslySetInnerHTML`
+      is never used in this codebase, so no script-src relaxation is needed.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' http://localhost:8000; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <title>National Auto Spares — Counter</title>
+  </head>
+  <body>
+    <!-- The application root. -->
+    <div id="root"></div>
+    <!--
+      A dedicated print root with its own stylesheet (ADR-028), isolated from
+      application styling so restyling the app can never change the printed bill.
+    -->
+    <div id="print-root" aria-hidden="true"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

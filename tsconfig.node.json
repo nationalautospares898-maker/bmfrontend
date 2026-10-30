@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node"]
+  },
+  /* `vitest.config.ts` is checked here rather than in the test project: `vitest/config`
+     resolves its own nested copy of vite, and under the app project's
+     `exactOptionalPropertyTypes` the two PluginOption types are reported as
+     incompatible. This is a build-tool config, not application code, so the looser
+     project is the right home for it. */
+  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.js"]
+}

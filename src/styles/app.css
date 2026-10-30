@@ -1,0 +1,53 @@
+/* Application styling. Deliberately separate from print.css (ADR-028): restyling the
+   app must never be able to change the printed bill. */
+
+@import 'tailwindcss';
+
+@theme {
+  /* The navy from the owner's workbook headings (`#232852`), measured from the file
+     rather than chosen. */
+  --color-nas-navy: #232852;
+}
+
+:root {
+  /* Body text ≥ 15 px, nothing meaningful below 13 px (§10): counter staff read this
+     all day, often standing. */
+  font-size: 16px;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.5;
+}
+
+/* Visible focus on everything. `outline: none` without a replacement is never
+   acceptable (§10) — keyboard-only billing is the speed requirement, not just the
+   accessibility one. */
+:focus-visible {
+  outline: 2px solid var(--color-nas-navy);
+  outline-offset: 2px;
+}
+
+/* Motion ≤ 200 ms, and none at all when the user has asked for none. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The print root holds no space on screen; `print.css` reveals it for printing only. */
+#print-root {
+  display: none;
+}

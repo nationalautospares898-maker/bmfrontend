@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "types": ["vite/client", "vitest/globals", "node", "@testing-library/jest-dom"],
+    /* Tests legitimately reach into `node:fs` to read source for the structural rules,
+       and assert on values the type system cannot narrow. */
+    "noUnusedLocals": false
+  },
+  /* `tsconfig.app.json` excludes test files; that exclusion is inherited, so it has to
+     be cleared here or the test project would contain nothing. */
+  "exclude": [],
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.ts", "tests/**/*.tsx"]
+}

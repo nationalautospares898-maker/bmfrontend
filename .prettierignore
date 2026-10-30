@@ -1,0 +1,13 @@
+dist
+dev-dist
+coverage
+playwright-report
+test-results
+src/api/generated
+package-lock.json
+
+# Documentation is an authoritative record, not source to reformat.
+# `prettier --write .` reflows markdown, which silently rewrites the Phase 1 and
+# Phase 2 specifications — including closure reports that must stay unchanged.
+*.md
+docs/

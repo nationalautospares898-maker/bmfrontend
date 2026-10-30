@@ -1,0 +1,8 @@
+# Normalise line endings so a Windows counter machine and a Linux CI runner agree.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.xlsx binary
+*.pdf binary

@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, types, tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Format
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Types
+        run: npm run typecheck
+      - name: Tests
+        # Includes the structural suite, which enforces the hard rules in CLAUDE.md §5:
+        # no token in storage, no money arithmetic outside lib/money.ts, no /api/ route
+        # in the service-worker cache, no invented document title.
+        run: npm run test:coverage
+      - name: Build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage
+
+  contract:
+    name: Generated API types match the backend contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # ADR-029: `src/api/generated/` is never hand-edited. Once the backend publishes
+      # its OpenAPI document in CI, this step regenerates and fails on a diff, so
+      # hand-written types cannot drift from the contract.
+      - name: Regenerate and diff
+        run: |
+          if [ ! -f ../bmbackend/openapi.json ]; then
+            echo "::notice::Backend OpenAPI document not available in this workflow yet."
+            echo "::notice::Wired when M16 lands the generated client (ADR-029)."
+            exit 0
+          fi
+          npm run api:types
+          git diff --exit-code src/api/generated/
+
+  e2e:
+    name: End-to-end, offline and print
+    runs-on: ubuntu-latest
+    # Playwright specs land with M17-M22 (real setOffline, PDF print snapshots, axe).
+    if: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # NFR-SEC-012: no database credential or privileged secret may exist in this
+      # repository. Anything VITE_-prefixed is compiled into a public bundle.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # High/critical findings block release (NFR-SEC-010).
+      - run: npm audit --audit-level=high
