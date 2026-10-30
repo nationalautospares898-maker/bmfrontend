@@ -450,13 +450,18 @@ reserved in other drafts), ADR-014 (whether a PDF copy must be archived).
 **Frontend-specific:** Q-FE-1…6 in `docs/PRD.md §4` — browser, screen size, barcode scanner,
 touchscreen, language, tab labelling.
 
-**Also outstanding:** the bill's **lower section**. A **screenshot** of the owner's actual Excel bill
-was supplied and inspected on 2026-10-29, so `docs/UI-UX-SPECIFICATION.md §12.1` is **transcribed
-from evidence** for the upper portion. The original `.xlsx` was **not** available and the screenshot
-stops at worksheet row 30, so the grand total, signature area, footer and page setup remain
-`[UNSEEN]` (§12.1b) and **must not be invented**. The owner has confirmed no further reference
-evidence can be supplied at this time ([OD-5](../../bmbackend/docs/OWNER-DECISIONS.md#od-5),
-[OD-22](../../bmbackend/docs/OWNER-DECISIONS.md#od-22)).
+**Resolved 2026-10-30 — the bill layout.** The owner's original workbook
+`ANAS_1234_20260606_231456.xlsx` was supplied and **inspected part by part**, so
+`docs/UI-UX-SPECIFICATION.md §12.1` is now **read from the file**: used range `A1:E37`, 12 merged
+ranges, 25 item rows, all widths/heights, Calibri typography, borders, number formats and both logo
+images. A signature block, amount in words, tax line and any invoice number are **verified absent**
+and must not be added ([OD-5](../../bmbackend/docs/OWNER-DECISIONS.md#od-5) — **resolved**).
+
+**Still outstanding:** the workbook sets **no page setup at all** — no paper size, orientation,
+scaling or print area — so those remain open
+([OD-6](../../bmbackend/docs/OWNER-DECISIONS.md#od-6)); the credit payment block's placement is
+unresolved ([OD-22](../../bmbackend/docs/OWNER-DECISIONS.md#od-22)); and the printed **date order**
+is newly open ([OD-26](../../bmbackend/docs/OWNER-DECISIONS.md#od-26)).
 
 > *Corrected in Phase 2 closure (audit finding CF-6): this paragraph previously described §12 as
 > "a reconstruction", understating the evidence actually held for the upper section while obscuring
