@@ -15,7 +15,12 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
     exclude: ['tests/e2e/**'],
     coverage: {
-      provider: 'v8',
+      // Istanbul, not v8. The v8 provider attributes an unreachable artifact to line 1
+      // of every module whose source begins with a comment, which made the 100%
+      // threshold below unsatisfiable however complete the tests were — and a threshold
+      // that can never pass is a threshold nobody believes. Istanbul instruments the
+      // source, so the figure refers to the code.
+      provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/api/generated/**', 'src/**/*.test.{ts,tsx}', 'src/main.tsx'],

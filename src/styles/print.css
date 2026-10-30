@@ -1,0 +1,209 @@
+/*
+ * Print styling, isolated from the application (ADR-028).
+ *
+ * This file has its own tokens and shares nothing with `app.css`. That is what makes
+ * FR-PRINT-014 enforceable rather than aspirational: restyling the application cannot
+ * change the printed bill, because nothing the application styles reaches in here.
+ *
+ * A4 is the fallback profile; A5 portrait is the owner's stated paper. Both come from
+ * `print_payload.print_profile`, which the server resolves from a single configurable
+ * setting — the client carries no copy of the decision (T3-11, OD-6).
+ *
+ * ⚠️ Physical fidelity on the shop's actual printer is a go-live gate (OD-6 / M27). This
+ * file is the implementation; it is not evidence that a printed sample was accepted.
+ */
+
+/* Screen: the print root exists but is not shown. */
+#print-root {
+  display: none;
+}
+
+@media print {
+  /* The application disappears entirely. No chrome, no navigation, no banner. */
+  #root {
+    display: none !important;
+  }
+
+  #print-root {
+    display: block;
+  }
+
+  /* A5 portrait, the owner's paper. 8 mm margins keep the body inside the printable
+     area of the counter's inkjet without clipping the grand-total row. */
+  @page {
+    size: A5 portrait;
+    margin: 8mm;
+  }
+
+  /* A4 fallback, selected by a class the layout sets from `print_profile`. */
+  .print-profile-a4 {
+    --print-body-size: 11pt;
+  }
+
+  html,
+  body {
+    background: #fff;
+    color: #000;
+    margin: 0;
+    padding: 0;
+  }
+
+  .bill {
+    /* A monospaced family for the figures so the rupee columns line up on any printer
+       that substitutes the font. A proportional font makes a totals column ragged. */
+    font-family: 'Courier New', Courier, monospace;
+    font-size: var(--print-body-size, 10pt);
+    line-height: 1.25;
+    color: #000;
+  }
+
+  .bill__business {
+    text-align: center;
+    margin-bottom: 2mm;
+  }
+
+  .bill__business-name {
+    font-size: 1.4em;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  /* An empty optional line collapses to nothing. There is never a placeholder, a dash
+     or an "N/A" on a customer's bill (FR-PRINT-016). */
+  .bill__business-line:empty {
+    display: none;
+  }
+
+  .bill__title {
+    text-align: center;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    border-top: 1px solid #000;
+    border-bottom: 1px solid #000;
+    padding: 1mm 0;
+    margin: 2mm 0;
+  }
+
+  .bill__customer {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 3mm;
+    margin-bottom: 2mm;
+  }
+
+  .bill__customer-row:empty {
+    display: none;
+  }
+
+  .bill__items {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .bill__items th {
+    border-bottom: 1px solid #000;
+    text-align: left;
+    font-weight: 700;
+    padding: 0.5mm 1mm;
+  }
+
+  /* Serial, quantity, price and total are right-aligned; only the item name is left. */
+  .bill__items th:not(:nth-child(2)),
+  .bill__items td:not(:nth-child(2)) {
+    text-align: right;
+  }
+
+  .bill__items td {
+    padding: 0.5mm 1mm;
+    vertical-align: top;
+  }
+
+  /* Unused item rows print **blank** — never the reference workbook's hand-typed `0`
+     (FR-PRINT-018). The row is kept so the grand total lands in the same place on
+     every bill, which is what makes a pre-printed pad usable. */
+  .bill__items tr.is-filler td {
+    height: 1.25em;
+  }
+
+  .bill__totals {
+    width: 100%;
+    border-top: 1px solid #000;
+    margin-top: 1mm;
+  }
+
+  .bill__totals td {
+    padding: 0.5mm 1mm;
+  }
+
+  .bill__totals td:last-child {
+    text-align: right;
+  }
+
+  .bill__grand-total {
+    font-weight: 700;
+    font-size: 1.15em;
+    border-top: 1px solid #000;
+  }
+
+  /* The credit block. Present only when the server says so (OD-22), never computed
+     here and never shown on a cash bill. */
+  .bill__credit {
+    border: 1px solid #000;
+    margin-top: 2mm;
+    padding: 1mm;
+  }
+
+  .bill__credit-row {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .bill__footer {
+    text-align: center;
+    margin-top: 3mm;
+    letter-spacing: 0.1em;
+  }
+
+  .bill__duplicate {
+    text-align: center;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    border: 1px solid #000;
+    padding: 0.5mm;
+    margin-bottom: 2mm;
+  }
+
+  /* --- the counter slip ------------------------------------------------------
+     A distinct layout, not a bill. The watermark and the wording exist so nobody can
+     mistake an unconfirmed slip for a completed sale (FR-OFFLINE-015). */
+
+  .slip {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 10pt;
+  }
+
+  .slip__watermark {
+    text-align: center;
+    font-size: 1.6em;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    border: 2px solid #000;
+    padding: 2mm;
+    margin-bottom: 3mm;
+  }
+
+  .slip__note {
+    text-align: center;
+    margin-top: 3mm;
+    font-weight: 700;
+  }
+
+  /* Nothing animates, nothing has a shadow, nothing is a gradient. A printer renders
+     none of it and the ink is the shop's. */
+  * {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+}

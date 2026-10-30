@@ -1,16 +1,17 @@
 /**
  * Application entry point.
  *
- * Routing, the API client and the session module land with M16; this is the M1
- * skeleton that proves the toolchain, the strict TypeScript configuration and the
- * structural rules are all enforced before there is code to untangle.
+ * Two stylesheets, loaded separately on purpose: `app.css` for the screen and
+ * `print.css` for the bill (ADR-028). They share no tokens, so restyling the
+ * application cannot change what a customer is handed.
  */
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { App } from '@/App';
+import { AppShell } from '@/app/AppShell';
 import '@/styles/app.css';
+import '@/styles/print.css';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -21,6 +22,6 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <AppShell />
   </StrictMode>,
 );

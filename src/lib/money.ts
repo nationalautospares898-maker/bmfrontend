@@ -19,6 +19,15 @@
 
 import Decimal from 'decimal.js-light';
 
+/**
+ * Re-exported so **no other file names the decimal package**, not even for a type.
+ *
+ * A type-only import does no arithmetic, but allowing it would mean the structural
+ * rule has to distinguish `import type` from `import`, and the next person to add an
+ * import would reasonably read that as permission.
+ */
+export type { Decimal };
+
 /** Mirrors `bm.domain.shared.money.RoundingMode`. */
 export type RoundingMode = 'reject_fractional' | 'line_half_up';
 
@@ -84,8 +93,8 @@ export function isIntegral(value: Decimal): boolean {
 export function lineExtension(input: {
   quantity: Decimal;
   unitPrice: Decimal;
-  discountPercent?: Decimal;
-  discountAmount?: Decimal;
+  discountPercent?: Decimal | undefined;
+  discountAmount?: Decimal | undefined;
 }): Decimal {
   const gross = input.quantity.times(input.unitPrice);
   const percent = input.discountPercent ?? ZERO;

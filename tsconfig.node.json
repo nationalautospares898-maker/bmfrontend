@@ -19,5 +19,10 @@
      `exactOptionalPropertyTypes` the two PluginOption types are reported as
      incompatible. This is a build-tool config, not application code, so the looser
      project is the right home for it. */
-  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.js"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "eslint.config.js"
+  ]
 }

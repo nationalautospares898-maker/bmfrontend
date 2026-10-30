@@ -99,8 +99,13 @@ describe('rule 1 — no secret may exist in this repository (NFR-SEC-012)', () =
 
 describe('rule 3 of §4 — the access token is never persisted', () => {
   it('no source writes to localStorage or sessionStorage', () => {
+    // `readCode`, for the reason this file already gives above: a comment in
+    // `api/session.ts` explaining that the token is never put in `localStorage` must
+    // not itself trip the rule, or the next person deletes the explanation instead of
+    // keeping it. The check still means exactly what it says — no source may *use*
+    // either API.
     const offenders = NON_TEST_SOURCES.filter((file) =>
-      /\b(localStorage|sessionStorage)\b/.test(read(file)),
+      /\b(localStorage|sessionStorage)\b/.test(readCode(file)),
     );
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });
