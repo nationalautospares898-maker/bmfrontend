@@ -1,5 +1,6 @@
 # Phase 2 artifacts — index
 
+
 | Field | Value |
 |---|---|
 | Status | **Pointer file. Not authoritative.** It contains **links, not facts** |
@@ -13,6 +14,7 @@
 
 | # | Document | What it answers |
 |---|---|---|
+| **00A** | [**PHASE-2-DESIGN-COMPLETION-ADDENDUM-2026-10-30.md**](../../bmbackend/docs/PHASE-2-DESIGN-COMPLETION-ADDENDUM-2026-10-30.md) | Current design dispositions, money policy, print/date decisions, implementation and external gates |
 | **00** | [**PHASE-2-CLOSURE-ADDENDUM-1.md**](../../bmbackend/docs/PHASE-2-CLOSURE-ADDENDUM-1.md) | ★ **READ FIRST.** The owner's fourth answer set — **no invoice numbering**, the **four** primary actions, **no decimals** on `PRICE`/`GRAND TOTAL`, the full bill layout, and GitHub repository verification |
 | 0 | [PHASE-2-CLOSURE-REPORT.md](../../bmbackend/docs/PHASE-2-CLOSURE-REPORT.md) | Closure verdict, all 11 findings and their corrections, the four finalised designs, risk status, milestone readiness |
 | 1 | [PHASE-2-REQUIREMENTS-FIDELITY-AUDIT.md](../../bmbackend/docs/PHASE-2-REQUIREMENTS-FIDELITY-AUDIT.md) | Which requirements are **owner-confirmed** vs defaults, recommendations or still open — and the 11 findings (**CF-1…CF-11**), all now **RESOLVED** |
@@ -43,7 +45,7 @@ Read these before implementing anything in this repository:
 
 **M16** shell · **M17** billing counter + Dexie drafts · **M18** cash finalisation · **M19** credit ·
 **M20** print (top) + counter slip · **M21** Daily + Credit Bills · **M22** offline layer ·
-**M25** P1 screens · **M27** print bottom (**blocked**).
+**M25** P1 screens · **M27** workbook-faithful print profile (physical sign-off in Phase 3).
 
 Frontend milestones depend on the **contract**, not the backend module: MSW handlers are written from
 [`API-SPECIFICATION.md`](../../bmbackend/docs/API-SPECIFICATION.md), so M16–M22 run in parallel with

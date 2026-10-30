@@ -1,5 +1,8 @@
 # bmfrontend
 
+> **Current Phase 2 design disposition (2026-10-30):** [Backend Design Completion Addendum](../../bmbackend/docs/PHASE-2-DESIGN-COMPLETION-ADDENDUM-2026-10-30.md) is the current cross-cutting decision record. It resolves superseded open labels and defines the Phase 3 implementation baseline. Historical closure reports/addenda remain unchanged; legal, physical and operational gates remain gates. It does not represent implementation or test completion.
+
+
 Counter application for the **National Auto Spares** shop management system — a desktop-first,
 offline-capable PWA for billing, stock, credit and reporting at an automobile spare-parts shop.
 
@@ -194,7 +197,7 @@ denotes a **rejected** option, never an implementation instruction. The remainin
 |---|---|
 | **1 — Discovery and documentation** | ✅ **CLOSED** 2026-10-29 — all 19 exit criteria met ([../bmbackend/docs/PHASE-1-EXIT-CRITERIA.md](../bmbackend/docs/PHASE-1-EXIT-CRITERIA.md)) |
 | **2 — Investigation and implementation planning** | ✅ **CLOSED** — see [docs/PHASE-2-INDEX.md](docs/PHASE-2-INDEX.md) and the [closure report](../bmbackend/docs/PHASE-2-CLOSURE-REPORT.md). Documentation only |
-| 3 — Implementation | ⏸ **Not started.** Frontend milestones **M16–M22** and **M25** are **ready**. **M27** moved blocked → **conditionally ready** — the workbook was inspected, so the layout is buildable; its exit gate still needs a printed sample (OD-6) and the date order (OD-26) |
+| 3 — Implementation | ⏸ **Not started.** All 28 milestones are design-ready for Phase 3. M27 physical print acceptance and M28 legal/owner/operational go-live gates remain. |
 
 **Neither Phase 1 nor Phase 2 means the application exists, works or has been tested — no code or
 test exists.**

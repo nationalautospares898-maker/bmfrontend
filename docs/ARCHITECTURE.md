@@ -1,5 +1,8 @@
 # Frontend Architecture — `bmfrontend`
 
+> **Current Phase 2 design disposition (2026-10-30):** [Backend Design Completion Addendum](../../bmbackend/docs/PHASE-2-DESIGN-COMPLETION-ADDENDUM-2026-10-30.md) is the current cross-cutting decision record. It resolves superseded open labels and defines the Phase 3 implementation baseline. Historical closure reports/addenda remain unchanged; legal, physical and operational gates remain gates. It does not represent implementation or test completion.
+
+
 | Field | Value |
 |---|---|
 | Status | **Phase 1 proposal — no code exists yet** |
