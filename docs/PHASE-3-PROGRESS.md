@@ -24,11 +24,12 @@
 | API layer | `src/api/{client,errors,endpoints,types,session}.ts`, `src/api/generated/schema.d.ts` | One client; the single shared refresh promise; the exhaustive 53-code `ErrorCode` switch; the access token in a module variable and nowhere else. Response **and** request types are generated from the backend's OpenAPI document (ADR-029) |
 | Local persistence | `src/db/{schema,meta,drafts,outbox,pendingFinalizations,catalogCache}.ts` | Dexie. **Two queues, not one** (ADR-010): the outbox is always safe to replay, a pending finalisation may already have charged a customer |
 | Billing | `src/features/billing/{draftStore.ts,BillingCounter,ItemTable,ProductSearch}.tsx`, `finalize.ts` | The four primary actions and nothing else; Dexie-first writes; derived totals; the idempotency-key lifecycle |
-| Print | `src/features/print/{InvoicePrintLayout,PrintRoot}.tsx`, `src/styles/print.css` | Renders `print_payload` and nothing else. A stylesheet with its own tokens, isolated from the application (ADR-028) |
+| Print | `src/features/print/{InvoicePrintLayout,PrintRoot}.tsx`, `src/styles/print.css`, `src/assets/bill-logo-{left,right}.jpeg` | Renders `print_payload` and nothing else. A stylesheet with its own tokens, isolated from the application (ADR-028). The two footer marks are the owner's own, extracted from the workbook at its own geometry (**T3-12**) |
 | Reports | `src/features/reports/DailyBills.tsx` | Daily Bills and Credit Bills -- one dataset, two views |
+| Back office (M25) | `src/features/{stock,purchases,customers,imports}/*.tsx` | Stock, Purchases, Customers and Imports. Lazy-loaded and permission-gated in the shell; each one makes a server-side rule visible rather than restating it (see §2) |
 | Sync | `src/features/sync/{scheduler.ts,SyncPanel.tsx}` | Six triggers, owner-tab election, and a panel where nothing disappears quietly |
 | Shell | `index.html`, `src/main.tsx`, `src/app/{bootstrap,AppShell}.tsx`, `src/components/primitives.tsx` | Strict CSP, the dedicated `#print-root`, lazy routes beyond billing, visible focus, reduced-motion support |
-| Structural rules | `tests/structural/rules.test.ts` | 20 assertions enforcing `CLAUDE.md §5` by reading the source |
+| Structural rules | `tests/structural/rules.test.ts` | 21 assertions enforcing `CLAUDE.md §5` by reading the source. The newest one reads the **backend's** `permissions.py` and fails if the client gates on a permission that does not exist — added after `customers.write` (which is really `customer.manage`) silently hid the Customers edit control from every role |
 | CI | `.github/workflows/ci.yml` | Format, lint, types, tests with coverage, build, secret scan, dependency audit |
 
 ### Verified
@@ -37,9 +38,10 @@
 tsc -b (3 projects)                  -> clean
 eslint .                              -> clean
 prettier --check src tests configs   -> All matched files use Prettier code style
-vitest run                            -> 224 passed (10 files)
-playwright test                       -> 6 passed (chromium, against the built app)
-vite build                            -> built; initial chunk 410.95 kB raw / 130.88 kB gzip
+vitest run                            -> 300 passed (14 files)
+playwright test                       -> 12 passed (chromium, against the built app)
+vite build                            -> built; initial chunk 427.54 kB raw / 139.21 kB gzip
+                                         (M25 screens are separate lazy chunks)
 vitest run --coverage                 -> src/lib/money.ts 100%, src/lib/normalize.ts 100%
 ```
 
@@ -60,7 +62,21 @@ The per-suite breakdown, including what each one proves, is in
 | **M20** print layout and counter slip | **Implemented & verified** -- the physical sample is M27, an external gate |
 | **M21** Daily Bills and Credit Bills | **Implemented & verified** |
 | **M22** offline layer | **Implemented & verified** |
-| **M25** P1 screens | **Not completed** -- Stock, Purchases, Customers, Imports, and reports beyond Daily/Credit Bills |
+| **M25** P1 screens | **Implemented & verified** -- Stock, Purchases, Customers and Imports |
+| **T3-12** workbook marks on the bill | **Implemented & verified** -- extracted from the owner's own workbook; the printed sample is M27 |
+
+### M25, as built
+
+| Screen | Files | What it does, and the rule it makes visible |
+|---|---|---|
+| **Stock** | `features/stock/StockScreen.tsx` | Balances, a low-stock filter, movement history, and a reasoned adjustment. **There is no field that sets a quantity** (FR-INV-002): the control is "Adjust", the sign comes from the chosen reason so the two cannot disagree, an empty reason is refused, and the resulting balance is shown before committing. A missing reorder level renders "Not set", never `0` |
+| **Purchases** | `features/purchases/PurchasesScreen.tsx` | Supplier bills, entry, and receiving. The screen's whole job is that **entering a bill is not receiving the goods** (FR-PUR-003): a saved purchase reads "Entered, not received", the button says "Receive into stock", and the dialog states what will change. `movements: 0` from an idempotent confirm is reported as "already received" rather than as a second receipt |
+| **Customers** | `features/customers/CustomersScreen.tsx` | Who owes what, identity editing, payment history. **No editable balance and no "mark as paid"** (ADR-022) — the screen says the figure is worked out from bills and payments. A suspected duplicate **warns without blocking** (FR-CUST-004), because two relatives genuinely share a phone |
+| **Imports** | `features/imports/ImportsScreen.tsx` | Upload, poll, review, apply. **Apply is disabled while any row is undecided and the count is stated** (FR-IMP-007). The intent is chosen and its effect on stock is said *before* a file is picked (FR-IMP-002). A duplicate file is a question with a required reason, not a dead end (FR-IMP-004). "Add as a new item" is never offered for a row that could not be read |
+
+Each is lazy-loaded (NFR-FE-PERF-005) and gated in `AppShell` on the permission its own
+endpoints require, so a role that cannot use a screen never sees its tab — rather than
+finding a `403` behind it.
 
 ---
 
@@ -140,3 +156,8 @@ label, OD-25/R-36 numbering and tax legality, OD-26 date interpretation, OD-8 st
 training, and the M28 go-live checklist.
 
 **No client-side change can clear any of them.**
+
+T3-12 is the one that moved: the two marks on the bill are the owner's own, extracted
+from `ANAS_1234_20260606_231456.xlsx` (`xl/media/image1.jpeg` and `image2.jpeg`) at the
+size and position the workbook gives them. Nothing was drawn, substituted or
+approximated. **The printed sample on the shop's printer is still M27.**

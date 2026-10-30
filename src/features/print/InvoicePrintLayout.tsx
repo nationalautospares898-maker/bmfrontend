@@ -21,6 +21,8 @@
  */
 
 import type { PrintPayload } from '@/api/types';
+import logoLeft from '@/assets/bill-logo-left.jpeg';
+import logoRight from '@/assets/bill-logo-right.jpeg';
 import { formatForPrint, parseMoney, type MoneyPolicy } from '@/lib/money';
 import { PRINT } from '@/lib/strings';
 
@@ -212,7 +214,28 @@ export function InvoicePrintLayout({ payload, policy }: InvoicePrintLayoutProps)
         {payload.footer_notes.map((note, index) => (
           <div key={`note-${index}`}>{note}</div>
         ))}
-        <div>{PRINT.thankYou}</div>
+        <div className="bill__footer-marks">
+          {/*
+            T3-12. The two marks from the owner's own workbook, at the size and position
+            the workbook gives them: `xl/media/image1.jpeg` and `image2.jpeg`, anchored
+            at row 34 in columns 0 and 4 — bottom-left and bottom-right of the bill —
+            with `xdr:ext` of 252615x264566 and 267485x297154 EMU, which at 36 000 EMU
+            per millimetre is 7.02x7.35mm and 7.43x8.25mm. Those figures are in
+            `print.css`, not guessed.
+
+            They are decorative, so `alt` is empty and `aria-hidden` is set: a screen
+            reader announcing "image" twice at the end of a bill adds nothing, and these
+            carry no information the text does not.
+          */}
+          <img className="bill__mark" src={logoLeft} alt="" aria-hidden="true" />
+          <div className="bill__thanks">{PRINT.thankYou}</div>
+          <img
+            className="bill__mark bill__mark--right"
+            src={logoRight}
+            alt=""
+            aria-hidden="true"
+          />
+        </div>
       </footer>
 
       {/*

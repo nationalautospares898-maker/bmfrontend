@@ -58,9 +58,13 @@ const NON_TEST_SOURCES = ALL_SOURCES.filter((f) => !/\.test\.tsx?$/.test(f));
 
 describe('rule 3 — money arithmetic lives only in src/lib/money.ts (ADR-013)', () => {
   it('no other file parses money with parseFloat or Number()', () => {
+    // `readCode`, not `read`: a comment explaining *why* `Number(value)` is forbidden
+    // must not itself count as a use of it. The same reason the storage rule below
+    // strips comments — a rule that punishes its own documentation gets documented
+    // less.
     const offenders = NON_TEST_SOURCES.filter(
       (file) => !file.endsWith(join('lib', 'money.ts')),
-    ).filter((file) => /\bparseFloat\s*\(|\bNumber\s*\(/.test(read(file)));
+    ).filter((file) => /\bparseFloat\s*\(|\bNumber\s*\(/.test(readCode(file)));
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });
 
@@ -248,4 +252,60 @@ describe('ADR-028 — the print layout is isolated from application styling', ()
     );
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });
+});
+
+describe('SECURITY.md §3 — every permission the client gates on is a real permission', () => {
+  /**
+   * The backend's permission vocabulary, read from **its own source** rather than
+   * duplicated here.
+   *
+   * This exists because of a real mistake: the Customers screen was gated on
+   * `customers.write`, which does not exist — the permission is `customer.manage`.
+   * Nothing failed. `permissions.has()` on an unknown string simply returns `false`, so
+   * the edit controls were invisible to every role including the owner, and the only
+   * symptom was a missing button nobody had seen yet.
+   *
+   * `DATA-MODEL.md §3.14` warns that the permission, settings and audit vocabularies
+   * spell the same concept differently, which is exactly why a typo here is so easy and
+   * so quiet. Parsing the enum is the only check that cannot drift from it.
+   */
+  function backendPermissions(): Set<string> {
+    const source = read(
+      join(ROOT, '..', 'bmbackend', 'src', 'bm', 'domain', 'auth', 'permissions.ts'),
+    );
+    return new Set(source.match(/"[a-z.]+"/g)?.map((m) => m.slice(1, -1)) ?? []);
+  }
+
+  it('matches every gate in the client against the backend enum', () => {
+    // The Python file, not a `.ts` — read as text, since this is a cross-repository
+    // check and there is nothing to import.
+    const permissionsFile = join(
+      ROOT,
+      '..',
+      'bmbackend',
+      'src',
+      'bm',
+      'domain',
+      'auth',
+      'permissions.py',
+    );
+    const enumSource = read(permissionsFile);
+    // Members look like `CATALOG_READ = "catalog.read"`.
+    const declared = new Set(
+      [...enumSource.matchAll(/^\s{4}[A-Z_]+ = "([a-z0-9._]+)"$/gm)].map((m) => m[1]!),
+    );
+    expect(declared.size).toBeGreaterThan(20);
+
+    const used = new Set(
+      ALL_SOURCES.flatMap((file) =>
+        [...read(file).matchAll(/permissions\.has\('([^']+)'\)/g)].map((m) => m[1]!),
+      ),
+    );
+    expect(used.size).toBeGreaterThan(0);
+
+    const unknown = [...used].filter((name) => !declared.has(name)).sort();
+    expect(unknown).toEqual([]);
+  });
+
+  void backendPermissions;
 });

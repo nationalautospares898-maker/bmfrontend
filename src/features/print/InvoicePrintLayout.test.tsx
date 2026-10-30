@@ -344,6 +344,32 @@ describe('the workbook structure (UI-UX §12.1)', () => {
     ).toBeInTheDocument();
   });
 
+  it('prints both of the owner’s workbook marks, one at each end of the footer', () => {
+    // T3-12. The marks are extracted from `ANAS_1234_20260606_231456.xlsx`
+    // (`xl/media/image1.jpeg`, `image2.jpeg`), which anchors them in columns 0 and 4 of
+    // row 34 — the two ends of the footer line. Asserting *two* images in that
+    // container is what would catch a layout change that dropped one or stacked them.
+    const { container } = render(
+      <InvoicePrintLayout payload={payload()} policy={POLICY} />,
+    );
+    const marks = container.querySelectorAll('.bill__footer-marks .bill__mark');
+    expect(marks).toHaveLength(2);
+    expect(marks[0]?.getAttribute('src')).toContain('bill-logo-left');
+    expect(marks[1]?.getAttribute('src')).toContain('bill-logo-right');
+  });
+
+  it('marks the logos decorative so a reader does not announce them', () => {
+    // They carry nothing the text does not. An empty `alt` plus `aria-hidden` is the
+    // correct pairing for decoration; `alt="logo"` would add noise to every bill.
+    const { container } = render(
+      <InvoicePrintLayout payload={payload()} policy={POLICY} />,
+    );
+    for (const mark of container.querySelectorAll('.bill__mark')) {
+      expect(mark.getAttribute('alt')).toBe('');
+      expect(mark.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
   it('renders the grand total as the last and heaviest row', () => {
     const { container } = render(
       <InvoicePrintLayout payload={payload()} policy={POLICY} />,

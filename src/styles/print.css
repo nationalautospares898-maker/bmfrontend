@@ -164,6 +164,38 @@
     letter-spacing: 0.1em;
   }
 
+  /* T3-12 — the owner's two marks, at the workbook's own geometry.
+     Extracted from `ANAS_1234_20260606_231456.xlsx`; the sizes below are its
+     `xdr:ext` values converted at 36 000 EMU/mm, not chosen. The left mark sits in
+     column 0 and the right in column 4 of row 34, which is the bill's footer line —
+     hence one at each end with the thank-you text between them. */
+
+  .bill__footer-marks {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2mm;
+  }
+
+  .bill__thanks {
+    flex: 1 1 auto;
+  }
+
+  .bill__mark {
+    width: 7.02mm;
+    height: 7.35mm;
+    flex: 0 0 auto;
+    /* Print the mark at full contrast rather than letting the browser lighten it for
+       ink saving: a faint logo on a handed-over bill looks like a fault. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .bill__mark--right {
+    width: 7.43mm;
+    height: 8.25mm;
+  }
+
   .bill__duplicate {
     text-align: center;
     font-weight: 700;

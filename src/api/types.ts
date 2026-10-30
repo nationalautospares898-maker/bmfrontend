@@ -67,6 +67,8 @@ export type PaymentResponse = Schemas['PaymentOut'];
 export type PaymentRequest = Schemas['PaymentRequest'];
 export type ReversalResponse = Schemas['ReversalOut'];
 export type CreditCustomersResponse = Schemas['CreditCustomersOut'];
+export type PaymentHistoryList = Schemas['PaymentHistoryListOut'];
+export type PaymentHistoryEntry = Schemas['PaymentHistoryOut-Output'];
 export type CreditCustomer = CreditCustomersResponse['items'][number];
 
 // --- customers ----------------------------------------------------------------
@@ -96,6 +98,34 @@ export type MeResponse = Schemas['MeOut'];
 export type Report = Schemas['ReportOut'];
 /** GET /reports/daily-sales — the one report a screen renders field by field. */
 export type DailySales = Schemas['DailySalesOut'];
+
+// --- stock (M25) --------------------------------------------------------------
+
+export type StockBalances = Schemas['StockBalancesOut'];
+export type StockBalance = StockBalances['items'][number];
+export type StockMovements = Schemas['StockMovementsOut'];
+export type StockMovement = StockMovements['items'][number];
+
+// --- purchases (M25) ----------------------------------------------------------
+
+export type SupplierList = Schemas['SupplierListOut'];
+export type Supplier = SupplierList['items'][number];
+export type PurchaseList = Schemas['PurchaseListOut'];
+export type PurchaseSummary = PurchaseList['items'][number];
+
+// --- imports (M23/M25) --------------------------------------------------------
+
+export type ImportUpload = Schemas['ImportUploadOut'];
+export type ImportJob = Schemas['ImportJobOut'];
+export type ImportJobs = Schemas['ImportJobsOut'];
+export type ImportRows = Schemas['ImportRowsOut'];
+/**
+ * The `-Output` variant: FastAPI publishes two schemas for any model carrying a money
+ * or quantity field, because the value is a decimal on the way in and a **string** on
+ * the way out (ADR-013). A client only ever sees the output shape.
+ */
+export type ImportRow = Schemas['ImportRowOut-Output'];
+export type ImportReport = Schemas['ImportReportOut'];
 
 // --- warnings -----------------------------------------------------------------
 

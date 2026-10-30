@@ -39,8 +39,38 @@ const CreditBills = lazy(() =>
 const SyncPanel = lazy(() =>
   import('@/features/sync/SyncPanel').then((module) => ({ default: module.SyncPanel })),
 );
+// The M25 screens. Lazy like every screen beyond billing (NFR-FE-PERF-005): a counter
+// hand who only ever bills never downloads them.
+const StockScreen = lazy(() =>
+  import('@/features/stock/StockScreen').then((module) => ({
+    default: module.StockScreen,
+  })),
+);
+const PurchasesScreen = lazy(() =>
+  import('@/features/purchases/PurchasesScreen').then((module) => ({
+    default: module.PurchasesScreen,
+  })),
+);
+const CustomersScreen = lazy(() =>
+  import('@/features/customers/CustomersScreen').then((module) => ({
+    default: module.CustomersScreen,
+  })),
+);
+const ImportsScreen = lazy(() =>
+  import('@/features/imports/ImportsScreen').then((module) => ({
+    default: module.ImportsScreen,
+  })),
+);
 
-type Screen = 'billing' | 'daily-bills' | 'credit-bills' | 'sync';
+type Screen =
+  | 'billing'
+  | 'daily-bills'
+  | 'credit-bills'
+  | 'stock'
+  | 'purchases'
+  | 'customers'
+  | 'imports'
+  | 'sync';
 
 /** `navigator.onLine` is a hint, not a guarantee — the client still handles failures. */
 function useOnline(): boolean {
@@ -126,6 +156,13 @@ export function AppShell() {
   const canBill = session.permissions.has('billing.sale.finalize');
   const canReadSales = session.permissions.has('reports.sales.read');
   const canReadCredit = session.permissions.has('credit.read');
+  // Each M25 screen is gated on the permission its own endpoints require, so a role
+  // that cannot use a screen never sees its tab — rather than finding a 403 behind it.
+  const canReadCatalog = session.permissions.has('catalog.read');
+  const canAdjustStock = session.permissions.has('inventory.adjust');
+  const canReceive = session.permissions.has('inventory.receive');
+  const canEditCustomers = session.permissions.has('customer.manage');
+  const canManageImports = session.permissions.has('imports.manage');
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
@@ -189,6 +226,42 @@ export function AppShell() {
             Credit Bills
           </Button>
         ) : null}
+        {canReadCatalog ? (
+          <Button
+            variant={screen === 'stock' ? 'primary' : 'secondary'}
+            onClick={() => setScreen('stock')}
+            aria-current={screen === 'stock' ? 'page' : undefined}
+          >
+            Stock
+          </Button>
+        ) : null}
+        {canReceive ? (
+          <Button
+            variant={screen === 'purchases' ? 'primary' : 'secondary'}
+            onClick={() => setScreen('purchases')}
+            aria-current={screen === 'purchases' ? 'page' : undefined}
+          >
+            Purchases
+          </Button>
+        ) : null}
+        {canReadCredit ? (
+          <Button
+            variant={screen === 'customers' ? 'primary' : 'secondary'}
+            onClick={() => setScreen('customers')}
+            aria-current={screen === 'customers' ? 'page' : undefined}
+          >
+            Customers
+          </Button>
+        ) : null}
+        {canManageImports ? (
+          <Button
+            variant={screen === 'imports' ? 'primary' : 'secondary'}
+            onClick={() => setScreen('imports')}
+            aria-current={screen === 'imports' ? 'page' : undefined}
+          >
+            Imports
+          </Button>
+        ) : null}
         <Button
           variant={screen === 'sync' ? 'primary' : 'secondary'}
           onClick={() => setScreen('sync')}
@@ -220,6 +293,16 @@ export function AppShell() {
               <DailyBills policy={policy} />
             ) : null}
             {screen === 'credit-bills' && canReadCredit ? <CreditBills /> : null}
+            {screen === 'stock' && canReadCatalog ? (
+              <StockScreen canAdjust={canAdjustStock} />
+            ) : null}
+            {screen === 'purchases' && canReceive ? (
+              <PurchasesScreen canReceive={canReceive} />
+            ) : null}
+            {screen === 'customers' && canReadCredit ? (
+              <CustomersScreen canEdit={canEditCustomers} />
+            ) : null}
+            {screen === 'imports' && canManageImports ? <ImportsScreen /> : null}
             {screen === 'sync' ? <SyncPanel online={online} /> : null}
           </Suspense>
         )}

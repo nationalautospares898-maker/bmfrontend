@@ -21,11 +21,18 @@ import type {
   DraftUpsertRequest,
   FinalizeRequest,
   FinalizeResponse,
+  ImportJob,
+  ImportJobs,
+  ImportReport,
+  ImportRow,
+  ImportRows,
+  ImportUpload,
   Invoice,
   InvoiceListResponse,
   LoginRequest,
   MeResponse,
   Named,
+  PaymentHistoryList,
   PaymentRequest,
   PaymentResponse,
   PrintPayload,
@@ -33,10 +40,14 @@ import type {
   ProductCreateRequest,
   ProductSearchResult,
   ProductUpdateRequest,
+  PurchaseList,
   Report,
   ReversalResponse,
   ServerDraft,
   SessionResponse,
+  StockBalances,
+  StockMovements,
+  SupplierList,
   SyncBatchRequest,
   SyncBatchResponse,
 } from './types';
@@ -299,10 +310,11 @@ export const credit = {
       ),
     );
   },
-  payments(filters: { invoice_id?: string; customer_id?: string }): Promise<{
-    items: Array<Record<string, unknown>>;
-  }> {
-    return data(api.get('/payments', { params: filters }));
+  payments(filters: {
+    invoice_id?: string;
+    customer_id?: string;
+  }): Promise<PaymentHistoryList> {
+    return data(api.get<PaymentHistoryList>('/payments', { params: filters }));
   },
   /** Server-computed aggregates. The client never sums these (FR-RPT-030). */
   customers(filters: {
@@ -339,6 +351,180 @@ export const sync = {
     return data(
       api.post<SyncBatchResponse>('/sync/operations', body, { retry: 'never' }),
     );
+  },
+};
+
+// --- inventory ----------------------------------------------------------------
+
+export const inventory = {
+  balances(
+    params: { low_stock_only?: boolean; limit?: number } = {},
+  ): Promise<StockBalances> {
+    return data(api.get<StockBalances>('/inventory/balances', { params }));
+  },
+  movements(
+    params: { product_id?: string; limit?: number } = {},
+  ): Promise<StockMovements> {
+    return data(api.get<StockMovements>('/inventory/movements', { params }));
+  },
+  /**
+   * A reasoned, audited correction — **never** a way to set a quantity.
+   *
+   * `quantity_delta` is a change, and `reason_code` is what gives it a sign. The key is
+   * required by the server so a retried adjustment cannot be applied twice, which is
+   * also why `retry: 'auto'` is safe here.
+   */
+  adjust(
+    body: {
+      product_id: string;
+      quantity_delta: string;
+      reason_code: string;
+      reason_text: string;
+    },
+    idempotencyKey: string,
+  ): Promise<{ movement_id: string }> {
+    return data(
+      api.post<{ movement_id: string }>('/inventory/adjustments', body, {
+        idempotencyKey,
+        retry: 'auto',
+      }),
+    );
+  },
+};
+
+// --- purchases ----------------------------------------------------------------
+
+export const purchases = {
+  suppliers(): Promise<SupplierList> {
+    return data(api.get<SupplierList>('/suppliers'));
+  },
+  upsertSupplier(
+    supplierId: string,
+    body: {
+      name: string;
+      phone?: string | null;
+      business_name?: string | null;
+      tax_identifier?: string | null;
+    },
+  ): Promise<{ id: string }> {
+    return data(api.put<{ id: string }>(`/suppliers/${supplierId}`, body));
+  },
+  list(
+    params: { supplier_id?: string; status?: string; limit?: number } = {},
+  ): Promise<PurchaseList> {
+    return data(api.get<PurchaseList>('/purchases', { params }));
+  },
+  /** Creates a `draft`. **No stock changes** until it is confirmed (FR-PUR-003). */
+  create(
+    body: {
+      supplier_id: string;
+      items: Array<{ product_id: string; quantity: string; unit_cost: string }>;
+      supplier_document_number?: string | null;
+      document_date?: string | null;
+      notes?: string | null;
+    },
+    idempotencyKey: string,
+  ): Promise<{ id: string }> {
+    return data(
+      api.post<{ id: string }>('/purchases', body, { idempotencyKey, retry: 'auto' }),
+    );
+  },
+  /**
+   * **The only path that receives stock** (FR-PUR-003), and idempotent on the server,
+   * so a retried confirm cannot receive the same goods twice.
+   */
+  confirm(purchaseId: string, idempotencyKey: string): Promise<{ movements: number }> {
+    return data(
+      api.post<{ movements: number }>(`/purchases/${purchaseId}:confirm`, undefined, {
+        idempotencyKey,
+        retry: 'auto',
+      }),
+    );
+  },
+  cancel(purchaseId: string): Promise<void> {
+    return data(api.post<void>(`/purchases/${purchaseId}:cancel`));
+  },
+};
+
+// --- imports (M23) ------------------------------------------------------------
+
+export const imports = {
+  /**
+   * Upload a file. The **one** multipart request in this client.
+   *
+   * No `Content-Type` is set: the browser has to add the multipart boundary itself, and
+   * setting the header by hand omits it and makes the server unable to parse the body.
+   *
+   * `retry: 'never'` — a 10 MB body is not something to resend blind, and the server's
+   * duplicate detection (FR-IMP-004) already makes a deliberate re-upload explicit.
+   */
+  upload(
+    file: File,
+    options: {
+      intent: 'price_list' | 'purchase_receipt';
+      supplierId?: string | undefined;
+      allowDuplicate?: boolean | undefined;
+      duplicateReason?: string | undefined;
+    },
+  ): Promise<ImportUpload> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('intent', options.intent);
+    if (options.supplierId) form.append('supplier_id', options.supplierId);
+    if (options.allowDuplicate) form.append('allow_duplicate', 'true');
+    if (options.duplicateReason) {
+      form.append('duplicate_reason', options.duplicateReason);
+    }
+    return data(api.post<ImportUpload>('/imports', form, { retry: 'never' }));
+  },
+  list(params: { limit?: number } = {}): Promise<ImportJobs> {
+    return data(api.get<ImportJobs>('/imports', { params }));
+  },
+  get(jobId: string): Promise<ImportJob> {
+    return data(api.get<ImportJob>(`/imports/${jobId}`));
+  },
+  rows(
+    jobId: string,
+    params: { match_status?: string; decision?: string; limit?: number } = {},
+  ): Promise<ImportRows> {
+    return data(api.get<ImportRows>(`/imports/${jobId}/rows`, { params }));
+  },
+  /** One human decision on one row (FR-IMP-007). */
+  decide(
+    jobId: string,
+    rowId: string,
+    body: {
+      decision: 'accept_match' | 'create_new' | 'skip';
+      matched_product_id?: string;
+    },
+  ): Promise<{ row: ImportRow }> {
+    return data(api.patch<{ row: ImportRow }>(`/imports/${jobId}/rows/${rowId}`, body));
+  },
+  /** One decision for every pending row in a status. */
+  decideAll(
+    jobId: string,
+    body: { match_status: string; decision: 'accept_match' | 'create_new' | 'skip' },
+  ): Promise<ImportJob> {
+    return data(api.post<ImportJob>(`/imports/${jobId}/rows:decide-all`, body));
+  },
+  /**
+   * Apply the accepted rows. The key is required by the contract; the job's terminal
+   * `applied` state is what actually prevents a second application.
+   */
+  apply(jobId: string, idempotencyKey: string): Promise<ImportJob> {
+    return data(
+      api.post<ImportJob>(`/imports/${jobId}:apply`, undefined, {
+        idempotencyKey,
+        timeout: 'finalize',
+        retry: 'auto',
+      }),
+    );
+  },
+  cancel(jobId: string): Promise<ImportJob> {
+    return data(api.post<ImportJob>(`/imports/${jobId}:cancel`));
+  },
+  report(jobId: string): Promise<ImportReport> {
+    return data(api.get<ImportReport>(`/imports/${jobId}/report`));
   },
 };
 
