@@ -1,0 +1,60 @@
+# --- Secrets and environment -------------------------------------------------
+# Anything VITE_* is compiled into a publicly readable bundle. Never put a
+# secret here. Only .env.example, with placeholders, is committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+
+# --- Owner business records --------------------------------------------------
+# The owner's original bill workbook is their business record, not a project
+# artifact. Its contents are specified in
+# ../bmbackend/docs/PHASE-2-CLOSURE-ADDENDUM-2.md.
+ANAS_*.xlsx
+
+# --- Node --------------------------------------------------------------------
+node_modules/
+.npm/
+.pnpm-store/
+*.tsbuildinfo
+
+# --- Build output ------------------------------------------------------------
+dist/
+dist-ssr/
+build/
+.vite/
+dev-dist/
+
+# --- Generated API types -----------------------------------------------------
+# Regenerated with `npm run api:types` (ADR-029); never hand-edited.
+src/api/generated/
+
+# --- Test and tooling output -------------------------------------------------
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# --- Logs --------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Editor and OS -----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
