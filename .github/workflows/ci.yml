@@ -243,7 +243,21 @@ jobs:
         run: |
           # `bm.main` exposes a `create_app(settings)` factory, not a module-level
           # `app` — the same invocation the Dockerfile uses.
-          nohup uvicorn bm.main:create_app --factory --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &
+          #
+          # `--timeout-keep-alive 75` because the default is **5 seconds** and that is
+          # too short for this harness. The suite drives the API from inside the browser,
+          # so Chromium holds keep-alive connections, and between one `page.evaluate` and
+          # the next there is a gap while Playwright marshals data across the CDP
+          # boundary. If that gap exceeds the timeout, uvicorn closes the connection — and
+          # a browser will transparently re-open for an idempotent request but **not for a
+          # POST**, which surfaces as a bare `TypeError: Failed to fetch` with nothing in
+          # the server log. That is exactly how `POST /sales:finalize` failed once here,
+          # having passed on four earlier runs and 33/33 locally.
+          #
+          # This is the test harness's connection lifetime, not the application's: in
+          # production uvicorn sits behind a proxy that manages its own keep-alive.
+          nohup uvicorn bm.main:create_app --factory --host 127.0.0.1 --port 8000 \
+            --timeout-keep-alive 75 > /tmp/api.log 2>&1 &
           for _ in $(seq 1 60); do
             curl -sf http://localhost:8000/healthz && break
             sleep 1
@@ -258,7 +272,13 @@ jobs:
         run: npx playwright test tests/e2e/full-stack.spec.ts
       # Separate step so a counter-assignment failure is distinguishable from a billing
       # failure in the run summary, rather than both reading "exit code 1".
+      #
+      # `if: always()` because the default is `success()`, and that cost a whole run: a
+      # flake in the billing step above skipped this one entirely, so the thing the run
+      # was meant to prove went unreported. The job still fails if either step fails —
+      # `always()` changes what gets *run*, not what counts.
       - name: Counter assignment, end to end (C-2)
+        if: always()
         working-directory: bmfrontend
         run: npx playwright test tests/e2e/counter-assignment.spec.ts
       - name: API log
