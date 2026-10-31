@@ -35,7 +35,7 @@
  */
 
 import { refreshSession } from './client';
-import { getSession, isSessionExpired } from './session';
+import { getSession } from './session';
 
 /**
  * How long before expiry to renew.
@@ -69,6 +69,11 @@ function scheduleNext(): void {
   if (!session) return;
 
   const untilExpiry = session.expiresAt - Date.now();
+  // A session whose expiry is not a real instant cannot be scheduled against. It would
+  // give `Math.max(NaN, …)` of `NaN`, `setTimeout` treats that as zero, and the result is
+  // a tight loop refreshing as fast as the event loop allows — on a counter PC, a spinning
+  // fan and a screen that never settles. Better to leave renewal to the 401 handler.
+  if (!Number.isFinite(untilExpiry)) return;
   const delay = Math.max(untilExpiry - RENEW_MARGIN_MS, MIN_INTERVAL_MS);
 
   timer = setTimeout(() => {
@@ -84,8 +89,17 @@ async function renewNow(): Promise<void> {
   // Only renew if it is actually close to expiry. Another tab may have renewed while
   // this timer was pending, in which case there is nothing to do and spending the
   // single-use cookie again would be the precise mistake this module exists to avoid.
-  const dueSoon = session.expiresAt - Date.now() <= RENEW_MARGIN_MS;
-  if (!dueSoon && !isSessionExpired()) {
+  //
+  // Measured against `Date.now()` and nothing else. An earlier version also renewed when
+  // `isSessionExpired()` was true, which reads the **server-corrected** clock — and that
+  // offset is derived from a `server_time` the client is simply handed. A wrong or stale
+  // one (a mis-set server, a stubbed fixture) makes every session look expired for ever,
+  // so this fired on every tick and every tab switch, rotating the cookie each time and
+  // re-rendering the shell under the user. The clause also added nothing: a genuinely
+  // expired token has `expiresAt - now <= 0`, which is already `dueSoon`.
+  const untilExpiry = session.expiresAt - Date.now();
+  if (!Number.isFinite(untilExpiry)) return;
+  if (untilExpiry > RENEW_MARGIN_MS) {
     scheduleNext();
     return;
   }
