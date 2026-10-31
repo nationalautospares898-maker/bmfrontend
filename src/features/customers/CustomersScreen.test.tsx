@@ -21,25 +21,53 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '@/api/errors';
 import { CustomersScreen } from './CustomersScreen';
 
 const creditCustomers = vi.fn();
 const payments = vi.fn();
 const upsert = vi.fn();
 const search = vi.fn();
+const list = vi.fn();
+const recordPayment = vi.fn();
 
 vi.mock('@/api/endpoints', () => ({
   credit: {
     customers: (...a: unknown[]) => creditCustomers(...a) as unknown,
     payments: (...a: unknown[]) => payments(...a) as unknown,
+    // Taking a payment. This had no caller in the application at all until now.
+    recordPayment: (...a: unknown[]) => recordPayment(...a) as unknown,
   },
   customers: {
     upsert: (...a: unknown[]) => upsert(...a) as unknown,
     search: (...a: unknown[]) => search(...a) as unknown,
+    // The directory. The screen reads this for *who exists* and merges the credit
+    // aggregates on top; it used to read only `/credit/customers`, which cannot
+    // contain a customer with no credit invoice.
+    list: (...a: unknown[]) => list(...a) as unknown,
   },
 }));
 
-const ROW = {
+/** A directory record, as `GET /customers` returns it. */
+function directory(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'c1',
+    name: 'Rakesh Motors',
+    business_name: 'Rakesh Transport',
+    primary_phone: '9876500011',
+    phones: ['9876500011'],
+    vehicles: ['KA01AB1234'],
+    address_lines: [],
+    default_mechanic_name: null,
+    credit_terms_days: 30,
+    credit_limit: '50000.00',
+    is_active: true,
+    ...overrides,
+  };
+}
+
+/** The credit aggregates, as `GET /credit/customers` returns them. */
+const CREDIT_ROW = {
   customer: { id: 'c1', name: 'Rakesh Motors', primary_phone: '9876500011' },
   outstanding: '7400.00',
   total_invoiced: '21000.00',
@@ -51,12 +79,17 @@ const ROW = {
   ageing: { '0_30': '1000.00', '31_60': '6400.00' },
 };
 
+const PAGE = { next_cursor: null, has_more: false, limit: 50 };
+
 beforeEach(() => {
-  for (const fn of [creditCustomers, payments, upsert, search]) fn.mockReset();
-  creditCustomers.mockResolvedValue({ items: [ROW] });
+  for (const fn of [creditCustomers, payments, upsert, search, list, recordPayment])
+    fn.mockReset();
+  list.mockResolvedValue({ items: [directory()], page: PAGE });
+  creditCustomers.mockResolvedValue({ items: [CREDIT_ROW] });
   payments.mockResolvedValue({ items: [] });
   upsert.mockResolvedValue({ id: 'c1' });
-  search.mockResolvedValue({ items: [] });
+  search.mockResolvedValue({ items: [], page: PAGE });
+  recordPayment.mockResolvedValue({ payment: { id: 'pay-1' } });
 });
 
 describe('ADR-022 — the balance is derived, never typed', () => {
@@ -102,21 +135,38 @@ describe('the list', () => {
     expect(screen.getByText('2026-09-15')).toBeInTheDocument();
   });
 
-  it('asks the server to include settled customers when requested', async () => {
-    const user = userEvent.setup();
+  it('always asks the credit endpoint for settled customers too', async () => {
+    // Otherwise a customer who has paid everything off loses their history from this
+    // screen the moment they settle up.
     render(<CustomersScreen canEdit />);
     await screen.findByText('Rakesh Motors');
-    await user.click(screen.getByRole('button', { name: /Include customers who owe/ }));
-
     await waitFor(() =>
-      expect(creditCustomers).toHaveBeenLastCalledWith({ include_settled: true }),
+      expect(creditCustomers).toHaveBeenCalledWith({ include_settled: true }),
     );
   });
 
-  it('distinguishes "nobody owes anything" from "nothing matched"', async () => {
-    creditCustomers.mockResolvedValue({ items: [] });
+  it('filters to customers who owe when asked, without hiding the rest by default', async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [directory(), directory({ id: 'c2', name: 'Owes Nothing Co' })],
+      page: PAGE,
+    });
     render(<CustomersScreen canEdit />);
-    expect(await screen.findByText('No customer owes anything.')).toBeInTheDocument();
+
+    // Both by default — the directory is the point of this screen.
+    expect(await screen.findByText('Owes Nothing Co')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Only customers who owe/ }));
+    await waitFor(() =>
+      expect(screen.queryByText('Owes Nothing Co')).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText('Rakesh Motors')).toBeInTheDocument();
+  });
+
+  it('distinguishes an empty directory from nothing matching a search', async () => {
+    list.mockResolvedValue({ items: [], page: PAGE });
+    render(<CustomersScreen canEdit />);
+    expect(await screen.findByText(/No customers yet/)).toBeInTheDocument();
   });
 
   it('hides the edit control without the permission', async () => {
@@ -284,5 +334,246 @@ describe('accessibility', () => {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
     });
     expect(results.violations).toEqual([]);
+  });
+});
+
+describe('the directory, not the credit report (reported from the browser)', () => {
+  /**
+   * The symptom: "I clicked Add a customer, the customer did not appear in the list,
+   * and the only visible customer is Demo Credit Customer One."
+   *
+   * The customer had been created — two of them, in fact. The screen read
+   * `GET /credit/customers`, which inner-joins credit invoices, so a customer with no
+   * credit invoice could not appear there and could not be found by typing their name
+   * either. `include_settled` did not help: it only relaxes the `outstanding > 0`
+   * filter, it does not reach past the join.
+   */
+  it('lists a customer who has never bought on credit', async () => {
+    list.mockResolvedValue({
+      items: [directory({ id: 'new-1', name: 'Sukith', primary_phone: '9306432399' })],
+      page: PAGE,
+    });
+    // Deliberately absent from the credit aggregates, which is the whole point.
+    creditCustomers.mockResolvedValue({ items: [] });
+
+    render(<CustomersScreen canEdit />);
+
+    expect(await screen.findByText('Sukith')).toBeInTheDocument();
+    expect(screen.getByText('9306432399')).toBeInTheDocument();
+  });
+
+  it('shows a dash rather than a wrong figure when there is no credit history', async () => {
+    list.mockResolvedValue({ items: [directory({ id: 'new-1' })], page: PAGE });
+    creditCustomers.mockResolvedValue({ items: [] });
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+    // Both the "Owed" and "Unpaid bills" cells read zero — taken from the absence of
+    // aggregates, never summed client-side (ADR-032).
+    expect(screen.getAllByRole('cell', { name: '0' })).toHaveLength(2);
+  });
+
+  it('searches the directory, so a non-credit customer is findable by name', async () => {
+    const user = userEvent.setup();
+    search.mockResolvedValue({
+      items: [directory({ id: 'found', name: 'Sukith' })],
+      page: PAGE,
+    });
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+
+    await user.type(screen.getByLabelText(/Find a customer/), 'sukith');
+
+    await waitFor(() => expect(search).toHaveBeenCalledWith('sukith'));
+    expect(await screen.findByText('Sukith')).toBeInTheDocument();
+  });
+
+  it('pages the directory rather than shipping every customer at once', async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce({
+      items: [directory()],
+      page: { next_cursor: '1762000000000000', has_more: true, limit: 50 },
+    });
+    list.mockResolvedValueOnce({
+      items: [directory({ id: 'c2', name: 'Second Page Co' })],
+      page: PAGE,
+    });
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+
+    await user.click(screen.getByRole('button', { name: /Show more customers/ }));
+
+    expect(await screen.findByText('Second Page Co')).toBeInTheDocument();
+    // Appended, not replaced: the first page is still on screen.
+    expect(screen.getByText('Rakesh Motors')).toBeInTheDocument();
+    expect(list).toHaveBeenLastCalledWith({ cursor: '1762000000000000' });
+  });
+});
+
+describe('editing a customer does not wipe what it never showed', () => {
+  /**
+   * A data-loss defect found while wiring the directory. `businessName`, `creditLimit`
+   * and `creditTerms` started empty whatever was being edited — the screen's only data
+   * came from `/credit/customers`, which does not carry them — and `save()` sends
+   * `businessName.trim() || null`. So changing a customer's phone silently cleared
+   * their business name, credit limit and payment terms. The credit limit is what the
+   * credit check reads, so an unrelated edit was clearing a financial control.
+   */
+  it('prefills business name, credit limit and terms from the record', async () => {
+    const user = userEvent.setup();
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(await screen.findByLabelText(/Business name/)).toHaveValue('Rakesh Transport');
+    expect(screen.getByLabelText(/Credit limit/)).toHaveValue('50000.00');
+    expect(screen.getByLabelText(/Payment terms/)).toHaveValue('30');
+  });
+
+  it('keeps them when only the phone is changed', async () => {
+    const user = userEvent.setup();
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await screen.findByLabelText(/Business name/);
+
+    const phone = screen.getByLabelText(/^Phone/);
+    await user.clear(phone);
+    await user.type(phone, '9000000001');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(upsert).toHaveBeenCalled());
+    const [, body] = upsert.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.phone).toBe('9000000001');
+    // The three that used to be silently cleared.
+    expect(body.business_name).toBe('Rakesh Transport');
+    expect(body.credit_limit).toBe('50000.00');
+    expect(body.credit_terms_days).toBe(30);
+  });
+});
+
+describe('taking a payment (the capability with no caller)', () => {
+  /**
+   * `credit.recordPayment` existed in the API client, was correct, and had **no caller
+   * anywhere in the application**. Credit bills could be issued and not one rupee could
+   * be recorded against them, so an outstanding balance could only ever grow. The same
+   * shape of defect as the billing customer picker: a capability wired to the server
+   * with no way in from a screen.
+   */
+  it('records the payment against the customer, oldest bills first', async () => {
+    const user = userEvent.setup();
+    recordPayment.mockResolvedValue({ payment: { id: 'pay-1' } });
+    render(<CustomersScreen canEdit canRecordPayment />);
+    await screen.findByText('Rakesh Motors');
+
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(await screen.findByRole('button', { name: 'Record this payment' }));
+
+    await waitFor(() => expect(recordPayment).toHaveBeenCalled());
+    const [body, key] = recordPayment.mock.calls[0] as [
+      {
+        customer_id: string;
+        amount: string;
+        method: string;
+        allocation: { strategy: string };
+      },
+      string,
+    ];
+    expect(body.customer_id).toBe('c1');
+    // Prefilled with the whole outstanding amount, because settling up is the common
+    // case and retyping a figure already on screen is how digits get transposed.
+    expect(body.amount).toBe('7400.00');
+    expect(body.method).toBe('cash');
+    expect(body.allocation.strategy).toBe('oldest_first');
+    // A client-generated key, so a double click records one payment, not two.
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('never sends a balance — only the payment', async () => {
+    const user = userEvent.setup();
+    recordPayment.mockResolvedValue({ payment: { id: 'pay-1' } });
+    render(<CustomersScreen canEdit canRecordPayment />);
+    await screen.findByText('Rakesh Motors');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(await screen.findByRole('button', { name: 'Record this payment' }));
+
+    await waitFor(() => expect(recordPayment).toHaveBeenCalled());
+    const body = recordPayment.mock.calls[0]?.[0] as Record<string, unknown>;
+    // ADR-022: what a customer owes is derived from bills and payments. A client that
+    // could post a balance would eventually post a wrong one.
+    expect(body).not.toHaveProperty('outstanding');
+    expect(body).not.toHaveProperty('amount_paid');
+    expect(body).not.toHaveProperty('payment_status');
+  });
+
+  it('refuses an amount of zero without calling the server', async () => {
+    const user = userEvent.setup();
+    render(<CustomersScreen canEdit canRecordPayment />);
+    await screen.findByText('Rakesh Motors');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    const amount = await screen.findByLabelText('Amount received');
+    await user.clear(amount);
+    await user.type(amount, '0');
+    await user.click(screen.getByRole('button', { name: 'Record this payment' }));
+
+    expect(await screen.findByText(/more than zero/)).toBeInTheDocument();
+    expect(recordPayment).not.toHaveBeenCalled();
+  });
+
+  it('shows the server’s own refusal rather than a generic failure', async () => {
+    const user = userEvent.setup();
+    // The whole-rupee rule lives in the money policy and is enforced server-side, so
+    // the client must surface the refusal rather than pre-judge the amount — otherwise
+    // the rule drifts between the two.
+    recordPayment.mockRejectedValue(
+      new ApiError(422, {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Some values need correcting.',
+          details: {},
+          request_id: 'req-1',
+          retryable: false,
+        },
+      }),
+    );
+    render(<CustomersScreen canEdit canRecordPayment />);
+    await screen.findByText('Rakesh Motors');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(await screen.findByRole('button', { name: 'Record this payment' }));
+
+    // The server's own wording, not a generic failure — and specifically, not the
+    // static balance explainer, which also carries `role="alert"` on this screen.
+    expect(await screen.findByText(/Some values need correcting/)).toBeInTheDocument();
+  });
+
+  it('is absent without the payment permission', async () => {
+    const user = userEvent.setup();
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    // The history is still readable; taking money is a separate authority.
+    expect(await screen.findByText('Payments received')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Record this payment' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('is absent when the customer owes nothing', async () => {
+    const user = userEvent.setup();
+    creditCustomers.mockResolvedValue({
+      items: [{ ...CREDIT_ROW, outstanding: '0.00', open_invoice_count: 0 }],
+    });
+    render(<CustomersScreen canEdit canRecordPayment />);
+    await screen.findByText('Rakesh Motors');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    // A payment against a settled account is an advance, which is a different decision
+    // and not one to slip in behind an identical button.
+    await screen.findByText('Payments received');
+    expect(
+      screen.queryByRole('button', { name: 'Record this payment' }),
+    ).not.toBeInTheDocument();
   });
 });

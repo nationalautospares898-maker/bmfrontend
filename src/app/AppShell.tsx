@@ -169,6 +169,9 @@ export function AppShell() {
   const canAdjustStock = session.permissions.has('inventory.adjust');
   const canReceive = session.permissions.has('inventory.receive');
   const canEditCustomers = session.permissions.has('customer.manage');
+  // Its own authority: editing a customer's details and taking money off what they owe
+  // are different permissions server-side, so they are different props here too.
+  const canRecordPayment = session.permissions.has('credit.payment.record');
   const canManageImports = session.permissions.has('imports.manage');
   // C-2. `admin.settings.manage`, which only the owner holds — a manager has
   // `admin.devices.manage` and can revoke a stolen till, but choosing which counter a
@@ -340,7 +343,10 @@ export function AppShell() {
               <PurchasesScreen canReceive={canReceive} />
             ) : null}
             {screen === 'customers' && canReadCredit ? (
-              <CustomersScreen canEdit={canEditCustomers} />
+              <CustomersScreen
+                canEdit={canEditCustomers}
+                canRecordPayment={canRecordPayment}
+              />
             ) : null}
             {screen === 'imports' && canManageImports ? <ImportsScreen /> : null}
             {screen === 'counters' && canManageCounters ? (

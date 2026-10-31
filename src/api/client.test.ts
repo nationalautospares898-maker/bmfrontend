@@ -300,3 +300,82 @@ describe('the error envelope', () => {
     expect(result.status).toBe(204);
   });
 });
+
+describe('the customer endpoints address the right paths', () => {
+  /**
+   * These assert the **URL**, which is the one thing a screen test cannot see: the
+   * component suites mock `@/api/endpoints` wholesale, so a client method pointing at a
+   * path that does not exist looks identical to one that works.
+   *
+   * It did not work. `customers.search` requested `/customers`, which was not a route
+   * at all, so every call 404'd. Its only caller is the duplicate-phone check in the
+   * Add-a-customer dialog, which swallows errors by design, so the duplicate warning
+   * silently never appeared — and the same customer could be added twice without a
+   * word. `FR-CUST-004`'s own test passed throughout, because it mocked the method.
+   */
+  it('search asks /customers/search, not /customers', async () => {
+    const { customers } = await import('./endpoints');
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [] }));
+
+    await customers.search('9306432399');
+
+    const url = fetchMock.mock.calls[0]?.[0] as string;
+    expect(url).toContain('/customers/search');
+    expect(url).toContain('query=9306432399');
+  });
+
+  it('list asks /customers, which is the directory', async () => {
+    const { customers } = await import('./endpoints');
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        items: [],
+        page: { next_cursor: null, has_more: false, limit: 50 },
+      }),
+    );
+
+    await customers.list({ limit: 50 });
+
+    const url = fetchMock.mock.calls[0]?.[0] as string;
+    expect(url).toMatch(/\/customers(\?|$)/);
+    expect(url).not.toContain('/customers/search');
+  });
+});
+
+describe('the print payload asks for a reprint in the server’s own terms', () => {
+  /**
+   * Same class of defect as the customer paths above, and found the same way — by
+   * comparing what the client sends against the route's declared parameters rather than
+   * by trusting a mock.
+   *
+   * `printPayload` sent `is_duplicate`, which the route does not declare. FastAPI
+   * ignores unknown query parameters, so the server's `copy` stayed `None`, its
+   * `is_duplicate` evaluated `False` every time, and every reprint from Daily Bills
+   * rendered **without** the `DUPLICATE COPY` watermark — a bill that could be handed
+   * over a second time as an original. No request failed, so nothing surfaced it.
+   */
+  it('a reprint sends copy=reprint', async () => {
+    const { invoices } = await import('./endpoints');
+    fetchMock.mockResolvedValue(jsonResponse(200, { lines: [] }));
+
+    await invoices.printPayload('inv-1', true);
+
+    const url = fetchMock.mock.calls[0]?.[0] as string;
+    expect(url).toContain('copy=reprint');
+    // The old parameter name must not come back: it is silently ignored, which is why
+    // the defect survived.
+    expect(url).not.toContain('is_duplicate');
+  });
+
+  it('a first print asks for no copy at all', async () => {
+    const { invoices } = await import('./endpoints');
+    fetchMock.mockResolvedValue(jsonResponse(200, { lines: [] }));
+
+    await invoices.printPayload('inv-1');
+
+    const url = fetchMock.mock.calls[0]?.[0] as string;
+    expect(url).not.toContain('copy=');
+    // Whether a document is marked is the server's decision from the print log and the
+    // `print.mark_reprints_duplicate` setting, never the client's claim (FR-PRINT-004).
+    expect(url).toContain('/invoices/inv-1/print-payload');
+  });
+});

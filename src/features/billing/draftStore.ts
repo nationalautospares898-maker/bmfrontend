@@ -12,6 +12,8 @@
 
 import { create } from 'zustand';
 
+import { drafts as draftsApi } from '@/api/endpoints';
+import type { DraftUpsertRequest } from '@/api/types';
 import * as draftsDb from '@/db/drafts';
 import * as pending from '@/db/pendingFinalizations';
 import { enqueue } from '@/db/outbox';
@@ -41,6 +43,22 @@ interface BillingActions {
   removeLine(draftId: string, lineId: string): Promise<void>;
   updateHeader(draftId: string, patch: Partial<LocalDraft['header']>): Promise<void>;
   saveDraftToServer(draftId: string): Promise<void>;
+  /**
+   * Make sure the server has this draft, and return the version it now holds.
+   *
+   * Finalisation sends `draft_id` and `draft_version`, and the server looks the draft
+   * up and refuses with `NOT_FOUND` if it has never seen it
+   * (`sales/service.py`: "That bill does not exist"). Until this existed, the only
+   * thing that ever pushed a draft was the `Save a Draft` button, so a cashier who
+   * typed a bill and pressed `Print Bill` — the ordinary way to use this screen — got
+   * "This bill is not confirmed" and three failed retries on a sale the server had
+   * never heard of.
+   *
+   * Done through a direct `PUT` rather than the outbox because finalisation is
+   * online-only by design (FR-OFFLINE-002), so the outbox's offline guarantees buy
+   * nothing here and its debounce is exactly the delay that caused the bug.
+   */
+  ensureOnServer(draftId: string): Promise<number | null>;
   clearDraft(
     draftId: string,
   ): Promise<'cleared' | 'refused_unconfirmed' | 'refused_finalized'>;
@@ -184,6 +202,32 @@ export const useBillingStore = create<BillingState & BillingActions>((set, get) 
     });
   },
 
+  async ensureOnServer(draftId) {
+    const draft = get().drafts.find((candidate) => candidate.id === draftId);
+    if (!draft) return null;
+
+    const server = await draftsApi.upsert(
+      draft.id,
+      toUpsertPayload(draft),
+      draft.version,
+    );
+    // Adopt the server's version, the same way the sync path does, so the finalise
+    // request carries a `draft_version` the server will accept rather than a stale one.
+    // `version` is nullable in the published contract; a draft without one is not a
+    // draft finalisation can quote a version for, so it is left alone rather than
+    // recorded as a guess.
+    const version = typeof server.version === 'number' ? server.version : null;
+    if (version !== null) {
+      await draftsDb.markSynced(draft.id, version);
+      set({
+        drafts: get().drafts.map((candidate) =>
+          candidate.id === draftId ? { ...candidate, version } : candidate,
+        ),
+      });
+    }
+    return version;
+  },
+
   async clearDraft(draftId) {
     const outcome = await draftsDb.clearDraft(draftId);
     if (outcome !== 'cleared') return outcome;
@@ -253,7 +297,7 @@ export function canFinalize(draft: LocalDraft | undefined): boolean {
 }
 
 /** The `PUT /drafts/{id}` body. Field names come from the generated request type. */
-export function toUpsertPayload(draft: LocalDraft): Record<string, unknown> {
+export function toUpsertPayload(draft: LocalDraft): DraftUpsertRequest {
   return {
     counter_id: draft.counter_id,
     label: draft.label,

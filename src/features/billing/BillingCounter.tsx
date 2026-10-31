@@ -23,15 +23,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, describeError, fieldErrors, type ErrorCode } from '@/api/errors';
-import { invoices } from '@/api/endpoints';
-import type { FinalizeResponse, PrintPayload } from '@/api/types';
+import { customers as customersApi, invoices } from '@/api/endpoints';
+import type { DirectoryCustomer, FinalizeResponse, PrintPayload } from '@/api/types';
 import type { LocalDraft, LocalDraftLine } from '@/db/schema';
 import { asText } from '@/lib/format';
+import { uuidv7 } from '@/lib/ids';
 import { formatForScreen, parseMoney, type MoneyPolicy } from '@/lib/money';
 import {
   ACTIONS,
   ACTION_SHORTCUTS,
   BILLING,
+  COMMON,
   CREDIT,
   ERRORS,
   OFFLINE,
@@ -137,8 +139,19 @@ export function BillingCounter({
       setBusy(true);
       let outcome: FinalizeOutcome;
       try {
+        // The server resolves `draft_id` against its own `draft_bills` row and refuses
+        // with NOT_FOUND if it has never seen it. Nothing used to push a draft except
+        // the `Save a Draft` button, so typing a bill and pressing `Print Bill` — the
+        // ordinary way to use this screen — failed every time with "This bill is not
+        // confirmed". Pushed here, before the sale, and awaited: no sale is attempted
+        // against a draft the server does not have.
+        const version = await store.ensureOnServer(active.id);
+
         outcome = await finalizeSale({
-          draft: active,
+          // The draft carries the version the server just confirmed, so
+          // `draft_version` matches and the optimistic-concurrency check still does its
+          // job rather than being bypassed.
+          draft: version === null ? active : { ...active, version },
           saleType,
           policy,
           online,
@@ -642,34 +655,262 @@ function CustomerFields({
   onChange: (patch: Partial<LocalDraft['header']>) => void;
 }) {
   return (
-    <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <fieldset className="flex flex-col gap-3">
       <legend className="text-sm font-medium text-slate-700">Customer (optional)</legend>
-      {/*
-        Through the `Field` primitive rather than hand-rolled markup, so every input in
-        the application is labelled the same way — `<label for>` tied to the input's id,
-        not an implicit wrapper and never a placeholder standing in for a label.
-      */}
-      <Field
-        label="Name"
-        defaultValue={draft.header.customer_name}
-        onBlur={(event) => onChange({ customer_name: event.target.value })}
-      />
-      <Field
-        label="Vehicle number"
-        defaultValue={draft.header.vehicle_number}
-        onBlur={(event) => onChange({ vehicle_number: event.target.value })}
-      />
-      <Field
-        label="Phone"
-        inputMode="tel"
-        defaultValue={draft.header.phone}
-        onBlur={(event) => onChange({ phone: event.target.value })}
-      />
+
+      <CustomerPicker draft={draft} onChange={onChange} />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/*
+          Through the `Field` primitive rather than hand-rolled markup, so every input in
+          the application is labelled the same way — `<label for>` tied to the input's id,
+          not an implicit wrapper and never a placeholder standing in for a label.
+
+          Still free text, and still sent for **both** sale types (FR-CREDIT-012): a
+          vehicle number typed on a cash bill is what the customer will quote next time.
+          Selecting a saved customer fills them in; they stay editable because the
+          snapshot on this bill is allowed to differ from the customer record — a
+          different vehicle came in today.
+        */}
+        <Field
+          label="Name"
+          key={`name-${draft.header.customer_id ?? 'none'}-${draft.header.customer_name}`}
+          defaultValue={draft.header.customer_name}
+          onBlur={(event) => onChange({ customer_name: event.target.value })}
+        />
+        <Field
+          label="Vehicle number"
+          key={`veh-${draft.header.customer_id ?? 'none'}-${draft.header.vehicle_number}`}
+          defaultValue={draft.header.vehicle_number}
+          onBlur={(event) => onChange({ vehicle_number: event.target.value })}
+        />
+        <Field
+          label="Phone"
+          inputMode="tel"
+          key={`ph-${draft.header.customer_id ?? 'none'}-${draft.header.phone}`}
+          defaultValue={draft.header.phone}
+          onBlur={(event) => onChange({ phone: event.target.value })}
+        />
+      </div>
+
       {!draft.header.customer_id ? (
-        <p className="text-xs text-slate-500 sm:col-span-3">
-          {BILLING.creditNeedsCustomer}
-        </p>
+        <p className="text-xs text-slate-500">{BILLING.creditNeedsCustomer}</p>
       ) : null}
     </fieldset>
+  );
+}
+
+/**
+ * Attach a **saved** customer to the bill.
+ *
+ * Why this exists: `draft.header.customer_id` was only ever *read* — at five places,
+ * including the credit guard — and never written anywhere in the application. So
+ * `saleType === 'credit' && !customer_id` was always true and the `Credit Bill` button
+ * could never succeed. A cashier typing a name, vehicle and phone got
+ * "A credit bill needs a saved customer, not just a typed name" with no way to satisfy
+ * it. The three fields below are invoice *snapshots* (FR-CREDIT-012); they are not a
+ * customer record and were never meant to be one.
+ *
+ * Creating from here uses `PUT /customers/{id}` with a **client-generated** id, which is
+ * the documented creation contract and is "naturally idempotent via the client-generated
+ * id" (`API-SPECIFICATION.md §5`) — so a double click or a retry is an upsert, not a
+ * second customer. That is preferred over `customer.mode: "new"` on finalisation for one
+ * reason that matters at the counter: the server's `CUSTOMER_DUPLICATE_SUSPECTED`
+ * warning then arrives **before** the sale is committed, while the cashier can still
+ * pick the existing customer instead. Through `mode: "new"` the warning would come back
+ * attached to a completed invoice, too late to act on. Nothing is ever merged
+ * automatically (FR-CUST-004).
+ */
+function CustomerPicker({
+  draft,
+  onChange,
+}: {
+  draft: LocalDraft;
+  onChange: (patch: Partial<LocalDraft['header']>) => void;
+}) {
+  const [term, setTerm] = useState('');
+  const [results, setResults] = useState<DirectoryCustomer[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [duplicates, setDuplicates] = useState<string[] | null>(null);
+
+  // Debounced, and late replies are discarded: typing fires a search per keystroke and
+  // without the guard the slowest reply wins, showing matches for a prefix the box no
+  // longer holds.
+  const latest = useRef(0);
+  useEffect(() => {
+    const text = term.trim();
+    if (text.length < 2) {
+      setResults(null);
+      return;
+    }
+    const sequence = latest.current + 1;
+    latest.current = sequence;
+    const timer = setTimeout(() => {
+      setSearching(true);
+      void customersApi
+        .search(text)
+        .then((response) => {
+          if (sequence === latest.current) setResults(response.items);
+        })
+        .catch(() => {
+          if (sequence === latest.current) setResults([]);
+        })
+        .finally(() => {
+          if (sequence === latest.current) setSearching(false);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [term]);
+
+  function attach(customer: DirectoryCustomer): void {
+    // The id is the association; the rest are this bill's snapshot of it.
+    onChange({
+      customer_id: customer.id,
+      customer_name: customer.name,
+      customer_business_name: customer.business_name ?? '',
+      phone: customer.primary_phone ?? '',
+      ...(customer.vehicles[0] ? { vehicle_number: customer.vehicles[0] } : {}),
+    });
+    setTerm('');
+    setResults(null);
+    setDuplicates(null);
+    setProblem(null);
+  }
+
+  function detach(): void {
+    // Clears the association but keeps the typed snapshot: the goods were still sold to
+    // whoever is standing there, and a cash bill does not need a customer record.
+    onChange({ customer_id: null });
+    setProblem(null);
+    setDuplicates(null);
+  }
+
+  async function createAndAttach(): Promise<void> {
+    const name = term.trim();
+    if (!name) return;
+    setCreating(true);
+    setProblem(null);
+    try {
+      const id = uuidv7();
+      const result = await customersApi.upsert(id, { name });
+      // The **persisted** id, read back from the response rather than assumed, so the
+      // bill is linked to what the server actually stored.
+      attach({
+        id: result.customer?.id ?? id,
+        name: result.customer?.name ?? name,
+        business_name: null,
+        primary_phone: null,
+        phones: [],
+        vehicles: [],
+        address_lines: [],
+        default_mechanic_name: null,
+        credit_terms_days: null,
+        credit_limit: null,
+        is_active: true,
+      });
+      // Surfaced, never blocking, and never merged (FR-CUST-004).
+      const suspected = (result.warnings ?? []).filter(
+        (warning) => warning.code === 'CUSTOMER_DUPLICATE_SUSPECTED',
+      );
+      if (suspected.length > 0) setDuplicates(suspected.map((w) => asText(w.message)));
+    } catch (caught) {
+      setProblem(
+        caught instanceof ApiError
+          ? describeError(caught.code).message
+          : ERRORS.unexpected,
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  if (draft.header.customer_id) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3 rounded border border-[#232852] bg-[#f3f4fb] px-3 py-2">
+          <span className="text-sm">
+            <span className="text-slate-600">{BILLING.billingTo} </span>
+            <span className="font-semibold">{draft.header.customer_name}</span>
+            {draft.header.phone ? (
+              <span className="text-slate-600"> · {draft.header.phone}</span>
+            ) : null}
+            {draft.header.vehicle_number ? (
+              <span className="text-slate-600"> · {draft.header.vehicle_number}</span>
+            ) : null}
+          </span>
+          <Button variant="quiet" onClick={detach}>
+            {BILLING.changeCustomer}
+          </Button>
+        </div>
+        {duplicates ? (
+          <Panel tone="warning" title={BILLING.duplicateSuspected}>
+            {duplicates.join(' ')}
+          </Panel>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field
+          label={BILLING.findCustomer}
+          hint={BILLING.findCustomerHint}
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          className="w-72"
+        />
+        {searching ? (
+          <span className="text-xs text-slate-500">{COMMON.loading}</span>
+        ) : null}
+      </div>
+
+      {problem ? <Panel tone="danger">{problem}</Panel> : null}
+
+      {results && results.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {results.map((customer) => (
+            <li key={customer.id}>
+              <Button variant="secondary" onClick={() => attach(customer)}>
+                {customer.name}
+                {customer.primary_phone ? ` · ${customer.primary_phone}` : ''}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {/*
+        Offered whenever a name has been typed, **not** only when nothing matched.
+
+        It used to appear only on an empty result set, which meant a near-match blocked
+        the action entirely: a shop that already has a "Ramesh Kumar" could not add a
+        second, different Ramesh Kumar from the billing screen at all — the matches
+        showed, none was the right person, and there was no way forward except
+        abandoning the bill and going to the Customers screen. Two customers may
+        genuinely share a name, so the decision belongs to the cashier who can see the
+        person in front of them. The server still warns on a suspected duplicate and
+        still merges nothing (FR-CUST-004), which is what makes offering this safe.
+      */}
+      {results ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-600">
+            {results.length === 0
+              ? BILLING.customerNotFound
+              : BILLING.notTheRightCustomer}
+          </span>
+          <Button
+            variant="secondary"
+            busy={creating}
+            onClick={() => void createAndAttach()}
+          >
+            {BILLING.saveAsNewCustomer}
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

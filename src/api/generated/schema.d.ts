@@ -445,6 +445,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Customers
+         * @description The customer directory, newest first.
+         *
+         *     Added because there was no way to list customers at all. `GET /customers/search`
+         *     needs a term, and the only other read-many is `GET /credit/customers`, which
+         *     inner-joins credit invoices — it answers "who owes us money" and is the top of the
+         *     Credit Bills view. The Customers screen was reading from it, so a customer with no
+         *     credit invoice could not be seen or found there, and one created through
+         *     `Add a customer` appeared to vanish.
+         *
+         *     Declared before `/{customer_id}` because FastAPI matches in declaration order and
+         *     `""` would otherwise be swallowed by the path-parameter route.
+         *
+         *     `cursor` is opaque: the previous page's last `created_at` as epoch microseconds.
+         *     Deliberately **not** ISO-8601 — an ISO timestamp with an offset contains a `+`, which
+         *     a query string decodes as a space, so a caller who pasted `next_cursor` straight into
+         *     a URL got a 422. Microseconds match PostgreSQL's `timestamptz` precision, sort as an
+         *     integer, and need no escaping.
+         *
+         *     Keyset, not offset: a directory that grows while someone pages through it must not
+         *     skip or repeat a row.
+         */
+        get: operations["list_customers_api_v1_customers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers/check-duplicates": {
         parameters: {
             query?: never;
@@ -4429,6 +4468,44 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_customers_api_v1_customers_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
                     };
                 };
             };

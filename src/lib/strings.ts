@@ -54,6 +54,17 @@ export const BILLING = {
   clearDraftBlocked:
     'This bill cannot be cleared yet — we are still confirming whether it was completed. ' +
     'Check Daily Bills first.',
+  // The customer picker (FR-CREDIT-009). Plain words: the cashier is looking for a
+  // person, not performing a lookup against a directory.
+  findCustomer: 'Find a saved customer',
+  findCustomerHint: 'Name, phone or vehicle number. Needed for a credit bill.',
+  billingTo: 'Billing to:',
+  changeCustomer: 'Change',
+  customerNotFound: 'No saved customer matches that.',
+  /** Shown beside the matches, because two customers can genuinely share a name. */
+  notTheRightCustomer: 'Not the right person?',
+  saveAsNewCustomer: 'Save as a new customer',
+  duplicateSuspected: 'This may already be a customer',
   creditNeedsCustomer: 'Choose or add a customer before using Credit Bill.',
 } as const;
 
@@ -257,16 +268,21 @@ export const PURCHASES = {
 export const CUSTOMERS = {
   title: 'Customers',
   searchLabel: 'Find a customer',
-  searchHint: 'Name or phone number.',
+  searchHint: 'Name, phone or vehicle number.',
   newCustomer: 'Add a customer',
-  tableCaption: 'Customers with credit outstanding',
+  tableCaption: 'Customers, with any credit outstanding',
   colName: 'Customer',
   colPhone: 'Phone',
   colOutstanding: 'Owed',
   colOldest: 'Oldest unpaid',
   colBills: 'Unpaid bills',
-  includeSettled: 'Include customers who owe nothing',
-  empty: 'No customer owes anything.',
+  // Was "Include customers who owe nothing", which only relaxed a filter on a list
+  // that could never contain them. The directory shows everyone, so the useful toggle
+  // is the other way round.
+  owingOnly: 'Only customers who owe',
+  empty: 'No customers yet. Use Add a customer.',
+  emptyNoneOwing: 'Nobody owes anything right now.',
+  showMore: 'Show more customers',
   emptyNoMatch: 'No customer matches what you typed.',
   view: 'Open',
   edit: 'Edit',
@@ -284,6 +300,23 @@ export const CUSTOMERS = {
     'What a customer owes is worked out from their bills and payments. It cannot be typed in.',
   outstandingNow: 'Owed now',
   unpaidBills: 'Unpaid bills',
+  // Recording a payment. Said in money terms, not ledger terms: the person at the
+  // counter is taking cash off an account, not creating an allocation.
+  recordPayment: 'Take a payment',
+  recordPaymentHint:
+    'This is put against their oldest unpaid bills first. What they owe is worked out ' +
+    'again from their bills and payments — it is never typed in.',
+  paymentAmount: 'Amount received',
+  paymentMethod: 'How did they pay?',
+  paymentReference: 'Reference',
+  paymentReferenceHint: 'Optional. A UPI or cheque number, if there is one.',
+  savePayment: 'Record this payment',
+  paymentNeedsAmount: 'Enter how much was received — more than zero.',
+  methodCash: 'Cash',
+  methodUpi: 'UPI',
+  methodCard: 'Card',
+  methodBankTransfer: 'Bank transfer',
+  methodCheque: 'Cheque',
   paymentHistory: 'Payments received',
   colWhen: 'When',
   colAmount: 'Amount',

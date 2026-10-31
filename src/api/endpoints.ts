@@ -52,6 +52,8 @@ import type {
   SyncBatchResponse,
   AdminDevice,
   Counter,
+  CustomerListResponse,
+  CustomerUpsertResponse,
 } from './types';
 
 // --- auth ---------------------------------------------------------------------
@@ -156,17 +158,47 @@ export const catalog = {
 
 export const customers = {
   /**
+   * The customer directory, newest first.
+   *
+   * Not `credit.customers`, which inner-joins credit invoices and is the top of the
+   * Credit Bills view — a customer with no credit history is absent from it, so one
+   * created through `Add a customer` could not be seen or searched for on the Customers
+   * screen at all.
+   *
+   * `cursor` is the previous page's opaque `next_cursor` (epoch microseconds, digits
+   * only, so it needs no escaping in a query string).
+   */
+  list(params: { limit?: number; cursor?: string } = {}): Promise<CustomerListResponse> {
+    return data(api.get<CustomerListResponse>('/customers', { params }));
+  },
+  /**
    * Naturally idempotent via the **client-generated** id, so no key is needed and an
    * offline-created customer syncs as an upsert rather than a duplicate (FR-CUST-003).
    */
-  upsert(customerId: string, body: CustomerUpsertRequest): Promise<{ id: string }> {
-    return data(api.put<{ id: string }>(`/customers/${customerId}`, body));
+  upsert(
+    customerId: string,
+    body: CustomerUpsertRequest,
+  ): Promise<CustomerUpsertResponse> {
+    return data(api.put<CustomerUpsertResponse>(`/customers/${customerId}`, body));
   },
-  search(
-    query: string,
-    signal?: AbortSignal,
-  ): Promise<{ items: Array<{ id: string; name: string; phone: string | null }> }> {
-    return data(api.get('/customers', { params: { query }, retry: 'never', signal }));
+  /**
+   * Search the directory by name, phone, business name or vehicle.
+   *
+   * The path was `/customers`, which **did not exist** — so every call 404'd. Its only
+   * caller is the duplicate-phone check in the Add-a-customer dialog, and that swallows
+   * errors on purpose ("a failed lookup must not stop someone adding a customer"), so
+   * the warning simply never appeared and the same customer could be added twice
+   * without a word. The declared return shape was wrong too: `phone`, where the API
+   * sends `primary_phone`.
+   */
+  search(query: string, signal?: AbortSignal): Promise<CustomerListResponse> {
+    return data(
+      api.get<CustomerListResponse>('/customers/search', {
+        params: { query },
+        retry: 'never',
+        signal,
+      }),
+    );
   },
 };
 
@@ -248,11 +280,25 @@ export const invoices = {
   get(invoiceId: string): Promise<Invoice> {
     return data(api.get<Invoice>(`/invoices/${invoiceId}`));
   },
-  /** Immutable once issued, which is why the query cache holds it forever (§10). */
+  /**
+   * Immutable once issued, which is why the query cache holds it forever (§10).
+   *
+   * `copy=reprint` **asks** rather than asserts: whether the document comes back marked
+   * `DUPLICATE COPY` is the server's decision, taken from the `print_log` and the
+   * `print.mark_reprints_duplicate` setting (FR-PRINT-004). The client is not trusted to
+   * declare a bill a duplicate, and must not be — a reprint that prints as an original
+   * is a bill that can be handed over twice.
+   *
+   * This used to send `is_duplicate`, which is not a parameter the route has. FastAPI
+   * ignores unknown query parameters, so `copy` stayed `None`, `is_duplicate` evaluated
+   * `False` for every request, and **every reprint from Daily Bills rendered as an
+   * original**. Nothing failed and nothing was logged; the only visible symptom was a
+   * missing watermark on paper, which no test looked at.
+   */
   printPayload(invoiceId: string, isDuplicate = false): Promise<PrintPayload> {
     return data(
       api.get<PrintPayload>(`/invoices/${invoiceId}/print-payload`, {
-        params: { is_duplicate: isDuplicate },
+        params: { copy: isDuplicate ? 'reprint' : undefined },
       }),
     );
   },

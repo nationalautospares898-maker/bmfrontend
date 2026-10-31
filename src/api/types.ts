@@ -74,6 +74,52 @@ export type CreditCustomer = CreditCustomersResponse['items'][number];
 // --- customers ----------------------------------------------------------------
 
 export type CustomerUpsertRequest = Schemas['CustomerUpsertRequest'];
+/**
+ * `GET /customers` — the directory, and `GET /customers/search`.
+ *
+ * Hand-written rather than derived from the generated schema because both routes are
+ * declared `-> dict[str, Any]` on the server, so the published contract carries no
+ * response shape to derive from. `customers.search` already had a hand-written type for
+ * the same reason — and it was **wrong**, declaring `phone` where the API sends
+ * `primary_phone`, which nothing caught because its only caller reads `items.length`.
+ *
+ * Distinct from `CreditCustomer`, which comes from `/credit/customers` and exists only
+ * for customers holding credit invoices.
+ */
+export interface DirectoryCustomer {
+  id: string;
+  name: string;
+  business_name: string | null;
+  primary_phone: string | null;
+  phones: string[];
+  vehicles: string[];
+  address_lines: string[];
+  default_mechanic_name: string | null;
+  credit_terms_days: number | null;
+  credit_limit: string | null;
+  is_active: boolean;
+  /** Present only with `credit.read`. */
+  credit?: { outstanding: string; oldest_due_date: string | null };
+}
+
+/**
+ * `PUT /customers/{id}` — the real response shape.
+ *
+ * The client declared `{ id: string }`, which the server never sends: it returns the
+ * saved customer, whether it was created, and any warnings. Nothing caught it because
+ * the only caller ignored the return value — so `CUSTOMER_DUPLICATE_SUSPECTED` was
+ * being delivered and discarded.
+ */
+export interface CustomerUpsertResponse {
+  customer: DirectoryCustomer;
+  created: boolean;
+  warnings: Warning[];
+}
+
+export interface CustomerListResponse {
+  items: DirectoryCustomer[];
+  page: { next_cursor: string | null; has_more: boolean; limit: number };
+}
 
 // --- sync and bootstrap -------------------------------------------------------
 
