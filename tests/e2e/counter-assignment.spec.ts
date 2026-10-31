@@ -16,21 +16,26 @@
  * provides two counters and — the point of this file — a device registered with no
  * counter at all.
  *
- * Why every row is found by state rather than by name
- * --------------------------------------------------
+ * Why every row is found by id
+ * ----------------------------
  *
- * A device's label is **client-supplied and rewritten on every login**:
- * `register_device`'s `ON CONFLICT` sets `label` from the request. So the moment the
- * seeded "Unassigned Counter PC" signs in — which the acceptance test below does — it
- * becomes "Counter PC", the same label the owner's browser already carries, and it stays
- * that way in the database for every later run. Naming rows was tried first and broke on
- * the second run, which is worth recording: in this screen the only durable identity a
- * row has is *which counter it is set to*.
+ * Two earlier attempts are worth recording, because each failed for a reason that is a
+ * property of the data rather than of the test.
  *
- * So each test restores both devices to their seeded assignment first (through the real
- * endpoint, which exercises the unassign path as a side effect), after which exactly one
- * row is unassigned and each counter holds at most one computer. Every locator below is
- * then unique by construction.
+ * **By label.** A device's label is client-supplied and rewritten on every login:
+ * `register_device`'s `ON CONFLICT` sets it from the request. So the moment the seeded
+ * "Unassigned Counter PC" signs in — which the acceptance test below does — it becomes
+ * "Counter PC", the same label the owner's browser already carries, and it stays that way
+ * in the database for every later run.
+ *
+ * **By state** ("the row set to no counter"). Unique locally, and not in CI: the
+ * full-stack step runs earlier in the same job against the same database and leaves a
+ * device of its own enrolled with no counter, so there were two such rows.
+ *
+ * The id is the only identity a row has, so the screen carries it (`data-device-id`) and
+ * every locator here uses it. Each test also restores both seeded devices to their seeded
+ * assignment first, through the real endpoint — which keeps the tests independent of each
+ * other and exercises the unassign path on every run as a side effect.
  *
  * Skipped, loudly, when `BM_E2E_API_URL` is absent — a full-stack suite that passes
  * without a backend is worse than one that does not run.
@@ -208,9 +213,28 @@ function assignedToCell(row: Locator): Locator {
   return row.getByRole('cell').first();
 }
 
-async function assignTo(row: Locator, counterName: string): Promise<void> {
+/**
+ * Choose a counter for a computer and save it.
+ *
+ * The two waits are not decoration. Save is disabled whenever the pending choice equals
+ * what is already set, so **an enabled Save is the signal that React has registered the
+ * new value** — pressing it before that fired the handler with the previous choice, which
+ * on CI meant unassigning an already-unassigned computer and getting a perfectly
+ * successful no-op instead of the assignment. And the notice only renders once the server
+ * has answered, so waiting for it means the caller's next assertion is reading state the
+ * server produced rather than racing the request.
+ */
+async function chooseAndSave(row: Locator, counterName: string): Promise<void> {
   await row.getByRole('combobox').selectOption({ label: counterName });
-  await row.getByRole('button', { name: 'Save' }).click();
+  const save = row.getByRole('button', { name: 'Save' });
+  await expect(save).toBeEnabled();
+  await save.click();
+}
+
+/** `chooseAndSave`, then wait for the server to have answered. */
+async function assignTo(row: Locator, counterName: string): Promise<void> {
+  await chooseAndSave(row, counterName);
+  await expect(row.page().getByText(/is now set to|no longer set to/)).toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -346,7 +370,9 @@ test.describe('the counter assignment workflow', () => {
     // aborted; everything else still goes to the real server.
     await page.route('**/admin/devices/*/counter', (route) => route.abort('failed'));
 
-    await assignTo(target(page), COUNTER_ONE_NAME);
+    // `chooseAndSave`, not `assignTo`: the request is aborted on purpose, so there will
+    // be no success notice to wait for.
+    await chooseAndSave(target(page), COUNTER_ONE_NAME);
 
     // Something is said, and it is not a success message.
     await expect(page.getByText(/is now set to/)).toHaveCount(0);
