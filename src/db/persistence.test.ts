@@ -253,12 +253,34 @@ describe('the idempotency key — one intent, one key (§5)', () => {
   });
 
   it('stops retrying past the stale window', async () => {
-    await pending.claim('draft-1', 'hash-a', db);
-    const { retryable, stale } = await pending.partitionByStaleness(0, db);
-    // A zero-minute window makes everything stale; the real window is 60 minutes.
-    // Past it the client stops guessing and asks a person to check Daily Bills.
+    // Ages the entry past the real 60-minute window rather than passing a zero-minute
+    // one. A zero window makes `cutoff` exactly `now`, and the rule is
+    // `started_at < cutoff` — strictly. So the old form sat precisely on its own
+    // boundary and passed only when a millisecond happened to elapse between the claim
+    // and the partition. It does locally; on a faster runner it does not, and this test
+    // failed in CI having never failed on a developer machine. The production rule is
+    // right — at sixty minutes a strict inequality is immaterial — so the fix belongs
+    // here, in how the test asks the question.
+    const claimed = await pending.claim('draft-1', 'hash-a', db);
+    await db.pending_finalizations.put({
+      ...claimed,
+      started_at: new Date(Date.now() - 61 * 60_000).toISOString(),
+    });
+
+    const { retryable, stale } = await pending.partitionByStaleness(undefined, db);
+    // Past the window the client stops guessing and asks a person to check Daily Bills.
     expect(retryable).toHaveLength(0);
     expect(stale).toHaveLength(1);
+  });
+
+  it('keeps retrying inside the stale window', async () => {
+    // The other half, which the previous form never asserted: a bill that has only just
+    // been attempted must still be retried. A `partitionByStaleness` that returned
+    // everything as stale would have satisfied the test above on its own.
+    await pending.claim('draft-2', 'hash-b', db);
+    const { retryable, stale } = await pending.partitionByStaleness(undefined, db);
+    expect(stale).toHaveLength(0);
+    expect(retryable).toHaveLength(1);
   });
 });
 

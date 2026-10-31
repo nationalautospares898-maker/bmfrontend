@@ -237,19 +237,31 @@ test.describe('the offline boundary (FR-OFFLINE-002, ADR-033)', () => {
     await page.getByRole('button', { name: /Save a Draft/ }).click();
     await expect(page.getByRole('button', { name: /Save a Draft/ })).toBeEnabled();
 
-    const queued = await page.evaluate(async () => {
-      const request = indexedDB.open('nas-counter');
-      return new Promise<number>((resolve, reject) => {
-        request.onsuccess = () => {
-          const transaction = request.result.transaction('outbox', 'readonly');
-          const count = transaction.objectStore('outbox').count();
-          count.onsuccess = () => resolve(count.result);
-          count.onerror = () => reject(new Error('count failed'));
-        };
-        request.onerror = () => reject(new Error('open failed'));
-      });
-    });
-    expect(queued).toBeGreaterThan(0);
+    // Polled rather than read once. Saving the draft and enqueuing it are separate
+    // asynchronous writes, and the only thing asserted between the click and the read
+    // was that the button is enabled again — which it is immediately. So a single
+    // `evaluate` could run before the outbox write had committed, and did on CI while
+    // never doing so on a developer machine. The claim is unchanged — the bill must
+    // reach the outbox — it is simply no longer tied to one instant.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              new Promise<number>((resolve, reject) => {
+                const request = indexedDB.open('nas-counter');
+                request.onsuccess = () => {
+                  const transaction = request.result.transaction('outbox', 'readonly');
+                  const count = transaction.objectStore('outbox').count();
+                  count.onsuccess = () => resolve(count.result);
+                  count.onerror = () => reject(new Error('count failed'));
+                };
+                request.onerror = () => reject(new Error('open failed'));
+              }),
+          ),
+        { message: 'the offline bill never reached the outbox', timeout: 10_000 },
+      )
+      .toBeGreaterThan(0);
 
     await context.setOffline(false);
   });
