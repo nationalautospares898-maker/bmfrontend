@@ -341,6 +341,46 @@ describe('refusals', () => {
   });
 });
 
+describe('out-of-order responses', () => {
+  it('does not let a slow earlier list overwrite a newer one', async () => {
+    // Two `load()` calls overlap routinely: one on mount, another the moment an
+    // assignment succeeds. If the slower of the two wins, a successful assignment is
+    // painted over by the list as it was *before* it — the row reading "Not set to a
+    // counter" under a message saying it had just been set. That is exactly what the
+    // full-stack suite caught on the runner, intermittently, after passing locally.
+    const user = userEvent.setup();
+    let releaseFirst: (value: unknown[]) => void = () => {};
+    const stale = [{ ...COUNTER_ONE, devices: [] }];
+
+    list
+      .mockImplementationOnce(
+        () =>
+          new Promise<unknown[]>((resolve) => {
+            releaseFirst = resolve;
+          }),
+      )
+      .mockResolvedValue([COUNTER_TWO]);
+    listDevices.mockResolvedValue([device()]);
+
+    render(<CountersScreen canManage />);
+    // The first load is still in flight; refresh to start a second.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /refresh/i }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    // The second has resolved. Now let the first arrive, late.
+    releaseFirst(stale);
+
+    // The newer list wins; the stale one is discarded. Queried as row headers, because
+    // every counter name also labels an option in each computer's dropdown.
+    expect(await counterRow('Back Counter')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('rowheader', { name: /Front Counter/ }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+});
+
 describe('recovery', () => {
   it('can be refreshed by hand', async () => {
     const user = userEvent.setup();

@@ -21,7 +21,7 @@
  * on all three endpoints — hiding the tab is a courtesy, not the control (NFR-SEC-004).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { adminCounters } from '@/api/endpoints';
 import { ApiError, describeError } from '@/api/errors';
@@ -48,7 +48,20 @@ export function CountersScreen({ canManage }: CountersScreenProps) {
   // one dropdown resetting the other.
   const [choice, setChoice] = useState<Record<string, string>>({});
 
+  // Discards a response that a newer request has already superseded.
+  //
+  // Two `load()` calls overlap routinely: one on mount, another the moment an assignment
+  // succeeds. Without this, the slower of the two wins whichever order they arrive in, so
+  // a successful assignment could be painted over by the list as it was *before* it — the
+  // row showing "Not set to a counter" under a message saying it had just been set. That
+  // is what the full-stack suite caught on the runner, intermittently, after passing
+  // locally. `DailyBills` discards a late response for the same reason (FR-RPT-002); this
+  // screen should have from the start.
+  const latestLoad = useRef(0);
+
   const load = useCallback(async () => {
+    const sequence = latestLoad.current + 1;
+    latestLoad.current = sequence;
     setLoaded(null);
     setError(null);
     try {
@@ -56,8 +69,10 @@ export function CountersScreen({ canManage }: CountersScreenProps) {
         adminCounters.list(),
         adminCounters.listDevices(),
       ]);
+      if (sequence !== latestLoad.current) return;
       setLoaded({ counters, devices });
     } catch (caught) {
+      if (sequence !== latestLoad.current) return;
       setLoaded({ counters: [], devices: [] });
       setError(
         caught instanceof ApiError
