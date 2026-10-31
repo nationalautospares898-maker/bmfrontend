@@ -36,30 +36,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: bmfrontend
+      # The structural suite's permission check reads the backend's own enum from
+      # `../bmbackend/src/bm/domain/auth/permissions.py` — deliberately, because
+      # duplicating the vocabulary here is what let the Customers screen be gated on
+      # `customers.write`, a permission that does not exist, with no symptom beyond an
+      # invisible button. The check is only meaningful across the two repositories, so
+      # the sibling has to be present. It passed on developer machines (where it is) and
+      # failed the moment CI actually ran it (where it was not).
+      - uses: actions/checkout@v4
+        with:
+          repository: nationalautospares898-maker/bmbackend
+          path: bmbackend
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: bmfrontend/package-lock.json
       - run: npm ci
+        working-directory: bmfrontend
       - name: Format
         run: npm run format:check
+        working-directory: bmfrontend
       - name: Lint
         run: npm run lint
+        working-directory: bmfrontend
       - name: Types
         # `tsc -b --force`, not `tsc --noEmit`. See the note at the top of this file.
         run: npm run typecheck
+        working-directory: bmfrontend
       - name: Tests
         # Includes the structural suite, which enforces the hard rules in CLAUDE.md §5:
         # no token in storage, no money arithmetic outside lib/money.ts, no /api/ route
         # in the service-worker cache, no invented document title.
         run: npm run test:coverage
+        working-directory: bmfrontend
       - name: Build
         run: npm run build
+        working-directory: bmfrontend
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage
-          path: coverage
+          path: bmfrontend/coverage
 
   contract:
     name: Generated API types match the backend contract
@@ -159,6 +179,13 @@ jobs:
           --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       BM_E2E_API_URL: http://localhost:8000
+      # The spec defaults the username and password, but **not** the counter: without
+      # `BM_E2E_COUNTER_ID` it sends `counter_id: ""` and every finalisation is a 422.
+      # These are the fixed ids `scripts/seed_e2e_tenant.py` creates.
+      BM_E2E_USERNAME: e2e-owner
+      BM_E2E_PASSWORD: e2e-only-not-a-real-password-01
+      BM_E2E_COUNTER_ID: 0192f100-0000-7000-8000-0000000000c1
+      BM_E2E_DEVICE_ID: 0192f100-0000-7000-8000-0000000000d1
       BM_MIGRATION_DATABASE_URL: postgresql+psycopg://bm_migrate:ci_only_password@localhost:5432/bm_e2e
       BM_DATABASE_URL: postgresql+psycopg://bm_migrate:ci_only_password@localhost:5432/bm_e2e
       # `local`, not `test`: outside local development the refresh cookie is correctly

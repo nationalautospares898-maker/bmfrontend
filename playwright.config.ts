@@ -23,7 +23,13 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
+  // `github` on CI emits `::error` annotations carrying the actual assertion text, so a
+  // failure is diagnosable from the run summary alone. Without it a failing job reports
+  // only "Process completed with exit code 1", and the HTML report needs credentials to
+  // download — which is how a red run stays a mystery.
+  reporter: process.env.CI
+    ? [['github'], ['list'], ['html', { open: 'never' }]]
+    : [['list']],
 
   use: {
     baseURL: `http://localhost:${PORT}`,
