@@ -281,7 +281,26 @@ export function AppShell() {
           </Panel>
         ) : (
           <Suspense fallback={<Busy label={COMMON.loading} />}>
-            {screen === 'billing' ? (
+            {/* No counter: say so, rather than spin.
+                `BillingCounter` renders `Busy("Opening your bills")` until its draft
+                store is ready, and the store is only initialised once a counter is
+                known. So when the server cannot tell us which counter this machine is,
+                the billing screen used to sit on that spinner **for ever** — no error,
+                no retry, nothing to act on. A freshly installed counter PC looked
+                broken in a way nobody could diagnose from the screen.
+                The server-side cause is fixed (bootstrap now resolves the counter from
+                the registered device), so this is the genuinely-unassigned case: it is
+                reported as itself, and it names the action that resolves it. No counter
+                is invented client-side — the client must never make up business
+                identity (rule 15). */}
+            {screen === 'billing' && !bootstrap?.counter ? (
+              <Panel tone="danger" title="This computer is not assigned to a counter">
+                Billing needs to know which counter this computer is. Ask the owner to
+                assign it in Devices, then sign in again. Any bills already saved on this
+                computer are safe.
+              </Panel>
+            ) : null}
+            {screen === 'billing' && bootstrap?.counter ? (
               <BillingCounter
                 policy={policy}
                 online={online}

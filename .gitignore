@@ -32,8 +32,25 @@ build/
 dev-dist/
 
 # --- Generated API types -----------------------------------------------------
-# Regenerated with `npm run api:types` (ADR-029); never hand-edited.
-src/api/generated/
+# `src/api/generated/` is regenerated with `npm run api:types` (ADR-029) and is never
+# hand-edited — but it **is** committed, and this is the note explaining why it is not
+# listed here.
+#
+# It used to be ignored, and that broke the repository in two ways at once:
+#
+#  1. `src/api/types.ts` does `import type { components } from './generated/schema'`, so
+#     a fresh clone could not typecheck or build at all. `tsc -b` failed with
+#     `TS2307: Cannot find module './generated/schema'`, every type derived from
+#     `components` collapsed to `any`, and `eslint` then reported **566**
+#     `no-unsafe-*` errors across 14 files. That is what was failing CI, not the code.
+#  2. The `contract` job's own check is `git diff --exit-code src/api/generated/` — which
+#     can only ever mean anything if the file is tracked. Ignoring it made the one job
+#     that exists to stop hand-editing generated code silently vacuous.
+#
+# Committing it keeps ADR-029 intact: the file is still generated, and the `contract` job
+# regenerates it and fails on any difference, so a hand edit is still caught. What
+# changes is that the build is now hermetic — a clone builds without first needing the
+# backend repository next to it.
 
 # --- Test and tooling output -------------------------------------------------
 coverage/

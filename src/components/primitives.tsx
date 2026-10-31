@@ -147,6 +147,14 @@ export interface PanelProps {
  *
  * A toast can be missed while someone is looking at a customer, and these block a sale
  * (PRD §6.1). The panel sits above the action buttons and stays until it is resolved.
+ *
+ * The title is an `h2`, not an `h3`. A panel is always a direct child of a screen whose
+ * own title is the `h1`, so an `h3` skipped a level and axe reported `heading-order` —
+ * found for real by the browser accessibility suite, and reproduced in
+ * `SyncPanel.test.tsx`. `h2` cannot create a skip anywhere this primitive is used:
+ * moving *up* a heading level is always valid, so a panel nested under a deeper heading
+ * stays correct too. The visible size comes from `text-base`, so nothing about the
+ * design changes.
  */
 export function Panel({ tone = 'info', title, children, actions }: PanelProps) {
   return (
@@ -156,7 +164,7 @@ export function Panel({ tone = 'info', title, children, actions }: PanelProps) {
       aria-live="assertive"
       className={classes('rounded border-l-4 p-4', TONES[tone])}
     >
-      {title ? <h3 className="text-base font-semibold">{title}</h3> : null}
+      {title ? <h2 className="text-base font-semibold">{title}</h2> : null}
       <div className="mt-1 text-sm">{children}</div>
       {actions ? <div className="mt-3 flex flex-wrap gap-2">{actions}</div> : null}
     </section>

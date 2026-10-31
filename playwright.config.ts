@@ -48,5 +48,12 @@ export default defineConfig({
     port: PORT,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // `VITE_API_BASE_URL` is read at **build** time (`src/api/client.ts`), so it has to
+    // be set for the build rather than for the browser. When `BM_E2E_API_URL` is
+    // present the bundle talks to that real backend; when it is absent the default
+    // `/api/v1` keeps the stubbed suites working exactly as before.
+    env: process.env.BM_E2E_API_URL
+      ? { VITE_API_BASE_URL: `${process.env.BM_E2E_API_URL.replace(/\/$/, '')}/api/v1` }
+      : {},
   },
 });

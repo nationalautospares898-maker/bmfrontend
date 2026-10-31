@@ -1,5 +1,26 @@
 name: CI
 
+# Two things in this file were not doing what they appeared to do, and the audit of
+# 30 October 2026 found both:
+#
+#  1. **The `e2e` job was `if: false`.** It had been disabled pending the Playwright
+#     specs, the specs landed with M17–M22, and the flag was never removed. So the
+#     offline boundary, the keyboard-only flow and the print snapshots were never run
+#     by CI. It is enabled below, together with a new browser accessibility job.
+#  2. **Nothing in this workflow actually passed.** `src/api/generated/` was
+#     `.gitignore`d while `src/api/types.ts` imports from it, so on a fresh checkout
+#     `tsc -b` failed with `TS2307: Cannot find module './generated/schema'`, every type
+#     derived from it collapsed to `any`, and `eslint` reported **566** `no-unsafe-*`
+#     errors across 14 files. The generated types are now committed — which is also what
+#     the `contract` job's `git diff --exit-code` always assumed — so the build is
+#     hermetic and the type-aware lint has types to work with.
+#
+# A third, quieter one: `npm run typecheck` was `tsc --noEmit` against a solution-style
+# `tsconfig.json` whose `files` array is empty. It checked **nothing** and could never
+# fail. It is now `tsc -b --force`, which builds all three referenced projects; a
+# deliberate type error in `src/lib/format.ts` exits 2 under the new script and exited 0
+# under the old one.
+
 on:
   push:
     branches: [main]
@@ -25,6 +46,7 @@ jobs:
       - name: Lint
         run: npm run lint
       - name: Types
+        # `tsc -b --force`, not `tsc --noEmit`. See the note at the top of this file.
         run: npm run typecheck
       - name: Tests
         # Includes the structural suite, which enforces the hard rules in CLAUDE.md §5:
@@ -44,29 +66,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: bmfrontend
+      # ADR-029: `src/api/generated/` is never hand-edited. The committed file is
+      # regenerated from the backend's published OpenAPI document and any difference
+      # fails here.
+      #
+      # The backend is checked out alongside rather than skipped. The previous form
+      # tested `if [ ! -f ../bmbackend/openapi.json ]` and exited 0 with a notice —
+      # and since nothing ever checked the backend out, that branch was the only one
+      # that ever ran. A gate whose happy path is "not available yet" is not a gate.
+      - uses: actions/checkout@v4
+        with:
+          repository: nationalautospares898-maker/bmbackend
+          path: bmbackend
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: bmfrontend/package-lock.json
       - run: npm ci
-      # ADR-029: `src/api/generated/` is never hand-edited. Once the backend publishes
-      # its OpenAPI document in CI, this step regenerates and fails on a diff, so
-      # hand-written types cannot drift from the contract.
+        working-directory: bmfrontend
       - name: Regenerate and diff
+        working-directory: bmfrontend
         run: |
-          if [ ! -f ../bmbackend/openapi.json ]; then
-            echo "::notice::Backend OpenAPI document not available in this workflow yet."
-            echo "::notice::Wired when M16 lands the generated client (ADR-029)."
-            exit 0
-          fi
+          test -f ../bmbackend/openapi.json
           npm run api:types
           git diff --exit-code src/api/generated/
 
   e2e:
     name: End-to-end, offline and print
     runs-on: ubuntu-latest
-    # Playwright specs land with M17-M22 (real setOffline, PDF print snapshots, axe).
-    if: false
+    # Enabled. This was `if: false` from before the specs existed.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,7 +106,132 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Offline, keyboard and back-office specs
+        run: npx playwright test tests/e2e/offline-and-keyboard.spec.ts tests/e2e/back-office-screens.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-e2e
+          path: playwright-report
+
+  accessibility:
+    name: Accessibility in a real browser
+    runs-on: ubuntu-latest
+    # Audit Issue E. The jsdom axe checks cannot evaluate colour contrast — there is no
+    # layout and no canvas, so the rule errors into `incomplete` and a suite asserting
+    # `violations == []` passes while proving nothing about contrast. This job runs axe
+    # in Chromium against the built application, and one of its tests asserts that the
+    # contrast rule produced an actual verdict rather than silently not running.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: axe (WCAG 2.2 AA) on every screen
+        run: npx playwright test tests/e2e/accessibility.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-accessibility
+          path: playwright-report
+
+  full-stack:
+    name: Full stack against a real backend
+    runs-on: ubuntu-latest
+    # Audit Issue F. Every other suite in this repository stubs the API at the network
+    # layer, so none of them proves the built client can talk to the real server. This
+    # job runs the real FastAPI application against a disposable PostgreSQL, seeds an
+    # isolated tenant, and drives the built front end against it with **no route
+    # interception at all** — the spec fails if any `page.route` is registered.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bm_migrate
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: bm_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bm_migrate -d bm_e2e"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      BM_E2E_API_URL: http://localhost:8000
+      BM_MIGRATION_DATABASE_URL: postgresql+psycopg://bm_migrate:ci_only_password@localhost:5432/bm_e2e
+      BM_DATABASE_URL: postgresql+psycopg://bm_migrate:ci_only_password@localhost:5432/bm_e2e
+      # `local`, not `test`: outside local development the refresh cookie is correctly
+      # marked `Secure` (`auth.py`: `secure=settings.env != "local"`), and a browser will
+      # not store a Secure cookie delivered over plain HTTP — so the session could never
+      # be refreshed and the counter would never finish booting. `docker-compose.yml`
+      # runs the API as `local` for the same reason. Nothing about the cookie code is
+      # weakened; the suite simply runs the configuration that serves plain HTTP.
+      BM_ENV: local
+      BM_JWT_SIGNING_KEY: ci-only-signing-key-not-a-secret-abcdefgh
+      BM_PASSWORD_PEPPER: ci-only-password-pepper-not-a-secret-abcd
+      BM_IP_HASH_PEPPER: ci-only-ip-hash-pepper-not-a-secret-abcde
+      BM_CORS_ALLOWED_ORIGINS: http://localhost:4173
+      BM_LOG_FORMAT: console
+      BM_STORAGE_BACKEND: local
+      BM_STORAGE_PATH: /tmp/bm-e2e-storage
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bmfrontend
+      - uses: actions/checkout@v4
+        with:
+          repository: nationalautospares898-maker/bmbackend
+          path: bmbackend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bmfrontend/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Create the backend environment
+        working-directory: bmbackend
+        run: |
+          uv python install 3.11
+          uv venv --python 3.11
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install the backend
+        working-directory: bmbackend
+        run: uv pip install -e "."
+      - name: Migrate and seed an isolated tenant
+        working-directory: bmbackend
+        run: |
+          alembic upgrade head
+          python scripts/seed_e2e_tenant.py
+      - name: Start the API
+        working-directory: bmbackend
+        run: |
+          # `bm.main` exposes a `create_app(settings)` factory, not a module-level
+          # `app` — the same invocation the Dockerfile uses.
+          nohup uvicorn bm.main:create_app --factory --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:8000/healthz && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/healthz
+      - run: npm ci
+        working-directory: bmfrontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: bmfrontend
+      - name: Full-stack specs (no mocked responses)
+        working-directory: bmfrontend
+        run: npx playwright test tests/e2e/full-stack.spec.ts
+      - name: API log
+        if: failure()
+        run: cat /tmp/api.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-full-stack
+          path: bmfrontend/playwright-report
 
   secrets:
     name: Secret scan

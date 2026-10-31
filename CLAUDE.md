@@ -23,15 +23,32 @@ permissions. This client renders and never second-guesses it.
 
 ## 2. Current state — verified, not assumed
 
-**As of 2026-10-30 this repository contains documentation only.** No source, no `package.json`.
-It **is** now a Git repository connected to `github.com/nationalautospares898-maker/bmfrontend`,
-holding the documentation baseline and nothing else.
-Phase 1 produced documentation only. **Phase 2 also produced documentation only** — planning
-artifacts, no code.
+**As of 2026-10-31 this repository contains a working counter application.** `src/` holds the
+shell, the billing counter, the back-office screens, the print layout, the Dexie stores and the
+sync scheduler; `tests/e2e/` holds the Playwright suites; `package.json`, `vite.config.ts`,
+`vitest.config.ts`, `playwright.config.ts` and `.github/workflows/ci.yml` are all present.
 
-**Current phase: Phase 2 CLOSED (planning). Phase 3 (implementation) has not started.**
-Before writing any code read `docs/PHASE-2-INDEX.md`, then your milestone's **"must not build yet"**
-row in the plan. Three things specifically affect this repository:
+Phase 1 and Phase 2 did produce documentation only, and the closure reports recording that remain
+accurate **as records of those phases**. The sentence that used to stand here — that the repository
+contains documentation only — stopped being true once Phase 3 began committing code, and the
+30 October 2026 audit found it still in place.
+
+**Current phase: Phase 3 (implementation) in progress.** Phase 2 remains CLOSED as a planning
+phase. Read `docs/PHASE-2-INDEX.md` for the decisions and your milestone's row in the plan.
+
+⚠️ **Three things the audit found that this file previously implied were fine, and were not:**
+
+- **CI had never passed.** `src/api/generated/` was `.gitignore`d while `src/api/types.ts` imports
+  from it, so on a fresh checkout `tsc -b` failed with `TS2307`, every derived type collapsed to
+  `any`, and `eslint` reported **566** `no-unsafe-*` errors. The generated types are now committed
+  — which is also what the `contract` job's `git diff --exit-code` always assumed.
+- **`npm run typecheck` checked nothing.** It was `tsc --noEmit` against a solution-style
+  `tsconfig.json` with an empty `files` array, so it could never fail. It is now `tsc -b --force`.
+- **The `e2e` job was `if: false`**, left over from before the specs existed. It is enabled, and
+  joined by an `accessibility` job (axe in Chromium, where contrast can actually be computed) and a
+  `full-stack` job that runs the built client against a real backend with no interception.
+
+Three things specifically affect this repository:
 
 - **The credit UI must never reinstate a credit-details form.** `Credit Bill` finalises in
   **one** request from the billing screen; only a persisted `customer_id` + name is required, payment
@@ -53,10 +70,13 @@ row in the plan. Three things specifically affect this repository:
 
 Therefore:
 - **Never claim a file, component, hook or test exists without reading it first.**
-- The stack below is a **proposal from `docs/DECISIONS.md`**, not verified existing code. If you find
-  code that contradicts it, the code is the fact — read it and reconcile the documentation rather
-  than rewriting the code to match the docs.
-- Do not say "tests pass" or "the build is green" unless you ran it and saw output.
+- The stack below **was** a proposal from `docs/DECISIONS.md`; it is now largely implemented. Where
+  code and documentation disagree, the code is the fact — read it and reconcile the documentation
+  rather than rewriting the code to match the docs.
+- Do not say "tests pass" or "the build is green" unless you ran it and saw output. A jsdom axe run
+  asserting `violations == []` is specifically **not** evidence about colour contrast: the rule
+  cannot execute without a layout, so it errors into `incomplete` and the assertion passes while
+  proving nothing. Contrast is checked in `tests/e2e/accessibility.spec.ts`, in a browser.
 
 ---
 
