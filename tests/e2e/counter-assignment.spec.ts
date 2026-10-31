@@ -44,6 +44,18 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const API_URL = process.env.BM_E2E_API_URL;
+/**
+ * Set when the preview server proxies `/api` to the backend — the **only** CSP-clean
+ * way to reach an isolated database.
+ *
+ * The app's CSP is `connect-src 'self' http://localhost:8000`, so an absolute API base
+ * is permitted for exactly one port, and on a developer machine that port is the live
+ * shop instance. Through the proxy the origin is empty and the URL is relative, so it
+ * satisfies `'self'` whatever port the API is on. The CSP is not widened.
+ */
+const PROXIED = Boolean(process.env.BM_DEV_API_PROXY);
+/** Prefix for in-page fetches: empty (same origin) when proxied. */
+const ORIGIN = PROXIED ? '' : (API_URL ?? '');
 
 const USERNAME = process.env.BM_E2E_USERNAME ?? 'e2e-owner';
 const PASSWORD = process.env.BM_E2E_PASSWORD ?? 'e2e-only-not-a-real-password-01';
@@ -66,8 +78,9 @@ const COUNTER_TWO_NAME = 'Counter 2';
 const UNASSIGNED = 'Not set to a counter';
 
 test.skip(
-  !API_URL,
-  'BM_E2E_API_URL is not set — run the backend and seed scripts/seed_e2e_tenant.py first.',
+  !API_URL && !PROXIED,
+  'Needs a real backend: set BM_DEV_API_PROXY (preferred — works with an isolated ' +
+    'database) or BM_E2E_API_URL, and seed scripts/seed_e2e_tenant.py first.',
 );
 
 /**
@@ -175,7 +188,7 @@ async function restoreSeededAssignments(page: Page): Promise<void> {
       return [await put(ownerDevice, ownerCounter), await put(target, null)];
     },
     [
-      API_URL ?? '',
+      ORIGIN,
       accessToken,
       OWNER_DEVICE_ID,
       OWNER_COUNTER_ID,
@@ -257,7 +270,7 @@ test.describe('the counter assignment workflow', () => {
         });
         return { status: r.status, requestId: r.headers.get('x-request-id') };
       },
-      [API_URL ?? '', accessToken] as const,
+      [ORIGIN, accessToken] as const,
     );
     expect(response.status).toBe(200);
     expect(

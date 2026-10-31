@@ -28,13 +28,27 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const API_URL = process.env.BM_E2E_API_URL;
+/**
+ * Set when the preview server proxies `/api` to the backend, which is the **only**
+ * CSP-clean way to reach an isolated database.
+ *
+ * The app's CSP is `connect-src 'self' http://localhost:8000`, so an absolute API base
+ * is permitted for exactly one port — and on a developer machine that port is the live
+ * shop instance. Pointing `BM_E2E_API_URL` anywhere else makes the browser block every
+ * request before Playwright can even see it, which is how this suite came to have no
+ * safe way of running at all. Through the proxy the base is **relative**, so it
+ * satisfies `'self'` whatever port the API is on.
+ */
+const PROXIED = Boolean(process.env.BM_DEV_API_PROXY);
+const BASE = PROXIED ? '/api/v1' : `${API_URL ?? ''}/api/v1`;
 
 const USERNAME = process.env.BM_E2E_USERNAME ?? 'e2e-owner';
 const PASSWORD = process.env.BM_E2E_PASSWORD ?? 'e2e-only-not-a-real-password-01';
 
 test.skip(
-  !API_URL,
-  'BM_E2E_API_URL is not set — run the backend and seed scripts/seed_e2e_tenant.py first.',
+  !API_URL && !PROXIED,
+  'Needs a real backend: set BM_DEV_API_PROXY (preferred — works with an isolated ' +
+    'database) or BM_E2E_API_URL, and seed scripts/seed_e2e_tenant.py first.',
 );
 
 /** Unique per run, so a re-run does not collide on a part code. */
@@ -235,7 +249,7 @@ async function createStockedProduct(page: Page): Promise<Created> {
         productBody: JSON.stringify(product.body).slice(0, 300),
       };
     },
-    [`${API_URL}/api/v1`, sku, accessToken],
+    [BASE, sku, accessToken],
   );
 
   expect(
@@ -255,7 +269,7 @@ async function serverStock(page: Page, productId: string): Promise<string> {
       const body = await response.json();
       return String(body.stock?.branch_quantity ?? '0');
     },
-    [`${API_URL}/api/v1`, productId, accessToken],
+    [BASE, productId, accessToken],
   );
 }
 
@@ -275,7 +289,7 @@ test('nothing in this suite is mocked', async ({ page }) => {
       const body = await response.json().catch(() => null);
       return { status: response.status, requestId: body?.error?.request_id ?? null };
     },
-    [`${API_URL}/api/v1`],
+    [BASE],
   );
 
   // A wrong password is refused by the real server, with a real request id.
@@ -375,7 +389,7 @@ test('a cash bill finalises and deducts stock exactly once', async ({ page }) =>
         total: String(firstBody.invoice?.total ?? ''),
       };
     },
-    [`${API_URL}/api/v1`, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
+    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
   );
 
   expect([200, 201]).toContain(result.firstStatus);
@@ -448,7 +462,7 @@ test('a credit bill finalises, and recording a payment does not deduct stock aga
         outstanding: String(saleBody.invoice?.outstanding ?? ''),
       };
     },
-    [`${API_URL}/api/v1`, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
+    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
   );
 
   expect([200, 201]).toContain(result.saleStatus);
@@ -515,7 +529,7 @@ test('Daily Bills shows the bill the server just recorded', async ({ page }) => 
         }),
       });
     },
-    [`${API_URL}/api/v1`, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
+    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
   );
 
   await page.getByRole('button', { name: 'Daily Bills', exact: true }).click();

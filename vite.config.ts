@@ -5,6 +5,21 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+/**
+ * Optional `/api` proxy for local development and browser acceptance tests.
+ *
+ * Inert unless `BM_DEV_API_PROXY` is set, so nothing changes for a normal build.
+ *
+ * It exists because the app's own CSP allows `connect-src 'self' http://localhost:8000`
+ * — correctly, it is a security control and is not being widened. With the proxy the
+ * client keeps its default relative base (`/api/v1`), so requests go to the page's own
+ * origin and satisfy `'self'` whatever port the API is on. That lets an acceptance run
+ * use a throwaway API and database without touching a developer's running instance on
+ * 8000, and without a CORS exemption.
+ */
+const apiProxy = process.env.BM_DEV_API_PROXY;
+const proxy = apiProxy ? { '/api': { target: apiProxy, changeOrigin: true } } : undefined;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -42,6 +57,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    ...(proxy ? { proxy } : {}),
+  },
+  preview: {
+    ...(proxy ? { proxy } : {}),
   },
   build: {
     target: 'es2022',

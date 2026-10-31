@@ -12,7 +12,9 @@
 
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+// Overridable so an acceptance run can use a free port instead of fighting a preview
+// server a developer already has open on 4173.
+const PORT = Number(process.env.BM_E2E_PORT ?? 4173);
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -56,10 +58,30 @@ export default defineConfig({
     timeout: 180_000,
     // `VITE_API_BASE_URL` is read at **build** time (`src/api/client.ts`), so it has to
     // be set for the build rather than for the browser. When `BM_E2E_API_URL` is
-    // present the bundle talks to that real backend; when it is absent the default
-    // `/api/v1` keeps the stubbed suites working exactly as before.
-    env: process.env.BM_E2E_API_URL
-      ? { VITE_API_BASE_URL: `${process.env.BM_E2E_API_URL.replace(/\/$/, '')}/api/v1` }
-      : {},
+    // present the bundle talks to that real backend.
+    //
+    // `BM_DEV_API_PROXY` is forwarded explicitly rather than left to inheritance,
+    // because `vite.config.ts` reads it in the preview process. With it set the bundle
+    // is pinned to the **relative** base, so requests go to the page's own origin and
+    // satisfy the CSP's `connect-src 'self'` whatever port the API is on — which is how
+    // the acceptance suite reaches a throwaway API and database without widening a
+    // security control and without disturbing an instance on 8000.
+    //
+    // That pin is explicit rather than left to the fallback in `client.ts`, because a
+    // developer's git-ignored `.env.local` sets `VITE_API_BASE_URL=http://localhost:8000`
+    // and Vite bakes it into **every** build, this one included. Relying on the default
+    // meant the acceptance build quietly pointed at whatever was on port 8000 — the
+    // live shop instance. Inline `VITE_`-prefixed variables take precedence over
+    // `.env*` files in Vite, so setting it here is what makes the isolation real; the
+    // alternative is a suite that silently tests, or writes to, the wrong database.
+    env: {
+      ...(process.env.BM_DEV_API_PROXY
+        ? { BM_DEV_API_PROXY: process.env.BM_DEV_API_PROXY, VITE_API_BASE_URL: '/api/v1' }
+        : process.env.BM_E2E_API_URL
+          ? {
+              VITE_API_BASE_URL: `${process.env.BM_E2E_API_URL.replace(/\/$/, '')}/api/v1`,
+            }
+          : {}),
+    },
   },
 });

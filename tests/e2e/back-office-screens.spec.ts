@@ -225,6 +225,32 @@ async function stub(page: Page, permissions: string[], role = 'owner'): Promise<
     }),
   );
   await page.route(`${API}/payments**`, (route) => json(route, { items: [] }));
+  // The customer **directory** (`GET /customers`), which the Customers screen now reads
+  // for *who exists* before merging the credit aggregates above onto it. Without this
+  // route the request escapes the stub entirely and the table never leaves "Loading…":
+  // the screen used to read only `/credit/customers`, which cannot contain a customer
+  // who has never bought on credit. Note the `page` block — the directory is
+  // keyset-paged, and a stub without one cannot catch a paging bug.
+  await page.route(`${API}/customers**`, (route) =>
+    json(route, {
+      items: [
+        {
+          id: 'c1',
+          name: 'Rakesh Motors',
+          business_name: 'Rakesh Transport',
+          primary_phone: '9876500011',
+          phones: ['9876500011'],
+          vehicles: ['KA01AB1234'],
+          address_lines: [],
+          default_mechanic_name: null,
+          credit_terms_days: 30,
+          credit_limit: '50000.00',
+          is_active: true,
+        },
+      ],
+      page: { next_cursor: null, has_more: false, limit: 50 },
+    }),
+  );
 
   // Playwright matches routes in **reverse** registration order, so the catch-all goes
   // first and the specific patterns last. Registered the other way round, `/imports**`

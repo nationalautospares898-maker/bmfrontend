@@ -209,18 +209,27 @@ export async function stubApi(
       ],
     }),
   );
+  // The customer **directory** (`GET /customers`). It carries a `page` block, because
+  // it is keyset-paged — a stub without one is a stub that cannot catch a paging bug,
+  // and the screen reads `page.next_cursor` to decide whether to offer "Show more".
   await page.route(`${API}/customers**`, (route) =>
     json(route, {
       items: [
         {
           id: 'c1',
           name: 'Rakesh Motors',
+          business_name: 'Rakesh Transport',
           primary_phone: '9876543210',
-          outstanding: '2000.00',
+          phones: ['9876543210'],
+          vehicles: ['KA01AB1234'],
+          address_lines: [],
+          default_mechanic_name: null,
+          credit_terms_days: 30,
           credit_limit: '50000.00',
           is_active: true,
         },
       ],
+      page: { next_cursor: null, has_more: false, limit: 50 },
     }),
   );
   await page.route(`${API}/imports**`, (route) => json(route, { items: [] }));
