@@ -404,6 +404,12 @@ test.describe('keyboard-only billing', () => {
     await page.keyboard.type('TT-407-BS');
     await expect(page.getByRole('option').first()).toBeVisible();
     await page.keyboard.press('Enter');
+    // Confirms the line actually landed before finalising. `Enter` adds it through a
+    // state update, so pressing `Ctrl+Enter` in the same breath can finalise an empty
+    // bill — which is refused, and then nothing under test ever happens. The sibling
+    // test above already waits here; these two did not, and one of them failed on CI
+    // having never failed locally.
+    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
 
     await page.keyboard.press('Control+Enter');
 
@@ -523,6 +529,7 @@ test.describe('the printed bill', () => {
     await page.keyboard.type('TT-407-BS');
     await expect(page.getByRole('option').first()).toBeVisible();
     await page.keyboard.press('Enter');
+    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
     await page.keyboard.press('Control+Enter');
 
     const bill = page.locator('#print-root .bill');
