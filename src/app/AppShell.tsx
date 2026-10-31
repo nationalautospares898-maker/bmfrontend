@@ -62,6 +62,12 @@ const ImportsScreen = lazy(() =>
   })),
 );
 
+const CountersScreen = lazy(() =>
+  import('@/features/admin/CountersScreen').then((module) => ({
+    default: module.CountersScreen,
+  })),
+);
+
 type Screen =
   | 'billing'
   | 'daily-bills'
@@ -70,6 +76,7 @@ type Screen =
   | 'purchases'
   | 'customers'
   | 'imports'
+  | 'counters'
   | 'sync';
 
 /** `navigator.onLine` is a hint, not a guarantee — the client still handles failures. */
@@ -163,6 +170,11 @@ export function AppShell() {
   const canReceive = session.permissions.has('inventory.receive');
   const canEditCustomers = session.permissions.has('customer.manage');
   const canManageImports = session.permissions.has('imports.manage');
+  // C-2. `admin.settings.manage`, which only the owner holds — a manager has
+  // `admin.devices.manage` and can revoke a stolen till, but choosing which counter a
+  // machine bills as is business configuration. The server enforces this on all three
+  // endpoints; hiding the tab only saves the owner a pointless 403.
+  const canManageCounters = session.permissions.has('admin.settings.manage');
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
@@ -262,6 +274,15 @@ export function AppShell() {
             Imports
           </Button>
         ) : null}
+        {canManageCounters ? (
+          <Button
+            variant={screen === 'counters' ? 'primary' : 'secondary'}
+            onClick={() => setScreen('counters')}
+            aria-current={screen === 'counters' ? 'page' : undefined}
+          >
+            Counters
+          </Button>
+        ) : null}
         <Button
           variant={screen === 'sync' ? 'primary' : 'secondary'}
           onClick={() => setScreen('sync')}
@@ -295,9 +316,9 @@ export function AppShell() {
                 identity (rule 15). */}
             {screen === 'billing' && !bootstrap?.counter ? (
               <Panel tone="danger" title="This computer is not assigned to a counter">
-                Billing needs to know which counter this computer is. Ask the owner to
-                assign it in Devices, then sign in again. Any bills already saved on this
-                computer are safe.
+                Billing needs to know which counter this computer is. Ask the owner to set
+                it on the Counters screen, then sign in again. Any bills already saved on
+                this computer are safe.
               </Panel>
             ) : null}
             {screen === 'billing' && bootstrap?.counter ? (
@@ -322,6 +343,9 @@ export function AppShell() {
               <CustomersScreen canEdit={canEditCustomers} />
             ) : null}
             {screen === 'imports' && canManageImports ? <ImportsScreen /> : null}
+            {screen === 'counters' && canManageCounters ? (
+              <CountersScreen canManage={canManageCounters} />
+            ) : null}
             {screen === 'sync' ? <SyncPanel online={online} /> : null}
           </Suspense>
         )}

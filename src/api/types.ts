@@ -68,7 +68,7 @@ export type PaymentRequest = Schemas['PaymentRequest'];
 export type ReversalResponse = Schemas['ReversalOut'];
 export type CreditCustomersResponse = Schemas['CreditCustomersOut'];
 export type PaymentHistoryList = Schemas['PaymentHistoryListOut'];
-export type PaymentHistoryEntry = Schemas['PaymentHistoryOut-Output'];
+export type PaymentHistoryEntry = Schemas['PaymentHistoryOut'];
 export type CreditCustomer = CreditCustomersResponse['items'][number];
 
 // --- customers ----------------------------------------------------------------
@@ -120,11 +120,14 @@ export type ImportJob = Schemas['ImportJobOut'];
 export type ImportJobs = Schemas['ImportJobsOut'];
 export type ImportRows = Schemas['ImportRowsOut'];
 /**
- * The `-Output` variant: FastAPI publishes two schemas for any model carrying a money
- * or quantity field, because the value is a decimal on the way in and a **string** on
- * the way out (ADR-013). A client only ever sees the output shape.
+ * One schema, not two. FastAPI used to publish `…Out-Input` and `…Out-Output` for any
+ * model carrying a money or quantity field, because the value is a decimal on the way in
+ * and a **string** on the way out (ADR-013); a client only ever saw the output shape.
+ * FastAPI 0.141 unifies the pair when the two shapes agree, so the suffix is gone from
+ * the generated contract for all 18 models that had it. The published field types are
+ * unchanged — only the schema *name* was ever split.
  */
-export type ImportRow = Schemas['ImportRowOut-Output'];
+export type ImportRow = Schemas['ImportRowOut'];
 export type ImportReport = Schemas['ImportReportOut'];
 
 // --- warnings -----------------------------------------------------------------
@@ -134,3 +137,9 @@ export type ImportReport = Schemas['ImportReportOut'];
  * must never break a completed sale (§4.1).
  */
 export type Warning = Schemas['WarningOut'];
+
+// --- counter administration (C-2) ---------------------------------------------
+
+export type Counter = Schemas['CounterOut'];
+export type CounterDevice = Schemas['CounterDeviceOut'];
+export type AdminDevice = Schemas['DeviceOut'];

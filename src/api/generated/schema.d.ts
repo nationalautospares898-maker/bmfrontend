@@ -4,6 +4,44 @@
  */
 
 export interface paths {
+    "/api/v1/admin/counters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Counters */
+        get: operations["list_counters_api_v1_admin_counters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/counters/{counter_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Counter
+         * @description FR-ADMIN-003: a counter's name, draft capacity (minimum 20, C-5) and whether it
+         *     is open for business.
+         */
+        put: operations["update_counter_api_v1_admin_counters__counter_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/devices": {
         parameters: {
             query?: never;
@@ -14,6 +52,30 @@ export interface paths {
         /** List Devices */
         get: operations["list_devices_api_v1_admin_devices_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/devices/{device_id}/counter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign Device Counter
+         * @description Decide which counter a registered computer bills as (C-2).
+         *
+         *     `admin.settings.manage`, not `admin.devices.manage`: this chooses whose takings the
+         *     machine's next sale is attributed to, which is business configuration rather than
+         *     device hygiene. Reasoning in `bm.domain.auth.counters`.
+         */
+        put: operations["assign_device_counter_api_v1_admin_devices__device_id__counter_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1703,17 +1765,7 @@ export interface components {
             invoice_id: string;
         };
         /** AllocationOut */
-        "AllocationOut-Input": {
-            /** Amount */
-            amount: number | string;
-            /**
-             * Invoice Id
-             * Format: uuid
-             */
-            invoice_id: string;
-        };
-        /** AllocationOut */
-        "AllocationOut-Output": {
+        AllocationOut: {
             /** Amount */
             amount: string;
             /**
@@ -1732,6 +1784,18 @@ export interface components {
              */
             strategy: string;
         };
+        /**
+         * AssignCounterRequest
+         * @description `null` detaches the computer from every counter.
+         *
+         *     A sub-resource carrying one field rather than a general `PUT /admin/devices/{id}`:
+         *     this is the only device column an administrator may set here, and a wider body would
+         *     let a counter assignment also rewrite a device's label, branch or revocation state.
+         */
+        AssignCounterRequest: {
+            /** Counter Id */
+            counter_id: string | null;
+        };
         /** Body_upload_import_api_v1_imports_post */
         Body_upload_import_api_v1_imports_post: {
             /**
@@ -1741,10 +1805,7 @@ export interface components {
             allow_duplicate: boolean;
             /** Duplicate Reason */
             duplicate_reason?: string | null;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Intent */
             intent: string;
@@ -1823,27 +1884,7 @@ export interface components {
             id: string;
         };
         /** CachedProductOut */
-        "CachedProductOut-Input": {
-            /** Barcode */
-            barcode: string | null;
-            /** Default Selling Price */
-            default_selling_price: number | string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Name */
-            name: string;
-            /** Sku */
-            sku: string | null;
-            stock: components["schemas"]["StockOut-Input"];
-            unit: components["schemas"]["UnitOut"];
-        };
-        /** CachedProductOut */
-        "CachedProductOut-Output": {
+        CachedProductOut: {
             /** Barcode */
             barcode: string | null;
             /** Default Selling Price */
@@ -1859,7 +1900,7 @@ export interface components {
             name: string;
             /** Sku */
             sku: string | null;
-            stock: components["schemas"]["StockOut-Output"];
+            stock: components["schemas"]["StockOut"];
             unit: components["schemas"]["UnitOut"];
         };
         /** CancelOut */
@@ -1901,7 +1942,7 @@ export interface components {
             /** Next Cursor */
             next_cursor: string | null;
             /** Products */
-            products: components["schemas"]["CachedProductOut-Output"][];
+            products: components["schemas"]["CachedProductOut"][];
             /** Reset Required */
             reset_required: boolean;
             /** Warnings */
@@ -1914,38 +1955,58 @@ export interface components {
             /** New Password */
             new_password: string;
         };
-        /**
-         * CreditCustomerOut
-         * @description Every aggregate is **server-computed**; the client never sums these
-         *     (FR-RPT-030, ADR-032).
-         */
-        "CreditCustomerOut-Input": {
-            /** Ageing */
-            ageing: {
-                [key: string]: string;
-            };
-            customer: components["schemas"]["CreditCustomerRefOut"];
-            /** Days Overdue */
-            days_overdue: number | null;
-            /** Invoice Count */
-            invoice_count: number;
-            /** Oldest Due Date */
-            oldest_due_date: string | null;
-            /** Open Invoice Count */
-            open_invoice_count: number;
-            /** Outstanding */
-            outstanding: number | string;
-            /** Total Invoiced */
-            total_invoiced: number | string;
-            /** Total Paid */
-            total_paid: number | string;
+        /** CounterDeviceOut */
+        CounterDeviceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Last Seen At */
+            last_seen_at: string | null;
+            /** Status */
+            status: string;
+        };
+        /** CounterOut */
+        CounterOut: {
+            /**
+             * Branch Id
+             * Format: uuid
+             */
+            branch_id: string;
+            /** Code */
+            code: string;
+            /** Devices */
+            devices: components["schemas"]["CounterDeviceOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Max Open Drafts */
+            max_open_drafts: number;
+            /** Name */
+            name: string;
+        };
+        /** CounterUpdateRequest */
+        CounterUpdateRequest: {
+            /** Is Active */
+            is_active?: boolean | null;
+            /** Max Open Drafts */
+            max_open_drafts?: number | null;
+            /** Name */
+            name?: string | null;
         };
         /**
          * CreditCustomerOut
          * @description Every aggregate is **server-computed**; the client never sums these
          *     (FR-RPT-030, ADR-032).
          */
-        "CreditCustomerOut-Output": {
+        CreditCustomerOut: {
             /** Ageing */
             ageing: {
                 [key: string]: string;
@@ -1986,7 +2047,7 @@ export interface components {
              */
             as_of: string;
             /** Items */
-            items: components["schemas"]["CreditCustomerOut-Output"][];
+            items: components["schemas"]["CreditCustomerOut"][];
             page: components["schemas"]["Page"];
             /** Summary */
             summary: {
@@ -2030,21 +2091,7 @@ export interface components {
             vehicle_number?: string | null;
         };
         /** DailySalesByDayOut */
-        "DailySalesByDayOut-Input": {
-            /** Bill Count */
-            bill_count: number;
-            /** Credit Sales */
-            credit_sales: number | string;
-            /**
-             * Date
-             * Format: date
-             */
-            date: string;
-            /** Net */
-            net: number | string;
-        };
-        /** DailySalesByDayOut */
-        "DailySalesByDayOut-Output": {
+        DailySalesByDayOut: {
             /** Bill Count */
             bill_count: number;
             /** Credit Sales */
@@ -2058,14 +2105,7 @@ export interface components {
             net: string;
         };
         /** DailySalesByMethodOut */
-        "DailySalesByMethodOut-Input": {
-            /** Collected */
-            collected: number | string;
-            /** Method */
-            method: string;
-        };
-        /** DailySalesByMethodOut */
-        "DailySalesByMethodOut-Output": {
+        DailySalesByMethodOut: {
             /** Collected */
             collected: string;
             /** Method */
@@ -2084,9 +2124,9 @@ export interface components {
             /** Bill Count */
             bill_count: number;
             /** By Day */
-            by_day: components["schemas"]["DailySalesByDayOut-Output"][];
+            by_day: components["schemas"]["DailySalesByDayOut"][];
             /** By Payment Method */
-            by_payment_method: components["schemas"]["DailySalesByMethodOut-Output"][];
+            by_payment_method: components["schemas"]["DailySalesByMethodOut"][];
             /** Cash Sales */
             cash_sales: string;
             /** Collected */
@@ -2182,38 +2222,7 @@ export interface components {
             unit_price: number | string;
         };
         /** DraftItemOut */
-        "DraftItemOut-Input": {
-            /** Catalog Price At Add */
-            catalog_price_at_add: number | string;
-            /** Discount Amount */
-            discount_amount: number | string;
-            /** Discount Percent */
-            discount_percent: number | string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Line No */
-            line_no: number;
-            /** Line Total Preview */
-            line_total_preview: number | string;
-            /** Price Source */
-            price_source: string;
-            /**
-             * Product Id
-             * Format: uuid
-             */
-            product_id: string;
-            /** Product Name */
-            product_name: string;
-            /** Quantity */
-            quantity: number | string;
-            /** Unit Price */
-            unit_price: number | string;
-        };
-        /** DraftItemOut */
-        "DraftItemOut-Output": {
+        DraftItemOut: {
             /** Catalog Price At Add */
             catalog_price_at_add: string;
             /** Discount Amount */
@@ -2271,7 +2280,7 @@ export interface components {
             /** Is Credit Intent */
             is_credit_intent: boolean;
             /** Items */
-            items: components["schemas"]["DraftItemOut-Output"][];
+            items: components["schemas"]["DraftItemOut"][];
             /** Label */
             label: string;
             /** Mechanic Name */
@@ -2280,7 +2289,7 @@ export interface components {
             notes: string | null;
             /** Phone */
             phone: string | null;
-            preview_totals: components["schemas"]["DraftPreviewTotalsOut-Output"];
+            preview_totals: components["schemas"]["DraftPreviewTotalsOut"];
             /** Status */
             status: string;
             /**
@@ -2298,18 +2307,7 @@ export interface components {
          * @description Always advisory. The server recomputes everything at finalisation
          *     (FR-DRAFT-011).
          */
-        "DraftPreviewTotalsOut-Input": {
-            /** Advisory */
-            advisory: boolean;
-            /** Total */
-            total: number | string;
-        };
-        /**
-         * DraftPreviewTotalsOut
-         * @description Always advisory. The server recomputes everything at finalisation
-         *     (FR-DRAFT-011).
-         */
-        "DraftPreviewTotalsOut-Output": {
+        DraftPreviewTotalsOut: {
             /** Advisory */
             advisory: boolean;
             /** Total */
@@ -2402,7 +2400,7 @@ export interface components {
         };
         /** ImportDecisionOut */
         ImportDecisionOut: {
-            row: components["schemas"]["ImportRowOut-Output"];
+            row: components["schemas"]["ImportRowOut"];
         };
         /** ImportJobOut */
         ImportJobOut: {
@@ -2479,49 +2477,7 @@ export interface components {
             row_index: number;
         };
         /** ImportRowOut */
-        "ImportRowOut-Input": {
-            /** Apply Error */
-            apply_error?: string | null;
-            /** Apply Result */
-            apply_result?: string | null;
-            /** Candidate Product Ids */
-            candidate_product_ids: string[];
-            /** Decision */
-            decision: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Match Confidence */
-            match_confidence?: number | string | null;
-            /** Match Status */
-            match_status: string;
-            /** Matched Product Id */
-            matched_product_id?: string | null;
-            /** Matched Product Name */
-            matched_product_name?: string | null;
-            /** Needs Decision */
-            needs_decision: boolean;
-            /** Parsed Name */
-            parsed_name?: string | null;
-            /** Parsed Quantity */
-            parsed_quantity?: number | string | null;
-            /** Parsed Selling Price */
-            parsed_selling_price?: number | string | null;
-            /** Parsed Sku */
-            parsed_sku?: string | null;
-            /** Parsed Unit Cost */
-            parsed_unit_cost?: number | string | null;
-            /** Raw Values */
-            raw_values: {
-                [key: string]: string | null;
-            };
-            /** Row Index */
-            row_index: number;
-        };
-        /** ImportRowOut */
-        "ImportRowOut-Output": {
+        ImportRowOut: {
             /** Apply Error */
             apply_error?: string | null;
             /** Apply Result */
@@ -2565,7 +2521,7 @@ export interface components {
         /** ImportRowsOut */
         ImportRowsOut: {
             /** Rows */
-            rows: components["schemas"]["ImportRowOut-Output"][];
+            rows: components["schemas"]["ImportRowOut"][];
         };
         /**
          * ImportUploadOut
@@ -2609,34 +2565,7 @@ export interface components {
             percent?: number | string | null;
         };
         /** InvoiceItemOut */
-        "InvoiceItemOut-Input": {
-            /** Discount Amount */
-            discount_amount: number | string;
-            /** Line No */
-            line_no: number;
-            /** Line Total */
-            line_total: number | string;
-            /** Product Name Snapshot */
-            product_name_snapshot: string;
-            /** Quantity */
-            quantity: number | string;
-            /** Returned Quantity */
-            returned_quantity: number | string;
-            /** Sku Snapshot */
-            sku_snapshot: string | null;
-            /** Tax Amount */
-            tax_amount: number | string;
-            /** Tax Rate Snapshot */
-            tax_rate_snapshot: number | string;
-            /** Unit Code Snapshot */
-            unit_code_snapshot: string;
-            /** Unit Cost Snapshot */
-            unit_cost_snapshot?: number | string | null;
-            /** Unit Price */
-            unit_price: number | string;
-        };
-        /** InvoiceItemOut */
-        "InvoiceItemOut-Output": {
+        InvoiceItemOut: {
             /** Discount Amount */
             discount_amount: string;
             /** Line No */
@@ -2670,7 +2599,7 @@ export interface components {
              */
             as_of: string;
             /** Items */
-            items: components["schemas"]["InvoiceSummaryOut-Output"][];
+            items: components["schemas"]["InvoiceSummaryOut"][];
             page: components["schemas"]["Page"];
         };
         /**
@@ -2709,7 +2638,7 @@ export interface components {
              */
             issued_at: string;
             /** Items */
-            items: components["schemas"]["InvoiceItemOut-Output"][];
+            items: components["schemas"]["InvoiceItemOut"][];
             /** Money Policy Version */
             money_policy_version: number;
             /** Outstanding */
@@ -2734,42 +2663,7 @@ export interface components {
             total: string;
         };
         /** InvoiceSummaryOut */
-        "InvoiceSummaryOut-Input": {
-            /** Amount Paid */
-            amount_paid: number | string;
-            /** Counter */
-            counter: string;
-            /** Customer Id */
-            customer_id: string | null;
-            /** Customer Name */
-            customer_name: string | null;
-            /** Due Date */
-            due_date: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Internal Reference */
-            internal_reference: string;
-            /** Is Credit */
-            is_credit: boolean;
-            /**
-             * Issued At
-             * Format: date-time
-             */
-            issued_at: string;
-            /** Outstanding */
-            outstanding: number | string;
-            /** Payment Status */
-            payment_status: string;
-            /** Status */
-            status: string;
-            /** Total */
-            total: number | string;
-        };
-        /** InvoiceSummaryOut */
-        "InvoiceSummaryOut-Output": {
+        InvoiceSummaryOut: {
             /** Amount Paid */
             amount_paid: string;
             /** Counter */
@@ -2912,7 +2806,7 @@ export interface components {
         /** PaymentHistoryListOut */
         PaymentHistoryListOut: {
             /** Items */
-            items: components["schemas"]["PaymentHistoryOut-Output"][];
+            items: components["schemas"]["PaymentHistoryOut"][];
         };
         /**
          * PaymentHistoryOut
@@ -2923,40 +2817,7 @@ export interface components {
          *     refused, because `String(someObject)` yields `[object Object]` on a screen showing
          *     money.
          */
-        "PaymentHistoryOut-Input": {
-            /** Allocated */
-            allocated?: number | string | null;
-            /** Amount */
-            amount: number | string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Invoice Id */
-            invoice_id?: string | null;
-            /** Kind */
-            kind: string;
-            /** Method */
-            method: string;
-            /**
-             * Received At
-             * Format: date-time
-             */
-            received_at: string;
-            /** Reference */
-            reference?: string | null;
-        };
-        /**
-         * PaymentHistoryOut
-         * @description One row of `GET /payments`.
-         *
-         *     Declared for M25: the customer screen shows a payment history, and an undeclared
-         *     response left the client stringifying `unknown` values — which ESLint correctly
-         *     refused, because `String(someObject)` yields `[object Object]` on a screen showing
-         *     money.
-         */
-        "PaymentHistoryOut-Output": {
+        PaymentHistoryOut: {
             /** Allocated */
             allocated?: string | null;
             /** Amount */
@@ -2992,7 +2853,7 @@ export interface components {
         /** PaymentOut */
         PaymentOut: {
             /** Allocations */
-            allocations: components["schemas"]["AllocationOut-Output"][];
+            allocations: components["schemas"]["AllocationOut"][];
             /** On Account */
             on_account: string;
             /**
@@ -3058,20 +2919,7 @@ export interface components {
             is_duplicate: boolean;
         };
         /** PrintLineOut */
-        "PrintLineOut-Input": {
-            /** Item */
-            item: string;
-            /** Price */
-            price: number | string;
-            /** Quantity */
-            quantity: number | string;
-            /** Sl No */
-            sl_no: number;
-            /** Total */
-            total: number | string;
-        };
-        /** PrintLineOut */
-        "PrintLineOut-Output": {
+        PrintLineOut: {
             /** Item */
             item: string;
             /** Price */
@@ -3113,33 +2961,18 @@ export interface components {
             /** Item Row Capacity */
             item_row_capacity: number;
             /** Lines */
-            lines: components["schemas"]["PrintLineOut-Output"][];
-            payment: components["schemas"]["PrintPaymentOut-Output"];
+            lines: components["schemas"]["PrintLineOut"][];
+            payment: components["schemas"]["PrintPaymentOut"];
             /** Print Profile */
             print_profile: string;
             /** Show Credit Block */
             show_credit_block: boolean;
             /** Tax Mode */
             tax_mode: string;
-            totals: components["schemas"]["PrintTotalsOut-Output"];
+            totals: components["schemas"]["PrintTotalsOut"];
         };
         /** PrintPaymentOut */
-        "PrintPaymentOut-Input": {
-            /** Amount Paid */
-            amount_paid: number | string;
-            /** Due Date */
-            due_date: string | null;
-            /** Is Credit */
-            is_credit: boolean;
-            /** Method */
-            method: string | null;
-            /** Outstanding */
-            outstanding: number | string;
-            /** Status */
-            status: string;
-        };
-        /** PrintPaymentOut */
-        "PrintPaymentOut-Output": {
+        PrintPaymentOut: {
             /** Amount Paid */
             amount_paid: string;
             /** Due Date */
@@ -3154,20 +2987,7 @@ export interface components {
             status: string;
         };
         /** PrintTotalsOut */
-        "PrintTotalsOut-Input": {
-            /** Discount */
-            discount: number | string;
-            /** Grand Total */
-            grand_total: number | string;
-            /** Rounding */
-            rounding: number | string;
-            /** Subtotal */
-            subtotal: number | string;
-            /** Tax */
-            tax: number | string | null;
-        };
-        /** PrintTotalsOut */
-        "PrintTotalsOut-Output": {
+        PrintTotalsOut: {
             /** Discount */
             discount: string;
             /** Grand Total */
@@ -3232,7 +3052,7 @@ export interface components {
             name: string;
             /** Sku */
             sku: string | null;
-            stock: components["schemas"]["StockOut-Output"] | null;
+            stock: components["schemas"]["StockOut"] | null;
             unit: components["schemas"]["UnitOut"];
         };
         /** ProductSearchOut */
@@ -3306,37 +3126,10 @@ export interface components {
         /** PurchaseListOut */
         PurchaseListOut: {
             /** Items */
-            items: components["schemas"]["PurchaseSummaryOut-Output"][];
+            items: components["schemas"]["PurchaseSummaryOut"][];
         };
         /** PurchaseSummaryOut */
-        "PurchaseSummaryOut-Input": {
-            /** Document Date */
-            document_date?: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Line Count */
-            line_count: number;
-            /** Status */
-            status: string;
-            /** Subtotal */
-            subtotal: number | string;
-            /** Supplier Document Number */
-            supplier_document_number?: string | null;
-            /**
-             * Supplier Id
-             * Format: uuid
-             */
-            supplier_id: string;
-            /** Supplier Name */
-            supplier_name: string;
-            /** Total */
-            total: number | string;
-        };
-        /** PurchaseSummaryOut */
-        "PurchaseSummaryOut-Output": {
+        PurchaseSummaryOut: {
             /** Document Date */
             document_date?: string | null;
             /**
@@ -3561,21 +3354,7 @@ export interface components {
             value: unknown;
         };
         /** StockBalanceOut */
-        "StockBalanceOut-Input": {
-            /** Name */
-            name: string;
-            /**
-             * Product Id
-             * Format: uuid
-             */
-            product_id: string;
-            /** Quantity */
-            quantity: number | string;
-            /** Reorder Level */
-            reorder_level?: number | string | null;
-        };
-        /** StockBalanceOut */
-        "StockBalanceOut-Output": {
+        StockBalanceOut: {
             /** Name */
             name: string;
             /**
@@ -3596,45 +3375,10 @@ export interface components {
              */
             as_of: string;
             /** Items */
-            items: components["schemas"]["StockBalanceOut-Output"][];
+            items: components["schemas"]["StockBalanceOut"][];
         };
         /** StockMovementOut */
-        "StockMovementOut-Input": {
-            /** Balance After */
-            balance_after: number | string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Override Reason */
-            override_reason?: string | null;
-            /** Oversell Override */
-            oversell_override: boolean;
-            /**
-             * Product Id
-             * Format: uuid
-             */
-            product_id: string;
-            /** Quantity Delta */
-            quantity_delta: number | string;
-            /** Reason */
-            reason: string;
-            /**
-             * Source Id
-             * Format: uuid
-             */
-            source_id: string;
-            /** Source Type */
-            source_type: string;
-        };
-        /** StockMovementOut */
-        "StockMovementOut-Output": {
+        StockMovementOut: {
             /** Balance After */
             balance_after: string;
             /**
@@ -3676,17 +3420,10 @@ export interface components {
              */
             as_of: string;
             /** Items */
-            items: components["schemas"]["StockMovementOut-Output"][];
+            items: components["schemas"]["StockMovementOut"][];
         };
         /** StockOut */
-        "StockOut-Input": {
-            /** As Of */
-            as_of: string;
-            /** Branch Quantity */
-            branch_quantity: number | string;
-        };
-        /** StockOut */
-        "StockOut-Output": {
+        StockOut: {
             /** As Of */
             as_of: string;
             /** Branch Quantity */
@@ -3813,6 +3550,10 @@ export interface components {
         };
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -3882,6 +3623,78 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_counters_api_v1_admin_counters_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CounterOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_counter_api_v1_admin_counters__counter_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                counter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CounterUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CounterOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_devices_api_v1_admin_devices_get: {
         parameters: {
             query?: never;
@@ -3902,6 +3715,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeviceOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_device_counter_api_v1_admin_devices__device_id__counter_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignCounterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceOut"];
                 };
             };
             /** @description Validation Error */

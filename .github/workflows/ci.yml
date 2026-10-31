@@ -186,6 +186,11 @@ jobs:
       BM_E2E_PASSWORD: e2e-only-not-a-real-password-01
       BM_E2E_COUNTER_ID: 0192f100-0000-7000-8000-0000000000c1
       BM_E2E_DEVICE_ID: 0192f100-0000-7000-8000-0000000000d1
+      # C-2. A second counter to reassign to, and a device the seed registers with
+      # `counter_id = NULL` — the state a brand-new counter PC is actually in, and the
+      # one `counter-assignment.spec.ts` starts from.
+      BM_E2E_COUNTER_2_ID: 0192f100-0000-7000-8000-0000000000c2
+      BM_E2E_UNASSIGNED_DEVICE_ID: 0192f100-0000-7000-8000-0000000000d2
       BM_MIGRATION_DATABASE_URL: postgresql+psycopg://bm_migrate:ci_only_password@localhost:5432/bm_e2e
       BM_DATABASE_URL: postgresql+psycopg://bm_migrate:ci_only_password@localhost:5432/bm_e2e
       # `local`, not `test`: outside local development the refresh cookie is correctly
@@ -251,6 +256,11 @@ jobs:
       - name: Full-stack specs (no mocked responses)
         working-directory: bmfrontend
         run: npx playwright test tests/e2e/full-stack.spec.ts
+      # Separate step so a counter-assignment failure is distinguishable from a billing
+      # failure in the run summary, rather than both reading "exit code 1".
+      - name: Counter assignment, end to end (C-2)
+        working-directory: bmfrontend
+        run: npx playwright test tests/e2e/counter-assignment.spec.ts
       - name: API log
         if: failure()
         run: cat /tmp/api.log

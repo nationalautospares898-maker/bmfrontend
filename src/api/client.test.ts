@@ -12,7 +12,7 @@
  * - `DRAFT_ALREADY_FINALIZED` is never retried, at all.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { api, configureAuth, resetAuthState } from './client';
 import { ApiError, NetworkError } from './errors';
@@ -49,14 +49,20 @@ function jsonResponse(
   } as unknown as Response;
 }
 
-let fetchMock: ReturnType<typeof vi.fn>;
+// Typed as the real `fetch` rather than a bare `ReturnType<typeof vi.fn>`. Under Vitest 2
+// an untyped `vi.fn()` inferred an `any` return, so every implementation below typechecked
+// whatever it returned; Vitest 4 infers `void` instead, which correctly flags a
+// Promise-returning implementation as `no-misused-promises`. Naming the real signature
+// fixes the cause rather than the symptom — and now a mock that returns the wrong shape is
+// a type error, which is what this file wanted all along.
+let fetchMock: Mock<typeof fetch>;
 
 beforeEach(() => {
   resetAuthState();
   clearSession();
   setDeviceId('device-1');
   setSession(SESSION);
-  fetchMock = vi.fn();
+  fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal('fetch', fetchMock);
   // Real timers on purpose. The backoff schedule starts at one second with jitter, and
   // the retrying tests below allow for that rather than faking a clock the client's own
@@ -285,9 +291,11 @@ describe('the error envelope', () => {
       ok: true,
       status: 204,
       headers: new Headers(),
-      // A partial stub: a 204 has no body, which is the behaviour under test.
+      // A partial stub: a 204 has no body, which is the behaviour under test. Cast the
+      // same way `jsonResponse` above does — the client reads `ok`, `status`, `headers`
+      // and `json`, and a full `Response` would add eleven fields nothing here touches.
       json: () => Promise.reject(new Error('no body')),
-    });
+    } as unknown as Response);
     const result = await api.delete('/drafts/1');
     expect(result.status).toBe(204);
   });

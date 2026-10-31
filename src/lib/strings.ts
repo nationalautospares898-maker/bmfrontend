@@ -368,3 +368,41 @@ export const IMPORTS = {
   needFile: 'Choose a file first.',
   needSupplier: 'A supplier bill import needs to say which supplier it is from.',
 } as const;
+
+// --- counter administration (C-2) ---------------------------------------------
+//
+// Written for the owner, who thinks in tills and computers, not devices and foreign
+// keys. "This computer" rather than "device"; "till" never appears because the rest of
+// the app says "counter" and one word for one thing matters more than the better word.
+
+export const COUNTERS = {
+  title: 'Counters and computers',
+  explainer:
+    'Each computer that makes bills has to be set to a counter. Until it is, that ' +
+    'computer cannot start billing.',
+  countersHeading: 'Counters',
+  devicesHeading: 'Computers',
+  colCounter: 'Counter',
+  colCapacity: 'Bills it can hold open',
+  colComputers: 'Computers on it',
+  colComputer: 'Computer',
+  colAssignedTo: 'Set to',
+  colLastSeen: 'Last used',
+  noCounters: 'This shop has no counters yet. Ask whoever set up the shop to add one.',
+  noDevices: 'No computer has signed in yet.',
+  unassigned: 'Not set to a counter',
+  closed: 'Closed',
+  revoked: 'Blocked',
+  assignLabel: 'Set this computer to',
+  assignAction: 'Save',
+  unassign: 'Take off the counter',
+  assigned: (device: string, counter: string) => `${device} is now set to ${counter}.`,
+  unassigned_ok: (device: string) => `${device} is no longer set to a counter.`,
+  signInAgain: 'That computer needs to sign in again before it can bill.',
+  noPermission:
+    'Only the owner can change which counter a computer is set to. Ask them to do it.',
+  // A revoked machine is refused rather than silently skipped: the administrator chose
+  // it, so they are told why it cannot be used.
+  cannotAssignRevoked:
+    'That computer has been blocked. It has to be registered again before it can bill.',
+} as const;

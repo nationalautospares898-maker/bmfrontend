@@ -50,6 +50,8 @@ import type {
   SupplierList,
   SyncBatchRequest,
   SyncBatchResponse,
+  AdminDevice,
+  Counter,
 } from './types';
 
 // --- auth ---------------------------------------------------------------------
@@ -547,5 +549,45 @@ export const reports = {
   },
   itemSales(params: { from?: string; to?: string }): Promise<Report> {
     return data(api.get<Report>('/reports/item-sales', { params }));
+  },
+};
+
+/**
+ * Counter administration (C-2, FR-ADMIN-003).
+ *
+ * All three require `admin.settings.manage`. Assigning a counter decides whose takings
+ * a machine's next sale is attributed to, so it is held to the settings permission
+ * rather than the weaker `admin.devices.manage` — see `bm.domain.auth.counters` in the
+ * backend for the reasoning.
+ */
+export const adminCounters = {
+  list(): Promise<Counter[]> {
+    return data(api.get<Counter[]>('/admin/counters'));
+  },
+  listDevices(): Promise<AdminDevice[]> {
+    return data(api.get<AdminDevice[]>('/admin/devices'));
+  },
+  update(
+    counterId: string,
+    body: { name?: string; max_open_drafts?: number; is_active?: boolean },
+  ): Promise<Counter> {
+    return data(api.put<Counter>(`/admin/counters/${counterId}`, body));
+  },
+  /**
+   * `counterId: null` detaches the computer from every counter. Not retried
+   * automatically: it is a deliberate administrative act, and a silent retry after an
+   * ambiguous failure could repoint a till the administrator thought they had left
+   * alone.
+   */
+  assignDevice(deviceId: string, counterId: string | null): Promise<AdminDevice> {
+    return data(
+      api.put<AdminDevice>(
+        `/admin/devices/${deviceId}/counter`,
+        {
+          counter_id: counterId,
+        },
+        { retry: 'never' },
+      ),
+    );
   },
 };
