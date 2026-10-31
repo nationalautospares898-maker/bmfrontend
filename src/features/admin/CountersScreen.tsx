@@ -210,7 +210,17 @@ export function CountersScreen({ canManage }: CountersScreenProps) {
                     const isRevoked = device.status === 'revoked';
                     const selected = choice[device.id] ?? device.counter_id ?? '';
                     return (
-                      <tr key={device.id} className="border-t border-slate-200">
+                      // The id is on the row because a computer's *label* is not an
+                      // identity: it is client-supplied and `register_device` rewrites it
+                      // on every login, so two machines routinely share one label. The
+                      // full-stack suite needs to act on a specific computer, and the
+                      // owner reading a bug report needs to be able to say which row they
+                      // meant.
+                      <tr
+                        key={device.id}
+                        data-device-id={device.id}
+                        className="border-t border-slate-200"
+                      >
                         <th scope="row" className="py-2 pr-4 text-left font-normal">
                           {device.label}
                           {isRevoked ? (

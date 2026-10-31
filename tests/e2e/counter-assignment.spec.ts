@@ -185,21 +185,22 @@ function openCounters(page: Page): Promise<void> {
 }
 
 /**
- * Rows of the computers table whose "Set to" cell reads exactly `value`.
+ * The row for one specific computer, by id.
  *
- * Scoped to `td > span` / `td` text rather than `getByText`, because the words
- * "Not set to a counter" also label the blank `option` inside every dropdown — and
- * therefore appear in each `select`'s accessible name as well.
+ * Neither the label nor the current assignment identifies a row reliably. The label is
+ * client-supplied and rewritten on every login, so two machines share one once the till
+ * below signs in; and "the unassigned row" stopped being unique the moment another spec
+ * in the same CI job left a device of its own enrolled with no counter — which is how
+ * this suite first failed on a runner having passed locally. The id is the only identity
+ * a row has, so the screen puts it on the row and every locator here uses it.
  */
-function rowSetTo(page: Page, value: string): Locator {
-  return page.getByRole('row').filter({
-    has: page.locator('td').filter({ hasText: new RegExp(`^${value}$`) }),
-  });
+function deviceRow(page: Page, deviceId: string): Locator {
+  return page.locator(`tr[data-device-id="${deviceId}"]`);
 }
 
-/** The one computer that is set to no counter. */
-function unassignedRow(page: Page): Locator {
-  return rowSetTo(page, UNASSIGNED);
+/** The seeded computer this suite assigns and reassigns. */
+function target(page: Page): Locator {
+  return deviceRow(page, UNASSIGNED_DEVICE_ID);
 }
 
 /** The "Set to" cell of a row — the first cell, since the name is a `rowheader`. */
@@ -216,8 +217,10 @@ test.beforeEach(async ({ page }) => {
   await signInAsOwner(page);
   await restoreSeededAssignments(page);
   await openCounters(page);
-  // The precondition every test below depends on: exactly one unassigned computer.
-  await expect(unassignedRow(page)).toHaveCount(1);
+  // The precondition every test below depends on: the seeded computer is unassigned.
+  // Asserted on that row specifically rather than by counting unassigned rows, because
+  // other specs sharing this database may have enrolled devices of their own.
+  await expect(assignedToCell(target(page))).toHaveText(UNASSIGNED);
 });
 
 test.describe('the counter assignment workflow', () => {
@@ -245,20 +248,23 @@ test.describe('the counter assignment workflow', () => {
     // Draft capacity comes from the real counter rows (C-5's floor of 20).
     await expect(page.getByRole('cell', { name: '20' }).first()).toBeVisible();
     // The owner's own browser is on Counter 1, read back from the server.
-    await expect(rowSetTo(page, COUNTER_ONE_NAME)).toHaveCount(1);
+    await expect(assignedToCell(deviceRow(page, OWNER_DEVICE_ID))).toHaveText(
+      COUNTER_ONE_NAME,
+    );
+    // And the seeded computer is reported as unassigned rather than left blank.
+    await expect(assignedToCell(target(page))).toHaveText(UNASSIGNED);
   });
 
   test('assign, reload the whole application, and the assignment has persisted', async ({
     page,
   }) => {
-    await assignTo(unassignedRow(page), COUNTER_TWO_NAME);
+    await assignTo(target(page), COUNTER_TWO_NAME);
     await expect(page.getByText(/is now set to Counter 2/)).toBeVisible();
 
     // A full reload, not a re-render: persistence through a fresh bootstrap is the claim.
     await page.reload();
     await openCounters(page);
-    await expect(unassignedRow(page)).toHaveCount(0);
-    await expect(rowSetTo(page, COUNTER_TWO_NAME)).toHaveCount(1);
+    await expect(assignedToCell(target(page))).toHaveText(COUNTER_TWO_NAME);
     // And Counter 2's own row now names a computer instead of being empty.
     await expect(
       page
@@ -268,24 +274,26 @@ test.describe('the counter assignment workflow', () => {
   });
 
   test('a computer can be moved from one counter to another', async ({ page }) => {
-    await assignTo(unassignedRow(page), COUNTER_TWO_NAME);
-    await expect(rowSetTo(page, COUNTER_TWO_NAME)).toHaveCount(1);
+    await assignTo(target(page), COUNTER_TWO_NAME);
+    await expect(assignedToCell(target(page))).toHaveText(COUNTER_TWO_NAME);
 
-    // Reassignment is the case with a previous value to get wrong. Counter 1 goes from
-    // one computer (the owner's) to two.
-    await assignTo(rowSetTo(page, COUNTER_TWO_NAME), COUNTER_ONE_NAME);
+    // Reassignment is the case with a previous value to get wrong.
+    await assignTo(target(page), COUNTER_ONE_NAME);
     await expect(page.getByText(/is now set to Counter 1/)).toBeVisible();
-    await expect(rowSetTo(page, COUNTER_ONE_NAME)).toHaveCount(2);
-    await expect(rowSetTo(page, COUNTER_TWO_NAME)).toHaveCount(0);
+    await expect(assignedToCell(target(page))).toHaveText(COUNTER_ONE_NAME);
   });
 
   test('two computers may share one counter', async ({ page }) => {
     // Allowed, deliberately: `OFFLINE-SYNCHRONIZATION.md` calls "the same counter on two
     // devices (a tablet and the counter PC)" the real case its conflict rules exist for.
     // If someone later "fixes" this as a duplicate assignment, this fails.
-    await assignTo(unassignedRow(page), COUNTER_ONE_NAME);
+    await assignTo(target(page), COUNTER_ONE_NAME);
     await expect(page.getByText(/is now set to Counter 1/)).toBeVisible();
-    await expect(rowSetTo(page, COUNTER_ONE_NAME)).toHaveCount(2);
+    // Both this computer and the owner's are now on Counter 1.
+    await expect(assignedToCell(target(page))).toHaveText(COUNTER_ONE_NAME);
+    await expect(assignedToCell(deviceRow(page, OWNER_DEVICE_ID))).toHaveText(
+      COUNTER_ONE_NAME,
+    );
 
     const counterOneRow = page
       .getByRole('row')
@@ -297,32 +305,30 @@ test.describe('the counter assignment workflow', () => {
   test('a computer can be taken off every counter without being revoked', async ({
     page,
   }) => {
-    await assignTo(unassignedRow(page), COUNTER_TWO_NAME);
-    await expect(rowSetTo(page, COUNTER_TWO_NAME)).toHaveCount(1);
+    await assignTo(target(page), COUNTER_TWO_NAME);
+    await expect(assignedToCell(target(page))).toHaveText(COUNTER_TWO_NAME);
 
-    await rowSetTo(page, COUNTER_TWO_NAME)
+    await target(page)
       .getByRole('button', { name: /take off the counter/i })
       .click();
     await expect(page.getByText(/no longer set to a counter/)).toBeVisible();
-    await expect(unassignedRow(page)).toHaveCount(1);
+    await expect(assignedToCell(target(page))).toHaveText(UNASSIGNED);
     // Still registered — unassigning is not revocation (T-4 is a much heavier statement).
-    await expect(unassignedRow(page)).not.toContainText('Blocked');
+    await expect(target(page)).not.toContainText('Blocked');
   });
 
   test('assigning the counter it already has is not an error', async ({ page }) => {
-    await assignTo(unassignedRow(page), COUNTER_TWO_NAME);
+    await assignTo(target(page), COUNTER_TWO_NAME);
     await expect(page.getByText(/is now set to Counter 2/)).toBeVisible();
 
     // Save goes disabled once the choice matches what is set, so a double click cannot
     // send a second request. The server treats a repeat as idempotent anyway
     // (`tests/api/test_counter_assignment.py`).
-    await expect(
-      rowSetTo(page, COUNTER_TWO_NAME).getByRole('button', { name: 'Save' }),
-    ).toBeDisabled();
+    await expect(target(page).getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   test('the dropdown offers the open counters and the blank choice', async ({ page }) => {
-    const options = await unassignedRow(page)
+    const options = await target(page)
       .getByRole('combobox')
       .locator('option')
       .allTextContents();
@@ -340,26 +346,24 @@ test.describe('the counter assignment workflow', () => {
     // aborted; everything else still goes to the real server.
     await page.route('**/admin/devices/*/counter', (route) => route.abort('failed'));
 
-    await assignTo(unassignedRow(page), COUNTER_ONE_NAME);
+    await assignTo(target(page), COUNTER_ONE_NAME);
 
     // Something is said, and it is not a success message.
     await expect(page.getByText(/is now set to/)).toHaveCount(0);
     // The row is still unassigned, and its controls came back so the owner can retry
     // rather than reload.
-    await expect(unassignedRow(page)).toHaveCount(1);
-    await expect(unassignedRow(page).getByRole('combobox')).toBeEnabled();
+    await expect(assignedToCell(target(page))).toHaveText(UNASSIGNED);
+    await expect(target(page).getByRole('combobox')).toBeEnabled();
   });
 
   test('a half-made choice does not survive a reload', async ({ page }) => {
-    await unassignedRow(page)
-      .getByRole('combobox')
-      .selectOption({ label: COUNTER_TWO_NAME });
+    await target(page).getByRole('combobox').selectOption({ label: COUNTER_TWO_NAME });
 
     // Reload without saving. A pending decision that survived would be worse than one
     // that did not: the owner would not know whether it had been applied.
     await page.reload();
     await openCounters(page);
-    await expect(assignedToCell(unassignedRow(page))).toHaveText(UNASSIGNED);
+    await expect(assignedToCell(target(page))).toHaveText(UNASSIGNED);
   });
 });
 
@@ -390,7 +394,7 @@ test.describe('the acceptance path', () => {
     // --- the owner assigns it -------------------------------------------------
     await page.reload();
     await openCounters(page);
-    await assignTo(unassignedRow(page), COUNTER_ONE_NAME);
+    await assignTo(target(page), COUNTER_ONE_NAME);
     await expect(page.getByText(/is now set to Counter 1/)).toBeVisible();
     // The owner is told the till must sign in again, because the counter reaches the
     // client through bootstrap at login.
