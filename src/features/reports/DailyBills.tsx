@@ -11,36 +11,64 @@
  * difference (FR-RPT-002, ADR-032).
  */
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 
 import { credit, invoices, reports } from '@/api/endpoints';
 import { ApiError, describeError } from '@/api/errors';
 import type {
   CreditCustomer,
   DailySales,
+  Invoice,
   InvoiceSummary,
   PrintPayload,
 } from '@/api/types';
 import { asText, humanizeKey } from '@/lib/format';
 import { formatForScreen, parseMoney } from '@/lib/money';
-import { COMMON } from '@/lib/strings';
+import { getBusinessToday } from '@/api/session';
+import { AMEND, COMMON, CREDIT_BILLS } from '@/lib/strings';
 import { Busy, Button, Panel } from '@/components/primitives';
 import { PrintRoot } from '@/features/print/PrintRoot';
+import { AmendBill, type RebuildLine } from './AmendBill';
 import type { MoneyPolicy } from '@/lib/money';
 
 function money(value: string | number): string {
   return formatForScreen(parseMoney(String(value)));
 }
 
-/** `yyyy-mm-dd` in the user's locale day. Used only as a filter the server interprets. */
-function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+/**
+ * The day Daily Bills opens on: **the business's** today, from bootstrap.
+ *
+ * It was `new Date().toISOString().slice(0, 10)` — the browser's calendar date in UTC —
+ * and the server filters on `(issued_at AT TIME ZONE :timezone)::date` in the shop's
+ * timezone. Those two disagree for five and a half hours of every `Asia/Kolkata` day, so
+ * a counter PC set to UTC opened Daily Bills on *yesterday's* business date between
+ * 00:00 and 05:30 local and showed an empty list — with the day's takings sitting in the
+ * database and the owner cashing up against nothing. The server fixed the same defect in
+ * its own report defaults (`reports._today`); the client was still deriving a business
+ * date, which FE-E-3 forbids precisely because of this.
+ *
+ * The fallback only applies before bootstrap has answered, which is also before this
+ * screen can be reached.
+ */
+function openingDay(): string {
+  return getBusinessToday() ?? new Date().toISOString().slice(0, 10);
 }
 
 // --- Daily Bills --------------------------------------------------------------
 
-export function DailyBills({ policy }: { policy: MoneyPolicy }) {
-  const [day, setDay] = useState(() => isoDate(new Date()));
+export interface DailyBillsProps {
+  policy: MoneyPolicy;
+  /**
+   * `billing.sale.cancel`. Without it the correction action is not offered, because
+   * cancellation is the only mechanism behind it and the server would refuse.
+   */
+  canCancel?: boolean | undefined;
+  /** Start a replacement bill from the cancelled one's lines and show Billing. */
+  onRebuild?: ((lines: RebuildLine[]) => Promise<void>) | undefined;
+}
+
+export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsProps) {
+  const [day, setDay] = useState(openingDay);
   const [rows, setRows] = useState<InvoiceSummary[]>([]);
   const [summary, setSummary] = useState<DailySales | null>(null);
   const [busy, setBusy] = useState(true);
@@ -49,6 +77,10 @@ export function DailyBills({ policy }: { policy: MoneyPolicy }) {
     payload: PrintPayload;
     invoiceId: string;
   } | null>(null);
+  /** The bill whose correction dialog is open. */
+  const [amending, setAmending] = useState<InvoiceSummary | null>(null);
+  /** Bumped after a cancellation, to refetch the list and the day's totals. */
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +107,10 @@ export function DailyBills({ policy }: { policy: MoneyPolicy }) {
     return () => {
       cancelled = true;
     };
-  }, [day]);
+    // `reloadToken` so a cancellation refetches: the row's status and the day's net,
+    // collected and credit figures all change, and all of them are the server's to
+    // compute. Adjusting them locally would mean the screen disagreeing with the till.
+  }, [day, reloadToken]);
 
   /**
    * Reprint an existing bill.
@@ -159,7 +194,7 @@ export function DailyBills({ policy }: { policy: MoneyPolicy }) {
               Status
             </th>
             <th scope="col" className="px-2 py-2">
-              <span className="sr-only">Reprint</span>
+              <span className="sr-only">Reprint and correct</span>
             </th>
           </tr>
         </thead>
@@ -187,14 +222,33 @@ export function DailyBills({ policy }: { policy: MoneyPolicy }) {
                 {row.status === 'cancelled' ? 'Cancelled' : row.payment_status}
               </td>
               <td className="px-2 py-2">
-                <Button variant="quiet" onClick={() => void reprint(row.id)}>
-                  Reprint
-                </Button>
+                <div className="flex gap-1">
+                  <Button variant="quiet" onClick={() => void reprint(row.id)}>
+                    Reprint
+                  </Button>
+                  {/* Offered only where it can actually work: a cancelled bill cannot be
+                      cancelled again, and without `billing.sale.cancel` the server would
+                      refuse. A button that is sometimes a 403 is worse than no button. */}
+                  {canCancel && row.status !== 'cancelled' ? (
+                    <Button variant="quiet" onClick={() => setAmending(row)}>
+                      {AMEND.action}
+                    </Button>
+                  ) : null}
+                </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {amending ? (
+        <AmendBill
+          summary={amending}
+          onClose={() => setAmending(null)}
+          onCancelled={() => setReloadToken((token) => token + 1)}
+          onRebuild={onRebuild}
+        />
+      ) : null}
 
       <PrintRoot
         payload={printing?.payload ?? null}
@@ -227,6 +281,28 @@ export function CreditBills() {
   const [customerInvoices, setCustomerInvoices] = useState<InvoiceSummary[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  /** Which invoice's items are on screen, and the items themselves once fetched. */
+  const [openInvoice, setOpenInvoice] = useState<string | null>(null);
+  const [itemsByInvoice, setItemsByInvoice] = useState<Record<string, Invoice>>({});
+  const [itemsBusy, setItemsBusy] = useState<string | null>(null);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+  /**
+   * Invoices already fetched or in flight.
+   *
+   * A ref rather than the `itemsByInvoice` state, so that the guard is read and written
+   * synchronously inside the handler. Two presses in quick succession would otherwise
+   * both see an empty cache — a state update is not visible to the handler that
+   * scheduled it — and start two identical requests for the same bill.
+   */
+  const fetchedItems = useRef<Set<string>>(new Set());
+  /** Which invoice is open, mirrored out of state for the same synchronous reason. */
+  const openInvoiceRef = useRef<string | null>(null);
+
+  // Discards a reply a newer expansion has superseded. The invoice list was a single
+  // shared array with no guard, so opening customer B while A's request was in flight
+  // could render A's bills under B's name. That is a wrong answer, not a slow one.
+  const latestExpand = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,15 +337,68 @@ export function CreditBills() {
   async function expand(customerId: string): Promise<void> {
     if (expanded === customerId) {
       setExpanded(null);
+      openInvoiceRef.current = null;
+      setOpenInvoice(null);
       return;
     }
+    const sequence = latestExpand.current + 1;
+    latestExpand.current = sequence;
     setExpanded(customerId);
-    const list = await invoices.list({
-      customer_id: customerId,
-      is_credit: true,
-      limit: 200,
-    });
-    setCustomerInvoices(list.items);
+    openInvoiceRef.current = null;
+    setOpenInvoice(null);
+    setCustomerInvoices([]);
+    try {
+      const list = await invoices.list({
+        customer_id: customerId,
+        is_credit: true,
+        limit: 200,
+      });
+      if (sequence !== latestExpand.current) return;
+      setCustomerInvoices(list.items);
+    } catch (caught) {
+      if (sequence !== latestExpand.current) return;
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
+    }
+  }
+
+  /**
+   * Open one bill and show what was bought on it.
+   *
+   * Fetched per invoice, on demand, and cached: a customer with forty open bills would
+   * otherwise cost forty requests to render a list nobody has asked to see in detail.
+   * `GET /invoices/{id}` already carries the items, so there is no new contract here.
+   */
+  async function toggleInvoice(invoiceId: string): Promise<void> {
+    if (openInvoiceRef.current === invoiceId) {
+      openInvoiceRef.current = null;
+      setOpenInvoice(null);
+      return;
+    }
+    openInvoiceRef.current = invoiceId;
+    setOpenInvoice(invoiceId);
+    setItemsError(null);
+    if (fetchedItems.current.has(invoiceId)) return;
+    fetchedItems.current.add(invoiceId);
+
+    setItemsBusy(invoiceId);
+    try {
+      const invoice = await invoices.get(invoiceId);
+      setItemsByInvoice((current) => ({ ...current, [invoiceId]: invoice }));
+    } catch (caught) {
+      // Surfaced rather than swallowed: an empty item list and a failed request look
+      // identical on screen, and one of them means "this bill has no products", which
+      // would be alarming and wrong.
+      // Forgotten again, so reopening retries rather than showing an empty bill for
+      // ever.
+      fetchedItems.current.delete(invoiceId);
+      setItemsError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
+    } finally {
+      setItemsBusy((current) => (current === invoiceId ? null : current));
+    }
   }
 
   return (
@@ -342,12 +471,16 @@ export function CreditBills() {
                 </dl>
                 <table className="w-full border-collapse text-sm">
                   <caption className="sr-only">
-                    Credit bills for {entry.customer.name}
+                    Credit bills for {entry.customer.name}. Open a bill to see what was
+                    bought on it.
                   </caption>
                   <thead>
                     <tr className="border-b border-slate-300 text-left">
                       <th scope="col" className="px-2 py-1">
-                        Date
+                        Bill
+                      </th>
+                      <th scope="col" className="px-2 py-1">
+                        When
                       </th>
                       <th scope="col" className="px-2 py-1 text-right">
                         Total
@@ -361,24 +494,142 @@ export function CreditBills() {
                       <th scope="col" className="px-2 py-1">
                         Due
                       </th>
+                      <th scope="col" className="px-2 py-1">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {customerInvoices.map((invoice) => (
-                      <tr key={invoice.id} className="border-b border-slate-200">
-                        <td className="px-2 py-1">
-                          {new Date(invoice.issued_at).toLocaleDateString()}
+                    {customerInvoices.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-2 py-3 text-slate-500">
+                          {CREDIT_BILLS.noOpenBills}
                         </td>
-                        <td className="px-2 py-1 text-right">{money(invoice.total)}</td>
-                        <td className="px-2 py-1 text-right">
-                          {money(invoice.amount_paid)}
-                        </td>
-                        <td className="px-2 py-1 text-right">
-                          {money(invoice.outstanding)}
-                        </td>
-                        <td className="px-2 py-1">{invoice.due_date ?? '—'}</td>
                       </tr>
-                    ))}
+                    ) : null}
+                    {customerInvoices.map((invoice) => {
+                      const isOpen = openInvoice === invoice.id;
+                      const detail = itemsByInvoice[invoice.id];
+                      return (
+                        <Fragment key={invoice.id}>
+                          <tr className="border-b border-slate-200">
+                            <td className="px-2 py-1">
+                              {/* The whole row is the control, so the products are one
+                                  press away rather than hidden behind an icon nobody
+                                  finds. */}
+                              <button
+                                type="button"
+                                onClick={() => void toggleInvoice(invoice.id)}
+                                aria-expanded={isOpen}
+                                className="text-left font-medium text-[#232852] underline"
+                              >
+                                {invoice.internal_reference ?? CREDIT_BILLS.openBill}
+                              </button>
+                            </td>
+                            <td className="px-2 py-1">
+                              {new Date(invoice.issued_at).toLocaleString()}
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              {money(invoice.total)}
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              {money(invoice.amount_paid)}
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              {money(invoice.outstanding)}
+                            </td>
+                            <td className="px-2 py-1">{invoice.due_date ?? '—'}</td>
+                            <td className="px-2 py-1">
+                              {/* Server-derived, displayed verbatim (ADR-022). */}
+                              {invoice.status === 'cancelled'
+                                ? 'Cancelled'
+                                : invoice.payment_status}
+                            </td>
+                          </tr>
+
+                          {isOpen ? (
+                            <tr>
+                              <td colSpan={7} className="bg-white px-2 pb-3">
+                                {itemsBusy === invoice.id ? (
+                                  <Busy label={COMMON.loading} />
+                                ) : null}
+                                {itemsError && !detail ? (
+                                  <Panel tone="danger">{itemsError}</Panel>
+                                ) : null}
+                                {detail ? (
+                                  <table className="w-full border-collapse text-sm">
+                                    <caption className="px-2 py-1 text-left text-xs text-slate-500">
+                                      {CREDIT_BILLS.whatWasBought}
+                                    </caption>
+                                    <thead>
+                                      <tr className="border-b border-slate-200 text-left">
+                                        <th scope="col" className="px-2 py-1">
+                                          Item
+                                        </th>
+                                        <th scope="col" className="px-2 py-1">
+                                          Code
+                                        </th>
+                                        <th scope="col" className="px-2 py-1 text-right">
+                                          Qty
+                                        </th>
+                                        <th scope="col" className="px-2 py-1 text-right">
+                                          Unit price
+                                        </th>
+                                        <th scope="col" className="px-2 py-1 text-right">
+                                          Line total
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {detail.items.map((item) => (
+                                        <tr
+                                          key={item.id}
+                                          className="border-b border-slate-100"
+                                        >
+                                          {/* The snapshots, not the catalogue: this is
+                                              what the bill said when it was issued, and a
+                                              product renamed since must not rewrite
+                                              history (FR-SALE-012). */}
+                                          <td className="px-2 py-1">
+                                            {item.product_name_snapshot}
+                                          </td>
+                                          <td className="px-2 py-1 text-slate-600">
+                                            {item.sku_snapshot ?? '—'}
+                                          </td>
+                                          <td className="px-2 py-1 text-right">
+                                            {item.quantity}
+                                            <span className="ml-1 text-xs text-slate-500">
+                                              {item.unit_code_snapshot}
+                                            </span>
+                                          </td>
+                                          <td className="px-2 py-1 text-right">
+                                            {money(item.unit_price)}
+                                          </td>
+                                          <td className="px-2 py-1 text-right">
+                                            {money(item.line_total)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      <tr>
+                                        <td
+                                          colSpan={4}
+                                          className="px-2 py-1 text-right font-medium"
+                                        >
+                                          {CREDIT_BILLS.billTotal}
+                                        </td>
+                                        <td className="px-2 py-1 text-right font-semibold">
+                                          {money(detail.total)}
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

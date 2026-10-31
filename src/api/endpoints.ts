@@ -457,9 +457,36 @@ export const purchases = {
   ): Promise<{ id: string }> {
     return data(api.put<{ id: string }>(`/suppliers/${supplierId}`, body));
   },
-  list(
-    params: { supplier_id?: string; status?: string; limit?: number } = {},
-  ): Promise<PurchaseList> {
+  /**
+   * The purchase register, newest first.
+   *
+   * **There is deliberately no `status` parameter.** This used to accept and forward
+   * one, and `GET /purchases` (`list_purchases`) declares only `supplier_id` and
+   * `limit`. FastAPI silently drops query parameters it does not declare, so the filter
+   * would have been thrown away and the register would have returned *every* purchase
+   * while the screen said it was showing only drafts — the identical mechanism to the
+   * `is_duplicate`/`copy` defect on `invoices.printPayload` above. Nothing fails,
+   * nothing is logged, and the only symptom is wrong rows presented confidently.
+   *
+   * On this screen that is more than cosmetic. The register's one action is `Confirm`,
+   * and confirming is **the only path that receives stock** (FR-PUR-003), so a list
+   * labelled "draft" that actually contains confirmed rows invites someone to receive
+   * the same delivery twice.
+   *
+   * Declaring it server-side instead was the alternative, and was rejected because
+   * nothing beneath the route can filter yet: `PurchaseService.list_purchases` takes
+   * only `supplier_id` and `limit`, there is no purchases repository, and the `LIMIT`
+   * is applied in SQL. Filtering the rows after they return would yield only the drafts
+   * that happen to fall inside the newest 200 purchases, reading as "no drafts" once
+   * the shop has more than that — a half-working filter, which is this same defect in a
+   * new costume. `API-SPECIFICATION.md` §3.8 does not promise a status filter either.
+   *
+   * When the service learns to filter, declare `status` on the route validated against
+   * the `PurchaseStatus` enum — never as a free string — regenerate `openapi.json`, and
+   * add it back here in that same change. `client.test.ts` holds the client's keys to
+   * the generated contract, so it will widen on its own and not before.
+   */
+  list(params: { supplier_id?: string; limit?: number } = {}): Promise<PurchaseList> {
     return data(api.get<PurchaseList>('/purchases', { params }));
   },
   /** Creates a `draft`. **No stock changes** until it is confirmed (FR-PUR-003). */

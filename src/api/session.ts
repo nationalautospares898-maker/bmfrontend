@@ -46,6 +46,18 @@ let deviceId: string | null = null;
  */
 let serverTimeOffsetMs = 0;
 
+/**
+ * Today, in the **business's** timezone, as the server reported it at bootstrap.
+ *
+ * Stored rather than computed because FE-E-3 forbids the client deriving a business
+ * date, and until bootstrap published this the client had no way to obey: a screen
+ * defaulting a day filter to `new Date()` uses the *browser's* calendar date. On a
+ * counter PC set to UTC that is yesterday's business date for the first five and a half
+ * hours of every `Asia/Kolkata` day, so Daily Bills asked for the wrong day and showed
+ * an empty list — the same defect the server's own `reports._today` documents.
+ */
+let businessToday: string | null = null;
+
 type Listener = (state: SessionState | null) => void;
 const listeners = new Set<Listener>();
 
@@ -99,6 +111,15 @@ export function getDeviceId(): string | null {
 /** Set once at startup from Dexie `meta`, so `X-Device-Id` is stable per browser profile. */
 export function setDeviceId(next: string): void {
   deviceId = next;
+}
+
+/** The business's calendar date, or `null` before bootstrap has answered. */
+export function getBusinessToday(): string | null {
+  return businessToday;
+}
+
+export function setBusinessToday(isoDate: string): void {
+  businessToday = isoDate;
 }
 
 export function setServerTimeOffset(serverTimeIso: string): void {

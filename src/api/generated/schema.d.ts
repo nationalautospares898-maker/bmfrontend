@@ -1870,6 +1870,11 @@ export interface components {
             /** Branch Id */
             branch_id: string | null;
             /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /**
              * Business Id
              * Format: uuid
              */
@@ -2607,10 +2612,20 @@ export interface components {
         InvoiceItemOut: {
             /** Discount Amount */
             discount_amount: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Line No */
             line_no: number;
             /** Line Total */
             line_total: string;
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
             /** Product Name Snapshot */
             product_name_snapshot: string;
             /** Quantity */

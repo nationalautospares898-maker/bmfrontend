@@ -265,6 +265,63 @@ export const PURCHASES = {
     'Saved. Stock has not changed — press “Receive into stock” when the goods are on the shelf.',
 } as const;
 
+// --- Correcting a finalised bill ----------------------------------------------
+//
+// Written to be read by a cashier under pressure with a customer waiting, so it says
+// what will happen in the order it will happen, and names the consequence before asking
+// for a reason. The word "edit" is used for the button because that is what the person
+// is trying to do; the dialog then explains, immediately, that a finalised bill is not
+// altered but replaced — because the alternative is them believing they changed a bill
+// that is in fact still on the record (OD-10, FR-SALE-010, ADR-015).
+
+export const AMEND = {
+  action: 'Edit Bill',
+  title: 'Correct this bill',
+  howItWorksTitle: 'A printed bill cannot be changed',
+  howItWorks:
+    'Once a bill is printed it stays on the record exactly as it was — that is what ' +
+    'makes the day’s takings add up. To correct one, this bill is cancelled and a new ' +
+    'bill is made in its place. Cancelling puts the stock back and, for a credit bill, ' +
+    'cancels what the customer owes. The old bill keeps its number and stays in the ' +
+    'list, marked cancelled.',
+  originalBill: 'What is on this bill now',
+  billTotal: 'Bill total',
+  reason: 'Why is this bill being corrected?',
+  reasonHint: 'Kept as a permanent record. At least a few words.',
+  cancelAndRebuild: 'Cancel it and start the new bill',
+  cancelOnly: 'Just cancel it',
+  cancelledTitle: 'Bill cancelled',
+  cancelledBody:
+    'The stock has been put back and the bill is marked cancelled. It keeps its number ' +
+    'and stays in the list.',
+  creditNoteNote:
+    'This is a credit bill, so cancelling it also cancels what the customer owes for ' +
+    'it. A credit note is recorded against their account.',
+  cashNote: 'Cancelling puts the stock back and marks this bill cancelled.',
+  cashRefundTitle: 'The money is not handled by the system',
+  cashRefundBody: (amount: string) =>
+    `This bill was paid ${amount} in cash. Cancelling it puts the stock back, but this ` +
+    'system does not record cash going out — there is no refund entry anywhere in it. ' +
+    'If you give the money back, that is between you and the till, and nothing here ' +
+    'will show it.',
+  cashRefundAcknowledge:
+    'I understand the refund will not be recorded anywhere, and I will account for the ' +
+    'cash myself.',
+} as const;
+
+// --- Credit Bills: what was actually bought -----------------------------------
+//
+// The screen could say how much a customer owed and which bills were open, but not what
+// any of it was *for* — which is the question asked across the counter when someone
+// queries a balance.
+
+export const CREDIT_BILLS = {
+  openBill: 'Open',
+  whatWasBought: 'What was bought on this bill',
+  billTotal: 'Bill total',
+  noOpenBills: 'No credit bills for this customer.',
+} as const;
+
 export const CUSTOMERS = {
   title: 'Customers',
   searchLabel: 'Find a customer',
@@ -300,6 +357,15 @@ export const CUSTOMERS = {
     'What a customer owes is worked out from their bills and payments. It cannot be typed in.',
   outstandingNow: 'Owed now',
   unpaidBills: 'Unpaid bills',
+  // A dash in a money column, explained. The figures used to be merged from a credit
+  // list the screen asked for with no limit, so the server capped it at twenty rows and
+  // every customer past the cap was drawn as 0.00 owed — then hidden by "Only customers
+  // who owe". The shop could not see those debts and so never chased them. A dash that
+  // says what to do next is recoverable; a confident zero is not.
+  figureUnknown:
+    'A dash under Owed or Unpaid bills means this screen could not read that figure. ' +
+    'It does not mean nothing is owed. Search for the customer by name to see what ' +
+    'they owe, or open Credit Bills for the unpaid bills themselves.',
   // Recording a payment. Said in money terms, not ledger terms: the person at the
   // counter is taking cash off an account, not creating an allocation.
   recordPayment: 'Take a payment',

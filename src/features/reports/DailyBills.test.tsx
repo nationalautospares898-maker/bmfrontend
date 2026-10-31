@@ -36,12 +36,17 @@ const dailySales = vi.fn();
 const printPayload = vi.fn();
 const recordPrintEvent = vi.fn();
 const customers = vi.fn();
+/** `GET /invoices/{id}` — the items of one bill, and the cancellation endpoint. */
+const get = vi.fn();
+const cancel = vi.fn();
 /** The `window.print` stub, so the assertion does not reference an unbound method. */
 let printSpy = vi.fn();
 
 vi.mock('@/api/endpoints', () => ({
   invoices: {
     list: (...args: unknown[]) => list(...args) as unknown,
+    get: (...args: unknown[]) => get(...args) as unknown,
+    cancel: (...args: unknown[]) => cancel(...args) as unknown,
     printPayload: (...args: unknown[]) => printPayload(...args) as unknown,
     recordPrintEvent: (...args: unknown[]) => recordPrintEvent(...args) as unknown,
   },
@@ -203,6 +208,8 @@ beforeEach(() => {
   printPayload.mockReset();
   recordPrintEvent.mockReset();
   customers.mockReset();
+  get.mockReset();
+  cancel.mockReset();
   list.mockResolvedValue({ items: ROWS });
   dailySales.mockResolvedValue(SUMMARY);
   printPayload.mockResolvedValue(PRINT_PAYLOAD);
@@ -673,5 +680,421 @@ describe('Credit Bills', () => {
       rules: { 'color-contrast': { enabled: false } },
     });
     expect(results.violations).toEqual([]);
+  });
+});
+
+// --- the products on a credit bill (the missing third level) -------------------
+
+/** A full invoice, as `GET /invoices/{id}` returns it. */
+function invoiceDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'inv-c1',
+    internal_reference: 'C1/2026/0007',
+    sequence_number: 7,
+    document_kind: 'estimate',
+    status: 'issued',
+    issued_at: '2026-10-30T10:15:00Z',
+    is_credit: true,
+    due_date: '2026-11-15',
+    customer: {
+      id: 'cust-1',
+      name_snapshot: 'Ramesh Motors',
+      business_name_snapshot: null,
+      vehicle_number_snapshot: null,
+      mechanic_name_snapshot: null,
+      phone_snapshot: null,
+    },
+    items: [
+      {
+        id: 'item-1',
+        product_id: 'prod-1',
+        line_no: 1,
+        product_name_snapshot: 'Brake Shoe Set Ace',
+        sku_snapshot: 'BR-4002-E',
+        unit_code_snapshot: 'SET',
+        quantity: '2.000',
+        unit_price: '870.0000',
+        discount_amount: '0.00',
+        tax_rate_snapshot: '0.00',
+        tax_amount: '0.00',
+        line_total: '1740.00',
+        returned_quantity: '0.000',
+      },
+      {
+        id: 'item-2',
+        product_id: 'prod-2',
+        line_no: 2,
+        product_name_snapshot: 'Oil Filter Bolero',
+        sku_snapshot: 'OF-2001-B',
+        unit_code_snapshot: 'NOS',
+        quantity: '1.000',
+        unit_price: '240.0000',
+        discount_amount: '0.00',
+        tax_rate_snapshot: '0.00',
+        tax_amount: '0.00',
+        line_total: '240.00',
+        returned_quantity: '0.000',
+      },
+    ],
+    subtotal: '1980.00',
+    total: '1980.00',
+    amount_paid: '0.00',
+    outstanding: '1980.00',
+    payment_status: 'unpaid',
+    ...overrides,
+  };
+}
+
+describe('Credit Bills shows what was actually bought on each bill', () => {
+  /**
+   * The screen could say a customer owed 1980 across two open bills, and not what any
+   * of it was for — which is the question asked across the counter when a customer
+   * queries their balance. The items were always in `GET /invoices/{id}`; nothing
+   * fetched them.
+   */
+  const CREDIT_ROW = {
+    customer: { id: 'cust-1', name: 'Ramesh Motors', primary_phone: '9876500011' },
+    outstanding: '1980.00',
+    total_invoiced: '1980.00',
+    total_paid: '0.00',
+    invoice_count: 1,
+    open_invoice_count: 1,
+    oldest_due_date: '2026-11-15',
+    days_overdue: 0,
+    ageing: { '0_30': '1980.00' },
+  };
+
+  const CUSTOMER_INVOICE = {
+    id: 'inv-c1',
+    internal_reference: 'C1/2026/0007',
+    issued_at: '2026-10-30T10:15:00Z',
+    customer_name: 'Ramesh Motors',
+    counter: 'C1',
+    is_credit: true,
+    total: '1980',
+    outstanding: '1980',
+    amount_paid: '0',
+    status: 'issued',
+    payment_status: 'unpaid',
+    due_date: '2026-11-15',
+  };
+
+  beforeEach(() => {
+    customers.mockResolvedValue({ items: [CREDIT_ROW], summary: {} });
+    list.mockResolvedValue({ items: [CUSTOMER_INVOICE] });
+    get.mockResolvedValue(invoiceDetail());
+  });
+
+  it('lists the products, quantities and prices of an individual credit bill', async () => {
+    const user = userEvent.setup();
+    render(<CreditBills />);
+
+    await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
+    await user.click(await screen.findByRole('button', { name: 'C1/2026/0007' }));
+
+    // The products, which is the whole point.
+    expect(await screen.findByText('Brake Shoe Set Ace')).toBeInTheDocument();
+    expect(screen.getByText('BR-4002-E')).toBeInTheDocument();
+    expect(screen.getByText('Oil Filter Bolero')).toBeInTheDocument();
+    expect(screen.getByText('OF-2001-B')).toBeInTheDocument();
+    // Fetched from the invoice detail endpoint, by id.
+    expect(get).toHaveBeenCalledWith('inv-c1');
+  });
+
+  it('shows the snapshots, not the current catalogue', async () => {
+    // FR-SALE-012: a product renamed or repriced since must not rewrite what the bill
+    // said. The detail endpoint returns snapshots and the screen renders those.
+    const user = userEvent.setup();
+    render(<CreditBills />);
+    await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
+    await user.click(await screen.findByRole('button', { name: 'C1/2026/0007' }));
+
+    const row = (await screen.findByText('Brake Shoe Set Ace')).closest('tr');
+    expect(row).not.toBeNull();
+    // 2 × 870 as the server computed it, not as the client multiplied it.
+    expect(within(row as HTMLElement).getByText(/1,?740/)).toBeInTheDocument();
+  });
+
+  it('fetches a bill’s items once, however often it is opened', async () => {
+    // A customer with forty open bills must not cost forty requests to render a list
+    // nobody asked to see in detail; and collapsing and reopening one must cost none.
+    const user = userEvent.setup();
+    render(<CreditBills />);
+    await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
+
+    const open = await screen.findByRole('button', { name: 'C1/2026/0007' });
+    await user.click(open);
+    await screen.findByText('Brake Shoe Set Ace');
+    await user.click(open);
+    await user.click(open);
+    await screen.findByText('Brake Shoe Set Ace');
+
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when the items cannot be loaded, rather than showing an empty bill', async () => {
+    // An empty item list and a failed request look identical on screen, and one of them
+    // means "this bill has no products" — alarming, and wrong.
+    get.mockRejectedValue(
+      new ApiError(500, {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'no',
+          details: {},
+          request_id: 'r1',
+          retryable: true,
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<CreditBills />);
+    await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
+    await user.click(await screen.findByRole('button', { name: 'C1/2026/0007' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('Brake Shoe Set Ace')).not.toBeInTheDocument();
+    // Reopening retries rather than showing an empty bill for ever.
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards a customer expansion the user has already moved on from', async () => {
+    // A single shared invoice array with no guard rendered customer A's bills under
+    // customer B's name when A's request was still in flight.
+    const second = {
+      customer: { id: 'cust-2', name: 'Second Customer', primary_phone: null },
+      outstanding: '100.00',
+      total_invoiced: '100.00',
+      total_paid: '0.00',
+      invoice_count: 1,
+      open_invoice_count: 1,
+      oldest_due_date: null,
+      days_overdue: 0,
+      ageing: {},
+    };
+    customers.mockResolvedValue({ items: [CREDIT_ROW, second], summary: {} });
+
+    let releaseFirst: (value: unknown) => void = () => {};
+    list
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({ items: [] });
+
+    const user = userEvent.setup();
+    render(<CreditBills />);
+    await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
+    await user.click(await screen.findByRole('button', { name: /Second Customer/ }));
+
+    // The first customer's reply arrives late. It must not land under the second.
+    await act(async () => {
+      releaseFirst({ items: [CUSTOMER_INVOICE] });
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.queryByRole('button', { name: 'C1/2026/0007' }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+// --- correcting a finalised bill -----------------------------------------------
+
+describe('Edit Bill corrects by cancelling and re-billing, never by editing', () => {
+  /**
+   * A finalised invoice is immutable: OD-10 says "There is no edit path, ever",
+   * FR-SALE-010 makes it P0, and migration 0011 revokes UPDATE on `invoices` and
+   * `invoice_items` from the application role so the database refuses it outright. The
+   * sanctioned correction is cancellation (ADR-015), which was implemented on the server
+   * and reachable from no screen at all.
+   */
+  const CASH_UNPAID = {
+    id: 'inv-9',
+    internal_reference: 'C1/2026/0009',
+    issued_at: '2026-10-30T12:00:00Z',
+    customer_name: null,
+    counter: 'C1',
+    is_credit: false,
+    total: '870',
+    outstanding: '870',
+    amount_paid: '0',
+    status: 'issued',
+    payment_status: 'unpaid',
+    due_date: null,
+  };
+
+  beforeEach(() => {
+    dailySales.mockResolvedValue(SUMMARY);
+    list.mockResolvedValue({ items: [CASH_UNPAID] });
+    get.mockResolvedValue(invoiceDetail({ id: 'inv-9', is_credit: false }));
+    cancel.mockResolvedValue({
+      invoice_id: 'inv-9',
+      credit_note_id: null,
+      movements_reversed: 2,
+      status: 'cancelled',
+    });
+  });
+
+  it('is not offered without billing.sale.cancel', async () => {
+    // A button that is sometimes a 403 is worse than no button.
+    render(<DailyBills policy={POLICY} />);
+    await screen.findByText('C1');
+    expect(screen.queryByRole('button', { name: 'Edit Bill' })).not.toBeInTheDocument();
+  });
+
+  it('is not offered on a bill that is already cancelled', async () => {
+    list.mockResolvedValue({ items: [{ ...CASH_UNPAID, status: 'cancelled' }] });
+    render(<DailyBills policy={POLICY} canCancel />);
+    await screen.findByText('Cancelled');
+    expect(screen.queryByRole('button', { name: 'Edit Bill' })).not.toBeInTheDocument();
+  });
+
+  it('says a printed bill cannot be changed, and shows what is on it', async () => {
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+
+    expect(await screen.findByText(/cannot be changed/i)).toBeInTheDocument();
+    // The original contents, so the operator can see what they are replacing.
+    expect(await screen.findByText('Brake Shoe Set Ace')).toBeInTheDocument();
+  });
+
+  it('refuses to cancel without a reason of real substance', async () => {
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await screen.findByText('Brake Shoe Set Ace');
+
+    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
+    await user.type(screen.getByLabelText(/Why is this bill/), 'oops');
+    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
+    await user.type(screen.getByLabelText(/Why is this bill/), ' wrong item entirely');
+    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeEnabled();
+  });
+
+  it('cancels through the real endpoint, with a reason and an idempotency key', async () => {
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await screen.findByText('Brake Shoe Set Ace');
+    await user.type(
+      screen.getByLabelText(/Why is this bill/),
+      'customer wanted one more',
+    );
+    await user.click(screen.getByRole('button', { name: 'Just cancel it' }));
+
+    await waitFor(() => expect(cancel).toHaveBeenCalled());
+    const [invoiceId, reason, key] = cancel.mock.calls[0] as [string, string, string];
+    expect(invoiceId).toBe('inv-9');
+    expect(reason).toBe('customer wanted one more');
+    // So a double press cancels once.
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('carries the original lines into the replacement bill', async () => {
+    const rebuild = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel onRebuild={rebuild} />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await screen.findByText('Brake Shoe Set Ace');
+    await user.type(
+      screen.getByLabelText(/Why is this bill/),
+      'customer wanted one more',
+    );
+    await user.click(
+      screen.getByRole('button', { name: /Cancel it and start the new bill/ }),
+    );
+
+    await waitFor(() => expect(rebuild).toHaveBeenCalled());
+    const lines = rebuild.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(lines).toHaveLength(2);
+    // `product_id`, not the name snapshot: a new line has to reference the product.
+    expect(lines[0]?.product_id).toBe('prod-1');
+    expect(lines[0]?.quantity).toBe('2.000');
+    expect(lines[0]?.unit_price).toBe('870.0000');
+  });
+
+  it('does not start a replacement bill if the cancellation was refused', async () => {
+    // Otherwise the same goods would be on two live bills — the old one never cancelled
+    // and a new one about to be printed.
+    cancel.mockRejectedValue(
+      new ApiError(409, {
+        error: {
+          code: 'CANCEL_WINDOW_EXPIRED',
+          message: 'Use a return instead.',
+          details: { window_hours: 24 },
+          request_id: 'r1',
+          retryable: false,
+        },
+      }),
+    );
+    const rebuild = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel onRebuild={rebuild} />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await screen.findByText('Brake Shoe Set Ace');
+    await user.type(
+      screen.getByLabelText(/Why is this bill/),
+      'customer wanted one more',
+    );
+    await user.click(
+      screen.getByRole('button', { name: /Cancel it and start the new bill/ }),
+    );
+
+    await waitFor(() => expect(cancel).toHaveBeenCalled());
+    expect(rebuild).not.toHaveBeenCalled();
+    // And the server's own words reach the screen — "use a return instead" is both
+    // correct and actionable, and must not be flattened into "something went wrong".
+    // Matched on the text, not on `role=alert`: the explanation panel above carries
+    // that role too, and this assertion is about which message arrived.
+    expect(await screen.findByText(/return instead/i)).toBeInTheDocument();
+  });
+
+  it('makes the operator acknowledge that a cash refund is not recorded', async () => {
+    // There is no refund entity anywhere in the schema. Cancelling a paid cash bill
+    // reverses the goods and says nothing about the money, so a till would silently
+    // fail to balance. The gap is stated rather than hidden.
+    list.mockResolvedValue({
+      items: [
+        { ...CASH_UNPAID, amount_paid: '870', outstanding: '0', payment_status: 'paid' },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await screen.findByText('Brake Shoe Set Ace');
+    await user.type(
+      screen.getByLabelText(/Why is this bill/),
+      'customer wanted one more',
+    );
+
+    // Blocked until acknowledged, even with a good reason.
+    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
+    expect(screen.getByText(/does not record cash going out/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeEnabled();
+  });
+
+  it('refetches the day after a cancellation rather than adjusting it locally', async () => {
+    // The row's status and the day's net, collected and credit figures all change, and
+    // every one of them is the server's to compute (FR-RPT-030).
+    const user = userEvent.setup();
+    render(<DailyBills policy={POLICY} canCancel />);
+    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await screen.findByText('Brake Shoe Set Ace');
+    const callsBefore = dailySales.mock.calls.length;
+
+    await user.type(
+      screen.getByLabelText(/Why is this bill/),
+      'customer wanted one more',
+    );
+    await user.click(screen.getByRole('button', { name: 'Just cancel it' }));
+
+    await waitFor(() =>
+      expect(dailySales.mock.calls.length).toBeGreaterThan(callsBefore),
+    );
   });
 });

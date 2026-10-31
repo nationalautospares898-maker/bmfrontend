@@ -26,6 +26,7 @@ import {
   getAccessToken,
   getCounter,
   getDeviceId,
+  getSession,
   setSession,
   type SessionState,
 } from './session';
@@ -100,21 +101,107 @@ export function configureAuth(options: {
   onSessionLost = options.onSessionLost;
 }
 
+/** The cross-tab lock name. Why there is a lock at all is on `refreshOnce` below. */
+const REFRESH_LOCK = 'bm-auth-refresh';
+
 /**
- * Refresh the access token, sharing one in-flight attempt.
+ * Whether the last refresh failed because the network did, rather than because the
+ * server said no.
  *
- * Every concurrent 401 awaits the same promise. The promise is cleared in a `finally`
- * so a later 401 can start a fresh attempt, but never a parallel one.
+ * Both outcomes reach the caller as `null` — `refreshOnce` resolves to a session or to
+ * nothing — so its `.catch` below is the last place the rejection can still be examined.
+ * The reason is recorded here as it happens, and read back by `send` the moment it has
+ * awaited the refresh.
+ *
+ * The injected `refreshImplementation` **rejects**: `bootstrap.ts` deliberately no longer
+ * swallows the error, because swallowing it there was the defect. A dropped packet and a
+ * revoked cookie both arrived as a bare `null`, the 401 handler could only assume the
+ * worst, and a two-second blink of the counter's wifi signed a cashier out mid-bill.
+ *
+ * A transport failure is any rejection that is not an `ApiError`: `fetch` rejecting means
+ * no HTTP response existed, so the single-use cookie was never presented and nothing was
+ * invalidated (FR-AUTH-002). An `ApiError` means the server answered and refused, and the
+ * session really is over — that half is not relaxed anywhere.
+ *
+ * Reset when an attempt starts, so the verdict always belongs to the attempt just
+ * awaited. A stale `true` outliving its attempt would suppress the sign-in prompt that a
+ * real refusal has to produce, which is the more dangerous direction of the two.
  */
-async function refreshOnce(): Promise<SessionState | null> {
+let refreshFailedInTransport = false;
+
+export function lastRefreshFailedInTransport(): boolean {
+  return refreshFailedInTransport;
+}
+
+/**
+ * Refresh the access token — once per tab, and once per browser.
+ *
+ * Two layers of mutual exclusion, because the refresh token is **single-use and
+ * rotated**, and presenting a spent one revokes the whole family (FR-AUTH-002). That
+ * control is correct and is not relaxed here; what is fixed is the client's habit of
+ * tripping it against itself.
+ *
+ * 1. **Per tab:** every concurrent 401 awaits the same promise, cleared in a `finally`
+ *    so a later 401 can start a fresh attempt but never a parallel one.
+ * 2. **Across tabs:** a Web Lock, because the cookie is shared by every tab on the
+ *    origin and the per-tab promise knows nothing about the others. Two tabs idling
+ *    past the 15-minute access-token expiry both woke up, both sent the same cookie,
+ *    one rotated and the other was judged a thief — so the shop was signed out of both
+ *    for doing nothing but leaving a second tab open.
+ *
+ *    Inside the lock the session is re-checked: the tab that waited usually finds the
+ *    winner has already installed a fresh token, and returns it without spending the
+ *    cookie a second time. That re-check is the part that actually prevents the reuse;
+ *    the lock only makes it reliable.
+ *
+ * `navigator.locks` is used rather than `localStorage` because a structural test bans
+ * both storage APIs from `src/` (NFR-FE-SEC-002), and `scheduler.ts` already establishes
+ * Web Locks as this application's cross-tab primitive. Browsers without them fall back
+ * to the per-tab guard, which is what the code did before.
+ */
+async function refreshOnce(staleToken: string | null): Promise<SessionState | null> {
   if (!refreshImplementation) return null;
   if (!inFlightRefresh) {
-    inFlightRefresh = refreshImplementation()
+    refreshFailedInTransport = false;
+    inFlightRefresh = withRefreshLock(async () => {
+      // Another tab may have refreshed while this one queued for the lock. The test is
+      // **token identity**, not the clock: has the session in memory changed since the
+      // caller decided it needed refreshing?
+      //
+      // It was `!isSessionExpired()` — "is the session still in date?" — and that is the
+      // wrong question in both directions:
+      //
+      //   * A proactive renewal runs *before* expiry by design, so the answer was always
+      //     "yes, in date", and the renewal returned without rotating anything. The
+      //     feature was inert: the token was still being replaced reactively, after it
+      //     had already died.
+      //   * Worse, a 401 arriving while the clock still thought the token was fresh —
+      //     skew between the counter PC and the server, a signing key rotated, a session
+      //     revoked server-side — also answered "in date". So the dead token came back
+      //     out of the lock, the retry failed with it, and `clearSession()` and
+      //     `onSessionLost` were never reached. Every later request repeated it and
+      //     **nothing ever prompted a sign-in**: a tab stuck failing silently, which is
+      //     the more dangerous of the two directions this guard can err in.
+      //
+      // Comparing tokens answers the question actually being asked. A different token
+      // means somebody else rotated and this caller should take theirs rather than spend
+      // the single-use cookie again (FR-AUTH-002). The same token means the caller's
+      // complaint still stands, whatever the clock says, and the rotation must proceed.
+      const current = getSession();
+      if (current && current.accessToken !== staleToken) return current;
+      return refreshImplementation ? await refreshImplementation() : null;
+    })
       .then((state) => {
         if (state) setSession(state);
         return state;
       })
-      .catch(() => null)
+      .catch((caught: unknown) => {
+        // An `ApiError` means the server answered and refused. Anything else means no
+        // response existed, so the refresh cookie was never spent and the session is
+        // still recoverable — see `lastRefreshFailedInTransport`.
+        refreshFailedInTransport = !(caught instanceof ApiError);
+        return null;
+      })
       .finally(() => {
         inFlightRefresh = null;
       });
@@ -122,9 +209,29 @@ async function refreshOnce(): Promise<SessionState | null> {
   return inFlightRefresh;
 }
 
+async function withRefreshLock<T>(work: () => Promise<T>): Promise<T> {
+  const locks = navigator.locks;
+  if (!locks) return work();
+  return locks.request(REFRESH_LOCK, work) as Promise<T>;
+}
+
+/**
+ * Renew the session through the shared, cross-tab-coordinated path.
+ *
+ * Exported so startup and the proactive renewal use the same single-flight attempt as a
+ * 401 does. Calling `auth.refresh()` directly bypasses both guards and races the other
+ * callers for a single-use cookie, which revokes the family.
+ */
+export async function refreshSession(
+  staleToken: string | null = getAccessToken(),
+): Promise<SessionState | null> {
+  return refreshOnce(staleToken);
+}
+
 /** Exposed for tests: forget any in-flight refresh. */
 export function resetAuthState(): void {
   inFlightRefresh = null;
+  refreshFailedInTransport = false;
 }
 
 // --- request plumbing ---------------------------------------------------------
@@ -271,6 +378,10 @@ async function send<T>(
   let refreshed = false;
 
   for (let attempt = 0; ; attempt += 1) {
+    // The token this attempt is about to send, read before the request rather than
+    // after the 401. By then another tab may have rotated, and the refresh needs to
+    // compare against what *this* request found stale — see `refreshOnce`.
+    const tokenSent = getAccessToken();
     let response: Response;
     try {
       response = await attemptRequest(method, path, body, options);
@@ -306,8 +417,25 @@ async function send<T>(
       error.code === 'TOKEN_EXPIRED'
     ) {
       refreshed = true;
-      const state = await refreshOnce();
+      // The token this attempt actually sent. Captured before awaiting, so that if
+      // another tab rotates meanwhile the comparison inside the lock is against what
+      // *this* request found stale rather than whatever is current by then.
+      const state = await refreshOnce(tokenSent);
       if (state) continue;
+      // The refresh did not produce a session. **Why** decides what happens next, and
+      // the two reasons are not alike:
+      //
+      //   * The server refused — a spent, revoked or expired cookie. The session really
+      //     is over, and prompting is the only honest response.
+      //   * The request never reached the server — a dropped connection, a keep-alive
+      //     the server had already closed, a counter PC whose wifi blinked. Nothing has
+      //     been invalidated and the cookie is still good.
+      //
+      // These were treated identically, so a two-second network blip at the wrong
+      // moment signed a cashier out mid-bill. Now a transport failure leaves the
+      // session alone and surfaces as the request error it is: the next request, or the
+      // proactive renewal, tries again and succeeds.
+      if (lastRefreshFailedInTransport()) throw error;
       clearSession();
       onSessionLost?.();
       throw error;

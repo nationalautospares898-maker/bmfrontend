@@ -24,6 +24,8 @@ import type { Bootstrap } from '@/api/types';
 import type { MoneyPolicy } from '@/lib/money';
 import { Busy, Button, Field, Panel, StatusDot } from '@/components/primitives';
 import { COMMON, ERRORS, OFFLINE } from '@/lib/strings';
+import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
+import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
 
 const DailyBills = lazy(() =>
@@ -108,6 +110,49 @@ export function AppShell() {
   const online = useOnline();
   const billing = useBillingStore();
 
+  /**
+   * Start a replacement bill from the lines of a bill that was just cancelled.
+   *
+   * This is the second half of the only sanctioned amendment: a finalised invoice is
+   * immutable (OD-10, FR-SALE-010), so correcting one means cancelling it and issuing a
+   * new one. The new bill is an ordinary draft — nothing special, no link to the old
+   * invoice — which is exactly right: two invoices exist afterwards, one cancelled and
+   * one issued, and neither has been rewritten.
+   *
+   * The lines are carried over so the cashier re-keys nothing and can simply add the
+   * item the customer asked for. Prices come from the original bill rather than the
+   * catalogue, and are therefore marked `manual_override`: carrying a price forward is a
+   * deliberate human decision, and the server audits it as one. Stock is left unknown
+   * rather than guessed — the figures on the old bill are a snapshot from when it was
+   * issued and saying "in stock: 4" from them would be inventing a fact.
+   */
+  const rebuildFromCancelled = useCallback(
+    async (lines: RebuildLine[]) => {
+      const draftId = await billing.newDraft();
+      if (!draftId) return; // every tab is in use; the store says so on screen
+      for (const line of lines) {
+        await billing.addLine(draftId, {
+          product_id: line.product_id,
+          product_name: line.product_name,
+          sku: line.sku,
+          unit_code: line.unit_code,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
+          catalog_price_at_add: line.unit_price,
+          price_source: 'manual_override',
+          discount_percent: '0.000',
+          known_stock: null,
+          stock_as_of: null,
+        });
+      }
+      setScreen('billing');
+    },
+    // `billing` is a stable store handle; depending on it would rebuild this callback
+    // on every draft change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const onSessionLost = useCallback(() => {
     // Drafts are deliberately left alone. The prompt says so, because a cashier who
     // thinks a re-login costs them their typing will avoid logging in.
@@ -134,10 +179,17 @@ export function AppShell() {
     if (!session || !bootstrap?.counter) return;
     void billing.initialise(bootstrap.counter.id, bootstrap.counter.max_open_drafts);
     scheduler.start();
+    // Renew the access token ahead of its 15-minute expiry, so the first action after a
+    // quiet spell is not waiting on a token round trip — and so an expiry is not the
+    // first thing a cashier learns about from a failed Print Bill.
+    startSessionRenewal();
     void catalogCache.refreshFully().catch(() => {
       // A cold cache degrades offline search only; it never blocks billing.
     });
-    return () => scheduler.stop();
+    return () => {
+      scheduler.stop();
+      stopSessionRenewal();
+    };
     // `billing` is a store handle and stable; depending on it would restart the
     // scheduler on every draft change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,6 +214,10 @@ export function AppShell() {
 
   const canBill = session.permissions.has('billing.sale.finalize');
   const canReadSales = session.permissions.has('reports.sales.read');
+  // `billing.sale.cancel` was granted by roles and referenced by no screen, so the only
+  // sanctioned way to correct a finalised bill — cancellation (ADR-015) — was
+  // unreachable from the application. Daily Bills now offers it.
+  const canCancelSales = session.permissions.has('billing.sale.cancel');
   const canReadCredit = session.permissions.has('credit.read');
   // Each M25 screen is gated on the permission its own endpoints require, so a role
   // that cannot use a screen never sees its tab — rather than finding a 403 behind it.
@@ -330,10 +386,17 @@ export function AppShell() {
                 online={online}
                 canBill={canBill}
                 onSynced={() => scheduler.notifyMutation()}
+                onOpenDailyBills={
+                  canReadSales ? () => setScreen('daily-bills') : undefined
+                }
               />
             ) : null}
             {screen === 'daily-bills' && canReadSales ? (
-              <DailyBills policy={policy} />
+              <DailyBills
+                policy={policy}
+                canCancel={canCancelSales}
+                onRebuild={canBill ? rebuildFromCancelled : undefined}
+              />
             ) : null}
             {screen === 'credit-bills' && canReadCredit ? <CreditBills /> : null}
             {screen === 'stock' && canReadCatalog ? (

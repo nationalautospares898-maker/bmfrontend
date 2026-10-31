@@ -13,8 +13,12 @@
  * on this screen ever sets a balance directly.
  *
  * Everything editable is identity — name, phone, address, credit limit, terms.
- * Everything financial is read from `/credit/customers` and `/customers/{id}/ledger`
- * and rendered verbatim: the client sums nothing (FR-RPT-030).
+ * Everything financial is read from the server and rendered verbatim: the client sums
+ * nothing (FR-RPT-030). What is owed comes from the directory row itself, which carries
+ * an outstanding summary per customer (FR-CUST-012); the unpaid-bill count comes from
+ * `/credit/customers`; the payment history comes from `/payments`. Where a figure
+ * cannot be read it is shown as a dash and explained — never as `0.00`, which a
+ * shopkeeper reads as "square with us" and stops chasing.
  *
  * Duplicate handling follows FR-CUST-004: the server **surfaces candidates and never
  * merges**, so a suspected duplicate is shown as a warning beside a save that still
@@ -44,8 +48,9 @@ export interface CustomersScreenProps {
 }
 
 /**
- * One row: a customer from the directory, plus the credit aggregates when they have
- * any.
+ * One row: a customer from the directory, with what they owe taken from that same
+ * directory row (FR-CUST-012) and their unpaid-bill count merged in from the credit
+ * aggregates.
  *
  * Two sources on purpose. The screen used to read **only** `GET /credit/customers`,
  * which inner-joins credit invoices — it answers "who owes us money" and is, by the
@@ -53,19 +58,54 @@ export interface CustomersScreenProps {
  * credit invoice was invisible here and could not be found by typing their name either,
  * and one created through `Add a customer` appeared to vanish. `GET /customers` is the
  * directory; the credit figures are merged on top so no column was lost in the fix.
+ *
+ * Every figure here is **nullable, and `null` means "not known" — never "nothing
+ * owed"**. That distinction is the point of the type. The screen used to fall back to a
+ * literal `0.00` for any customer the credit response did not mention, which is only
+ * true if that response covered every credit customer in the shop; when it did not, the
+ * fallback stated a debt of zero against someone who owed thousands (see `fetchPage`).
  */
 interface CustomerRow {
   customer: DirectoryCustomer;
-  outstanding: string;
-  open_invoice_count: number;
+  outstanding: string | null;
+  open_invoice_count: number | null;
   oldest_due_date: string | null;
 }
 
-const NO_CREDIT: Omit<CustomerRow, 'customer'> = {
-  outstanding: '0.00',
-  open_invoice_count: 0,
-  oldest_due_date: null,
-};
+/**
+ * What absence from a **complete** credit list means: the customer holds no open credit
+ * invoice, so there is genuinely nothing to owe and no bill to count. Only ever applied
+ * when the response is known not to have been cut off.
+ */
+const NOTHING_OWED = { outstanding: '0.00', open_invoice_count: 0 } as const;
+
+/**
+ * The most rows `GET /credit/customers` can return, and therefore a ceiling rather than
+ * a preference: the route declares `limit: Query(ge=1, le=200)`, the service clamps to
+ * 200 a second time, and asking for more is a 422 that would empty this whole screen.
+ * The endpoint has no cursor either — its `next_cursor` is always null — so there is no
+ * further page to ask for. `CreditBills` asks for the same 200, so the two views of
+ * these aggregates agree about how much of the list they hold.
+ */
+const CREDIT_AGGREGATE_LIMIT = 200;
+
+/**
+ * A figure that is not known. Deliberately the same glyph as a missing phone number: a
+ * blank would look like a rendering fault and a zero would state a fact we do not have.
+ */
+const UNKNOWN = '—';
+
+/** Server figures, rendered verbatim (FR-RPT-030). A dash when there is no figure. */
+function formatOwed(outstanding: string | null): string {
+  return outstanding === null
+    ? UNKNOWN
+    : formatForScreen(tryParseMoney(outstanding) ?? ZERO);
+}
+
+/** True only when there **is** a figure and it is above zero. Unknown is not "owes". */
+function owesMoney(outstanding: string | null): boolean {
+  return outstanding !== null && (tryParseMoney(outstanding) ?? ZERO).greaterThan(0);
+}
 
 export function CustomersScreen({
   canEdit,
@@ -89,6 +129,13 @@ export function CustomersScreen({
    * Fetch a page of the directory and merge the credit aggregates onto it.
    *
    * `append` is the "Show more" path; it keeps what is already on screen.
+   *
+   * The search term is deliberately **not** forwarded to `/credit/customers`. That
+   * endpoint's `query` matches a normalised *name prefix* only, while the directory
+   * search also matches phone, business name and vehicle — so scoping the aggregates by
+   * the term would return nothing at all for a phone or number-plate search and blank
+   * the unpaid-bill count for every result. Narrowing a financial figure to nothing is
+   * how the defect above happened; it is not worth repeating to save a few rows.
    */
   const fetchPage = useCallback(
     async (opts: { cursor?: string; append?: boolean } = {}) => {
@@ -104,22 +151,59 @@ export function CustomersScreen({
           term
             ? customersApi.search(term)
             : customersApi.list(opts.cursor ? { cursor: opts.cursor } : {}),
-          // `include_settled` so a customer who has paid everything off still brings
-          // their history, rather than the aggregates vanishing once they settle up.
-          credit.customers({ include_settled: true }),
+          /*
+           * An **explicit** limit, because the server's default is 20.
+           *
+           * This was called with no limit at all, so the aggregates covered twenty
+           * customers while a directory page holds fifty — and every row the map
+           * missed fell back to `0.00` owed and was then hidden outright by "Only
+           * customers who owe". A debt the shop cannot see is a debt nobody chases,
+           * which is as expensive as a wrong total on a bill.
+           *
+           * `include_settled: true` is gone with it, and on purpose. It was asked for
+           * so a customer who had paid everything off kept their figures — but those
+           * now come from the directory row below, and a settled customer's only
+           * remaining contribution here is an `open_invoice_count` of zero, which is
+           * exactly what absence from a complete list already means. So it bought
+           * nothing and spent the capped page: with `ORDER BY outstanding DESC`,
+           * settled customers sort last, yet they still consumed slots that belong to
+           * the customers who actually owe.
+           */
+          credit.customers({ limit: CREDIT_AGGREGATE_LIMIT }),
         ]);
         if (sequence !== latestLoad.current) return;
 
         const aggregates = new Map(
           creditList.items.map((item) => [item.customer.id, item]),
         );
+        // The server's own `has_more` is `len(items) == limit`; recomputed here from
+        // the rows actually received so the two cannot disagree. A full page means the
+        // list was cut off at the cap, and absence from a cut-off list proves nothing
+        // — which is why `NOTHING_OWED` is only applied when this holds.
+        const completeCreditList = creditList.items.length < CREDIT_AGGREGATE_LIMIT;
+
         const page: CustomerRow[] = directory.items.map((customer) => {
+          // Preferred over the aggregates because it is **per row and cannot be
+          // truncated**: `GET /customers` carries an outstanding summary for every
+          // customer it returns to a caller holding `credit.read` (FR-CUST-012),
+          // computed from the same invoices by the same rule as the credit list. That
+          // is what makes the money column right for a shop of any size, on any page
+          // and on a search — something a list capped at 200 rows can never promise.
+          const summary = customer.credit;
           const found = aggregates.get(customer.id);
           return {
             customer,
-            outstanding: found?.outstanding ?? NO_CREDIT.outstanding,
-            open_invoice_count: found?.open_invoice_count ?? NO_CREDIT.open_invoice_count,
-            oldest_due_date: found?.oldest_due_date ?? NO_CREDIT.oldest_due_date,
+            outstanding:
+              summary?.outstanding ??
+              found?.outstanding ??
+              (completeCreditList ? NOTHING_OWED.outstanding : null),
+            // The one figure still bounded by the cap: only `/credit/customers` counts
+            // bills. If the list was cut off we do not know this customer's count, and
+            // a dash says so rather than inventing a zero.
+            open_invoice_count:
+              found?.open_invoice_count ??
+              (completeCreditList ? NOTHING_OWED.open_invoice_count : null),
+            oldest_due_date: summary?.oldest_due_date ?? found?.oldest_due_date ?? null,
           };
         });
 
@@ -156,8 +240,19 @@ export function CustomersScreen({
     rows === null
       ? null
       : owingOnly
-        ? rows.filter((row) => (tryParseMoney(row.outstanding) ?? ZERO).greaterThan(0))
+        ? // A customer whose figure is not known **stays visible**. Hiding someone
+          // because the screen could not read what they owe is how this filter turned
+          // a truncated credit page into a customer who had disappeared along with
+          // their debt. Showing a possible non-debtor costs a glance; hiding a real
+          // debtor costs the money.
+          rows.filter((row) => row.outstanding === null || owesMoney(row.outstanding))
         : rows;
+
+  // Whether anything on screen is a dash, so the dash can be explained rather than
+  // read as a zero.
+  const anyFigureUnknown =
+    rows?.some((row) => row.outstanding === null || row.open_invoice_count === null) ??
+    false;
 
   return (
     <section className="flex flex-col gap-4">
@@ -190,6 +285,11 @@ export function CustomersScreen({
       <Panel tone="info">{CUSTOMERS.balanceExplainer}</Panel>
 
       {error ? <Panel tone="danger">{error}</Panel> : null}
+
+      {/* Only when there is a dash to explain. A figure the screen could not read has
+          to say so out loud; the defect this replaces printed `0.00` instead, and
+          printed it with complete confidence. */}
+      {anyFigureUnknown ? <Panel tone="warning">{CUSTOMERS.figureUnknown}</Panel> : null}
 
       {visible === null ? (
         <Busy label={COMMON.loading} />
@@ -230,13 +330,14 @@ export function CustomersScreen({
             {visible.map((row) => (
               <tr key={row.customer.id} className="border-b border-slate-100">
                 <td className="py-2">{row.customer.name}</td>
-                <td className="py-2">{row.customer.primary_phone ?? '—'}</td>
+                <td className="py-2">{row.customer.primary_phone ?? UNKNOWN}</td>
                 <td className="py-2 text-right font-medium">
-                  {/* Rendered from the response. The client never sums these. */}
-                  {formatForScreen(tryParseMoney(row.outstanding) ?? ZERO)}
+                  {/* Rendered from the response. The client never sums these — and
+                      where there is no figure it prints a dash, never a zero. */}
+                  {formatOwed(row.outstanding)}
                 </td>
-                <td className="py-2 text-right">{row.open_invoice_count}</td>
-                <td className="py-2">{row.oldest_due_date ?? '—'}</td>
+                <td className="py-2 text-right">{row.open_invoice_count ?? UNKNOWN}</td>
+                <td className="py-2">{row.oldest_due_date ?? UNKNOWN}</td>
                 <td className="py-2">
                   <div className="flex gap-2">
                     <Button variant="quiet" onClick={() => setViewing(row)}>
@@ -321,7 +422,11 @@ function CustomerDetail({
   const [payments, setPayments] = useState<PaymentHistoryEntry[] | null>(null);
   // No form when nothing is owed: a payment against a settled account is an advance,
   // which is a different decision and not one to slip in behind an identical button.
-  const owes = (tryParseMoney(customer.outstanding) ?? ZERO).greaterThan(0);
+  // An unknown figure is not "nothing owed" either, and it is equally not something to
+  // prefill a payment box with — a guessed amount is worse than no form at all. The
+  // dash in the dialog, and the panel behind it, say which case this is.
+  const outstanding = customer.outstanding;
+  const owes = owesMoney(outstanding);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,19 +455,20 @@ function CustomerDetail({
           <dt className="text-slate-600">{CUSTOMERS.phone}</dt>
           <dd>{customer.customer.primary_phone ?? '—'}</dd>
           <dt className="text-slate-600">{CUSTOMERS.outstandingNow}</dt>
-          <dd className="font-medium">
-            {formatForScreen(tryParseMoney(customer.outstanding) ?? ZERO)}
-          </dd>
+          <dd className="font-medium">{formatOwed(outstanding)}</dd>
           <dt className="text-slate-600">{CUSTOMERS.unpaidBills}</dt>
-          <dd>{customer.open_invoice_count}</dd>
+          <dd>{customer.open_invoice_count ?? UNKNOWN}</dd>
           <dt className="text-slate-600">{CUSTOMERS.colOldest}</dt>
-          <dd>{customer.oldest_due_date ?? '—'}</dd>
+          <dd>{customer.oldest_due_date ?? UNKNOWN}</dd>
         </dl>
 
-        {canRecordPayment && owes ? (
+        {/* The `!== null` repeats what `owes` already guarantees, because a boolean
+            cannot narrow a nullable string for the compiler. It is the same condition
+            restated, not a second rule — keep them together if either changes. */}
+        {canRecordPayment && owes && outstanding !== null ? (
           <RecordPayment
             customerId={customer.customer.id}
-            outstanding={customer.outstanding}
+            outstanding={outstanding}
             onRecorded={onPaymentRecorded}
           />
         ) : null}

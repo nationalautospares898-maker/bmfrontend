@@ -61,6 +61,13 @@ export interface BillingCounterProps {
   /** Whether the user may finalise at all; the UI explains rather than silently failing. */
   canBill: boolean;
   onSynced?: (() => void) | undefined;
+  /**
+   * Switch the shell to Daily Bills.
+   *
+   * Passed in rather than navigated to, because this application has no router: the
+   * screen is state in `AppShell`. A `location.assign` here reloaded the whole app.
+   */
+  onOpenDailyBills?: (() => void) | undefined;
 }
 
 type Conflict =
@@ -74,6 +81,7 @@ export function BillingCounter({
   online,
   canBill,
   onSynced,
+  onOpenDailyBills,
 }: BillingCounterProps) {
   const store = useBillingStore();
   const active = store.drafts.find((draft) => draft.id === store.activeDraftId);
@@ -166,7 +174,25 @@ export function BillingCounter({
           setConflict({ kind: 'error', code: 'SERVICE_UNAVAILABLE', details: {} });
           return;
         }
-        throw error;
+        // Everything else is shown, never rethrown.
+        //
+        // `finalizeSale` never throws for a business outcome, but `ensureOnServer` above
+        // does — it is a plain `PUT /drafts/{id}` and a `NetworkError`, a 428 or a
+        // `DRAFT_VERSION_CONFLICT` all come out of it as exceptions. Both callers invoke
+        // this function as `void runFinalize(...)`, so rethrowing produced an unhandled
+        // rejection: `setBusy(false)` had already run, the button returned to normal,
+        // and **nothing at all happened**. A cashier pressed Print Bill, saw a flicker,
+        // and had no bill, no error and nothing to retry — the exact failure shape the
+        // draft-push fix above was meant to end, reintroduced by the push itself.
+        //
+        // An unknown failure is still reported as unknown; what it must not do is
+        // vanish.
+        setConflict(
+          error instanceof ApiError
+            ? { kind: 'error', code: error.code, details: error.details }
+            : { kind: 'money', message: ERRORS.unexpected },
+        );
+        return;
       }
       setBusy(false);
       await store.reload();
@@ -341,6 +367,7 @@ export function BillingCounter({
               policy={policy}
               online={online}
               onPrintSlip={setSlip}
+              onOpenDailyBills={onOpenDailyBills}
             />
           ) : null}
 
@@ -443,12 +470,14 @@ function ConflictPanel({
   policy,
   online,
   onPrintSlip,
+  onOpenDailyBills,
 }: {
   conflict: NonNullable<Conflict>;
   draft: LocalDraft;
   policy: MoneyPolicy;
   online: boolean;
   onPrintSlip: (data: CounterSlipData) => void;
+  onOpenDailyBills?: (() => void) | undefined;
 }) {
   if (conflict.kind === 'money') {
     return (
@@ -470,7 +499,8 @@ function ConflictPanel({
           <>
             <Button
               variant="secondary"
-              onClick={() => window.location.assign('/daily-bills')}
+              onClick={() => onOpenDailyBills?.()}
+              disabled={!onOpenDailyBills}
             >
               Check Daily Bills
             </Button>

@@ -16,10 +16,10 @@
  */
 
 import { auth, sync } from '@/api/endpoints';
-import { configureAuth } from '@/api/client';
-import { ApiError } from '@/api/errors';
+import { configureAuth, refreshSession } from '@/api/client';
 import {
   clearSession,
+  setBusinessToday,
   setCounter,
   setDeviceId,
   setServerTimeOffset,
@@ -93,35 +93,57 @@ export async function startApplication(options: StartupOptions): Promise<Startup
 
   // The client's single shared refresh path. Wired before the first request so a 401
   // during bootstrap is handled by the same mechanism as a 401 mid-bill.
+  // The error is deliberately **not** swallowed here. `refreshOnce` classifies it: a
+  // server refusal ends the session, a transport failure leaves it alone and is retried.
+  // Collapsing both to `null` here is what made a dropped packet look identical to a
+  // revoked cookie, and signed cashiers out mid-bill.
   configureAuth({
-    refresh: async () => {
-      try {
-        return toSessionState(await auth.refresh());
-      } catch {
-        return null;
-      }
-    },
+    refresh: async () => toSessionState(await auth.refresh()),
     onSessionLost: options.onSessionLost,
   });
 
-  // 2. The silent refresh. A failure here is the normal "not signed in" case, not an
-  // error to report.
-  let session: SessionState | null = null;
-  try {
-    session = toSessionState(await auth.refresh());
-    setSession(session);
-  } catch (error) {
-    if (error instanceof ApiError && error.code === 'DEVICE_REVOKED') {
-      // Reported as itself. Local data is **never** deleted in response (§8).
-      clearSession();
-      return { storageUsable, session: null, bootstrap: null, policy: null };
-    }
-    return { storageUsable, session: null, bootstrap: null, policy: null };
-  }
+  // 2. The silent refresh, through the client's **shared** refresh path.
+  //
+  // It used to call `auth.refresh()` directly, which bypassed the single-flight guard
+  // in `client.ts`, and that mattered because `startApplication` runs inside a
+  // `useEffect`: React's development double-mount invokes it twice. Two refreshes, one
+  // cookie — the first rotated it, the second presented a spent token, and FR-AUTH-002
+  // correctly revoked the family. So in `npm run dev` **every page reload signed the
+  // user out**, which is exactly the "it refreshes and logs me out" being reported.
+  //
+  // Going through `refreshSession()` means the second mount awaits the first attempt
+  // and receives the same session, rather than racing it. A failure here is the normal
+  // "not signed in" case, not an error to report.
+  //
+  // No `catch` here, deliberately: `refreshSession` resolves `null` for every failure,
+  // having already classified it for the 401 handler, so it cannot throw. There used to
+  // be a `DEVICE_REVOKED` branch and it had become unreachable — a revoked machine now
+  // reaches the login screen and is told why when it tries to sign in, which is the
+  // screen that can actually say it. Local data is **never** deleted either way (§8).
+  const session = await refreshSession();
+  if (!session) return { storageUsable, session: null, bootstrap: null, policy: null };
 
   // 3. Bootstrap. Everything the client is not allowed to assume.
-  const bootstrap = await sync.bootstrap();
+  //
+  // Guarded, because this call used to sit outside any `try`. Its only caller is a
+  // `void (async () => …)()` in `AppShell` whose last statement is `setStarting(false)`,
+  // so a rejection here meant that line never ran and the application sat on the
+  // "Starting" spinner **for ever** — no error, no retry, nothing to act on. The
+  // reachable path was a cold start: a counter PC every morning, where the silent
+  // refresh succeeds and then the bootstrap request times out or 500s. The same
+  // symptom was fixed for the null-counter case; this was the other half of it.
+  //
+  // Returning a session with no bootstrap lets the shell render the signed-in state and
+  // say what is wrong, which is strictly better than a spinner.
+  let bootstrap: Bootstrap;
+  try {
+    bootstrap = await sync.bootstrap();
+  } catch {
+    return { storageUsable, session, bootstrap: null, policy: null };
+  }
+
   setServerTimeOffset(bootstrap.server_time);
+  setBusinessToday(bootstrap.business_date);
   if (bootstrap.counter) {
     setCounter({
       id: bootstrap.counter.id,
@@ -157,6 +179,7 @@ export async function signIn(
 
   const bootstrap = await sync.bootstrap();
   setServerTimeOffset(bootstrap.server_time);
+  setBusinessToday(bootstrap.business_date);
   if (bootstrap.counter) {
     setCounter({
       id: bootstrap.counter.id,

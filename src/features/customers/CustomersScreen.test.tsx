@@ -13,7 +13,9 @@
  * - a new customer gets a **client-generated id**, so a retry is an upsert rather than a
  *   second customer (FR-CUST-003);
  * - `credit_terms_days` is parsed as a whole number, and an empty field is `null` rather
- *   than zero — "due immediately" is not the right default for a blank box.
+ *   than zero — "due immediately" is not the right default for a blank box;
+ * - a figure the screen could not read is shown as a dash and explained, **never** as
+ *   `0.00`, and never used to hide the row (see the last describe block).
  */
 
 import { render, screen, waitFor } from '@testing-library/react';
@@ -48,7 +50,13 @@ vi.mock('@/api/endpoints', () => ({
   },
 }));
 
-/** A directory record, as `GET /customers` returns it. */
+/**
+ * A directory record, as `GET /customers` returns it.
+ *
+ * The `credit` block is left off by default so the fallback path — merge the aggregates,
+ * and treat absence from a *complete* aggregate list as nothing owed — stays covered.
+ * The tests that care about the per-row summary (FR-CUST-012) pass it explicitly.
+ */
 function directory(overrides: Record<string, unknown> = {}) {
   return {
     id: 'c1',
@@ -135,14 +143,42 @@ describe('the list', () => {
     expect(screen.getByText('2026-09-15')).toBeInTheDocument();
   });
 
-  it('always asks the credit endpoint for settled customers too', async () => {
-    // Otherwise a customer who has paid everything off loses their history from this
-    // screen the moment they settle up.
+  it('asks the credit endpoint for an explicit limit, never its default of twenty', async () => {
+    // Called with no limit at all, the server capped the aggregates at twenty rows
+    // while a directory page holds fifty, so every row past the cap was drawn as 0.00
+    // owed. 200 is the endpoint's declared maximum (`le=200`), not a preference.
     render(<CustomersScreen canEdit />);
     await screen.findByText('Rakesh Motors');
-    await waitFor(() =>
-      expect(creditCustomers).toHaveBeenCalledWith({ include_settled: true }),
-    );
+    await waitFor(() => expect(creditCustomers).toHaveBeenCalledWith({ limit: 200 }));
+  });
+
+  it('does not spend the capped credit page on customers who owe nothing', async () => {
+    // `include_settled: true` used to be sent, so settled customers consumed slots in
+    // a page the screen had already under-asked for. What a settled customer brings is
+    // now read from their directory row instead, and their payment history is fetched
+    // per customer, so nothing is lost by leaving them out of the aggregates.
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+    await waitFor(() => expect(creditCustomers).toHaveBeenCalled());
+    const [filters] = creditCustomers.mock.calls[0] as [Record<string, unknown>];
+    expect(filters.include_settled).toBeUndefined();
+  });
+
+  it('still shows a settled customer’s figures and history once they have paid up', async () => {
+    const user = userEvent.setup();
+    // Settled, so `GET /credit/customers` omits them without `include_settled` — and
+    // the figures come from the directory row regardless.
+    list.mockResolvedValue({
+      items: [directory({ credit: { outstanding: '0.00', oldest_due_date: null } })],
+      page: PAGE,
+    });
+    creditCustomers.mockResolvedValue({ items: [] });
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Rakesh Motors');
+
+    expect(screen.getAllByRole('cell', { name: '0' })).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByText('Payments received')).toBeInTheDocument();
   });
 
   it('filters to customers who owe when asked, without hiding the rest by default', async () => {
@@ -572,6 +608,134 @@ describe('taking a payment (the capability with no caller)', () => {
     // A payment against a settled account is an advance, which is a different decision
     // and not one to slip in behind an identical button.
     await screen.findByText('Payments received');
+    expect(
+      screen.queryByRole('button', { name: 'Record this payment' }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('a debt outside the credit endpoint’s page must never read as 0.00', () => {
+  /**
+   * The defect, reported as a financial display fault: the screen showed `0.00` owed
+   * for a customer who owed money, and "Only customers who owe" then hid them
+   * altogether — so the debt was invisible and nobody chased it.
+   *
+   * `credit.customers()` was called with **no limit**, so the server applied its own
+   * default of twenty while a directory page holds fifty, and `include_settled: true`
+   * handed some of those twenty slots to customers who owed nothing. Every directory
+   * row missing from the resulting map fell back to a literal `0.00`.
+   *
+   * The fix reads the outstanding figure from the directory row itself, which carries a
+   * per-customer summary for a caller holding `credit.read` (FR-CUST-012) and therefore
+   * cannot be truncated at all; it asks the aggregates for the endpoint's maximum of
+   * 200 for the one figure only they carry — the unpaid-bill count; and where a figure
+   * genuinely is not known it prints a dash and says so, because a wrong number is
+   * worse than an admitted gap (FR-RPT-030, ADR-032).
+   */
+
+  /** A real debtor, sitting outside whatever page the credit endpoint returned. */
+  const DEBTOR = {
+    id: 'past-the-page',
+    name: 'Overflow Garage',
+    primary_phone: '9876500099',
+    credit: { outstanding: '12500.00', oldest_due_date: '2026-07-04' },
+  };
+
+  /** The credit endpoint's page, filled to its 200-row cap by *other* customers. */
+  function cappedCreditPage() {
+    return Array.from({ length: 200 }, (_, index) => ({
+      ...CREDIT_ROW,
+      customer: { id: `other-${index}`, name: `Other ${index}`, primary_phone: null },
+    }));
+  }
+
+  it('shows the real figure for a customer the credit aggregates left out', async () => {
+    list.mockResolvedValue({ items: [directory(DEBTOR)], page: PAGE });
+    // The twenty-row page the server used to return, spent entirely on other people.
+    creditCustomers.mockResolvedValue({
+      items: cappedCreditPage().slice(0, 20),
+    });
+
+    render(<CustomersScreen canEdit />);
+
+    await screen.findByText('Overflow Garage');
+    // 12500 owed, not the 0.00 the old fallback asserted on their behalf.
+    expect(screen.getByRole('cell', { name: '12500' })).toBeInTheDocument();
+    expect(screen.getByText('2026-07-04')).toBeInTheDocument();
+  });
+
+  it('does not hide that customer behind “Only customers who owe”', async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [directory(DEBTOR), directory({ id: 'c3', name: 'Owes Nothing Co' })],
+      page: PAGE,
+    });
+    creditCustomers.mockResolvedValue({ items: [] });
+
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Overflow Garage');
+    await user.click(screen.getByRole('button', { name: /Only customers who owe/ }));
+
+    // The worst half of the defect: a 0.00 the screen invented also failed the filter,
+    // so the debtor vanished from the one view meant to list them.
+    expect(screen.getByText('Overflow Garage')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('Owes Nothing Co')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('shows a dash, not a zero, for an unpaid-bill count the capped page could not reach', async () => {
+    // The count exists only on `/credit/customers`, which caps at 200 rows and offers
+    // no cursor, so on a shop with more than 200 credit customers it genuinely cannot
+    // be known here. A full page is how the server reports `has_more`.
+    list.mockResolvedValue({ items: [directory(DEBTOR)], page: PAGE });
+    creditCustomers.mockResolvedValue({ items: cappedCreditPage() });
+
+    render(<CustomersScreen canEdit />);
+
+    await screen.findByText('Overflow Garage');
+    // The money figure is still exact — it comes from the directory row.
+    expect(screen.getByRole('cell', { name: '12500' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '—' })).toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: '0' })).not.toBeInTheDocument();
+    // And the dash is explained, rather than left to be read as "nothing".
+    expect(await screen.findByText(/does not mean nothing is owed/)).toBeInTheDocument();
+  });
+
+  it('keeps a customer visible under the filter when their figure is unknown', async () => {
+    const user = userEvent.setup();
+    // No per-row summary and a credit list cut off at the cap: this screen cannot tell
+    // whether they owe. Hiding them would repeat the defect — showing a possible
+    // non-debtor costs a glance, hiding a real debtor costs the money.
+    list.mockResolvedValue({
+      items: [directory({ id: 'unknown-1', name: 'Unreadable Figure Co' })],
+      page: PAGE,
+    });
+    creditCustomers.mockResolvedValue({ items: cappedCreditPage() });
+
+    render(<CustomersScreen canEdit />);
+    await screen.findByText('Unreadable Figure Co');
+    await user.click(screen.getByRole('button', { name: /Only customers who owe/ }));
+
+    expect(screen.getByText('Unreadable Figure Co')).toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: '0' })).not.toBeInTheDocument();
+  });
+
+  it('offers no payment form against a figure it could not read', async () => {
+    const user = userEvent.setup();
+    // Prefilling the amount box from a figure we do not have would be guessing at how
+    // much a customer owes, which is the one thing this screen must never do (ADR-022).
+    list.mockResolvedValue({
+      items: [directory({ id: 'unknown-1', name: 'Unreadable Figure Co' })],
+      page: PAGE,
+    });
+    creditCustomers.mockResolvedValue({ items: cappedCreditPage() });
+
+    render(<CustomersScreen canEdit canRecordPayment />);
+    await screen.findByText('Unreadable Figure Co');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    expect(await screen.findByText('Payments received')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Record this payment' }),
     ).not.toBeInTheDocument();

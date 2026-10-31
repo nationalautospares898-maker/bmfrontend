@@ -4,9 +4,13 @@
  * `PrintRoot` renders into `#print-root`, which sits **outside** the application layout
  * in `index.html`. That is what lets `@media print` hide the whole app with one rule and
  * leave only the bill — no hunting for chrome that forgot to hide itself.
+ *
+ * Both roots arm their dialog through `usePrintRequest`, which is where the one rule
+ * that governs this file is written down and explained: **one dialog per print request,
+ * and a re-render is not a request.**
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import { invoices } from '@/api/endpoints';
@@ -17,6 +21,90 @@ import { InvoicePrintLayout } from './InvoicePrintLayout';
 
 function printTarget(): HTMLElement | null {
   return typeof document === 'undefined' ? null : document.getElementById('print-root');
+}
+
+/**
+ * Arm exactly one print dialog per print request.
+ *
+ * A *request* is the object the caller has mounted — a bill payload or a counter slip —
+ * and it is identified by **object identity**. Only the identity is used, never the
+ * contents, and that distinction is the whole point:
+ *
+ * - a **re-render** hands over the same object again, so nothing is re-armed. The effect
+ *   depends on the request and the portal target alone, so the caller's inline
+ *   `onAfterPrint` — both real callers pass one — no longer re-runs it at all;
+ * - a **deliberate second press** hands over either a different object, or the same
+ *   object again after the caller cleared it on `afterprint`. Either is a new request,
+ *   and it prints.
+ *
+ * 🔴 The guard this replaces was keyed on `${issued_at}:${is_duplicate}` — a description
+ * of the *document*, not of the request — and was assigned once and never cleared. Both
+ * halves of that key are stable across repeat reprints of one bill: `issued_at` is
+ * immutable, and `is_duplicate` is the server's answer and is true for every reprint once
+ * `print_log` has a row. So **the third press of Reprint, and every press after it, did
+ * nothing at all** — no dialog, no error, nothing to retry, with a customer standing at
+ * the counter waiting for their copy. With `print.mark_reprints_duplicate` off the key
+ * never changed at all, so only the first press of a mount ever printed; and the credit
+ * confirmation card's "Print now", which hands over the very same payload object on every
+ * press, printed exactly once however many times it was pressed (FR-PRINT-004).
+ *
+ * The property that guard existed for is kept, and kept more strongly: a parent state
+ * change mid-print cannot open a second dialog, because a re-render no longer re-runs
+ * this effect at all rather than being caught by an early return after the fact.
+ */
+function usePrintRequest(
+  request: object | null,
+  target: HTMLElement | null,
+  onDialogClosed: () => void,
+): void {
+  /** The request already armed, or `null` while the caller has nothing mounted. */
+  const armed = useRef<object | null>(null);
+
+  /**
+   * The close handler, read when the dialog closes rather than when it is armed, which
+   * is what keeps the caller's inline closure out of the dependency list below.
+   *
+   * Declared **before** the arming effect deliberately: effects run in declaration
+   * order, so this one has already refreshed the ref by the time the arming effect
+   * reads it.
+   */
+  const closed = useRef(onDialogClosed);
+  useEffect(() => {
+    closed.current = onDialogClosed;
+  });
+
+  useEffect(() => {
+    if (request === null || !target) {
+      // The caller has taken the payload away — it does that on `afterprint` — so the
+      // request being served is finished, and the next one is a new request even when it
+      // is the same object for the same bill.
+      armed.current = null;
+      return;
+    }
+    if (armed.current === request) return;
+    armed.current = request;
+
+    let opened = false;
+    const handleAfterPrint = (): void => {
+      closed.current();
+    };
+
+    window.addEventListener('afterprint', handleAfterPrint, { once: true });
+    // A frame, so the portal's children are in the DOM before the dialog opens.
+    const timer = setTimeout(() => {
+      opened = true;
+      window.print();
+    }, 50);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('afterprint', handleAfterPrint);
+      // Torn down before the dialog ever opened — a remount, or the request replaced
+      // inside that 50 ms. Forget it, so it can be armed again: a marker that outlives
+      // the request it was protecting is precisely how the defect above silenced the
+      // third press.
+      if (!opened) armed.current = null;
+    };
+  }, [request, target]);
 }
 
 export interface PrintRootProps {
@@ -31,36 +119,27 @@ export interface PrintRootProps {
 /**
  * Mount a payload into the print root and open the dialog.
  *
+ * Every press the operator makes is a print request and opens a dialog — a reprint is a
+ * `GET` of the payload and creates nothing, so there is no reason to swallow the third
+ * one (FR-PRINT-004). `usePrintRequest` carries the full account of why that needed
+ * saying.
+ *
  * The print event is logged **after** `window.print()` returns and failures are
  * swallowed inside `recordPrintEvent`: a customer waiting for their bill is not the
  * moment to fail on an audit nicety (FR-PRINT-004).
  */
 export function PrintRoot({ payload, policy, onAfterPrint, invoiceId }: PrintRootProps) {
   const target = printTarget();
-  const printed = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!payload || !target) return;
-
-    // Keyed on the payload identity so a re-render cannot reopen the dialog. Without
-    // this, a parent state change mid-print produces a second print dialog.
-    const key = `${payload.issued_at}:${payload.is_duplicate}`;
-    if (printed.current === key) return;
-    printed.current = key;
-
-    const handleAfterPrint = () => {
-      onAfterPrint?.();
-      if (invoiceId) void invoices.recordPrintEvent(invoiceId, payload.is_duplicate);
-    };
-
-    window.addEventListener('afterprint', handleAfterPrint, { once: true });
-    // A frame, so the portal's children are in the DOM before the dialog opens.
-    const timer = setTimeout(() => window.print(), 50);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('afterprint', handleAfterPrint);
-    };
-  }, [payload, target, onAfterPrint, invoiceId]);
+  usePrintRequest(payload, target, () => {
+    onAfterPrint?.();
+    // `payload` and `invoiceId` come from the latest render and still describe the bill
+    // that just printed: this handler is only subscribed while that request is armed,
+    // and both callers set the payload and the invoice id together.
+    if (invoiceId && payload) {
+      void invoices.recordPrintEvent(invoiceId, payload.is_duplicate);
+    }
+  });
 
   if (!payload || !target) return null;
   return createPortal(<InvoicePrintLayout payload={payload} policy={policy} />, target);
@@ -154,7 +233,18 @@ export function CounterSlipLayout({
   );
 }
 
-/** Portal and print a counter slip. Same lifecycle as the bill, different layout. */
+/**
+ * Portal and print a counter slip. Same lifecycle as the bill, different layout.
+ *
+ * 🔴 This used to arm itself with an `armed` state flag that was both set inside the
+ * effect and listed in its dependencies. Setting it re-rendered, the re-render re-ran
+ * the effect, the cleanup cancelled the pending `window.print()` timer, and the flag
+ * then sent the re-run straight down the early return — so the dialog was armed, torn
+ * down and never reopened. **No counter slip ever printed**, which is the one thing a
+ * cashier can offer a customer when a sale cannot be finalised offline (FR-OFFLINE-015).
+ * `usePrintRequest` keys on the slip the caller mounted and keeps nothing in state, so
+ * arming no longer triggers the render that cancelled it.
+ */
 export function CounterSlipRoot({
   data,
   policy,
@@ -165,22 +255,10 @@ export function CounterSlipRoot({
   onAfterPrint?: () => void;
 }) {
   const target = printTarget();
-  const [armed, setArmed] = useState(false);
 
-  useEffect(() => {
-    if (!data || !target || armed) return;
-    setArmed(true);
-    const handleAfterPrint = () => {
-      setArmed(false);
-      onAfterPrint?.();
-    };
-    window.addEventListener('afterprint', handleAfterPrint, { once: true });
-    const timer = setTimeout(() => window.print(), 50);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('afterprint', handleAfterPrint);
-    };
-  }, [data, target, armed, onAfterPrint]);
+  usePrintRequest(data, target, () => {
+    onAfterPrint?.();
+  });
 
   if (!data || !target) return null;
   return createPortal(<CounterSlipLayout data={data} policy={policy} />, target);
