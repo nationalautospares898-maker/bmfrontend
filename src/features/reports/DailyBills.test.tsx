@@ -531,21 +531,30 @@ describe('Credit Bills', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading…');
   });
 
-  it('excludes settled customers by default', async () => {
+  it('includes customers who have paid in full, by default', async () => {
+    // The owner's first-demo complaint, as a test. A credit bill *disappeared* once it
+    // was paid: `GET /credit/customers` drops a customer whose outstanding sums to zero
+    // unless `include_settled` is set, and this screen defaulted the flag to `false`, so
+    // the customer vanished and their paid bills went with them. Nothing was ever
+    // deleted — FR-RPT-031 already forbade that — the defect was one default.
+    //
+    // Credit Bills is a permanent record, so the flag is now `true` on load.
     render(<CreditBills />);
     await waitFor(() => expect(customers).toHaveBeenCalled());
-    expect(customers).toHaveBeenCalledWith({ include_settled: false, limit: 200 });
+    expect(customers).toHaveBeenCalledWith({ include_settled: true, limit: 200 });
   });
 
-  it('can include customers at zero balance, so history is never hidden for good', async () => {
+  it('can be narrowed to only the customers who still owe', async () => {
+    // The inverse is still available, and is now the thing you opt into rather than the
+    // thing you have to opt out of.
     const user = userEvent.setup();
     render(<CreditBills />);
     await screen.findByText('Ramesh Motors');
 
-    await user.click(screen.getByLabelText(/Include customers at zero balance/));
+    await user.click(screen.getByLabelText(/Only customers who still owe/));
 
     await waitFor(() =>
-      expect(customers).toHaveBeenLastCalledWith({ include_settled: true, limit: 200 }),
+      expect(customers).toHaveBeenLastCalledWith({ include_settled: false, limit: 200 }),
     );
   });
 

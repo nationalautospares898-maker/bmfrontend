@@ -9,9 +9,55 @@
  * Navigation is **words, never icons alone** (NFR-FE-UX-007), and a screen the user has
  * no permission for is not rendered as a disabled mystery — it is simply absent, with
  * the reason available if they ask.
+ *
+ * ## The navigation the owner asked for after the first demo
+ *
+ * Six sections, vertical, down the **right**: Billing · Daily Bills · Credit Bills ·
+ * Stock · Customers · Saving and syncing.
+ *
+ * `FR-NAV-002` specified a **left** sidebar of seven items including Purchases. The
+ * owner has replaced that; `docs/UI-UX-SPECIFICATION.md §3a` records the reversal with
+ * its date. (The as-built nav was neither — a horizontal wrap of nine buttons — so this
+ * is the first time the shell has matched any recorded design.)
+ *
+ * ## Imports, Counters and Purchases are withdrawn, not deleted
+ *
+ * The owner wants a straightforward single-computer shop application, so these three are
+ * gone from the navigation. Nothing behind them was removed: the screens, their
+ * components, every endpoint, every migration, the purchase and import history and all
+ * the permissions are untouched, and the backend still receives stock through
+ * `PurchaseService` exactly as before.
+ *
+ * Two deliberate consequences:
+ *
+ * * **Receiving stock has a new everyday path.** `Stock → Add Items` is the owner's own
+ *   four-column sheet and is now how goods arriving at the shop get recorded. The
+ *   supplier-document workflow (enter a bill, then `Receive into stock`) remains in the
+ *   code for a shop that later wants it.
+ * * **Counters is gone outright, because setting one up is no longer a thing anyone
+ *   does.** An earlier cut kept the screen on a conditional, since billing is refused
+ *   without a counter and hiding the only cure would strand a freshly installed machine.
+ *   The server now closes that gap properly: a device binds itself to the shop's counter
+ *   on first sign-in (`AuthService._ensure_billing_counter`), so there is no state left
+ *   for the screen to rescue. Withdrawing a control is only safe once the condition it
+ *   existed for cannot arise — that fix came first, and this followed it.
+ *
+ * ## Scrolling
+ *
+ * `<main>` is the one scrolling region, and **billing is the only screen that does not
+ * scroll**: it is a fixed spreadsheet workspace that fits the viewport. Every other screen
+ * is a list that can outgrow the window — stock, customers, credit folders — so it must
+ * scroll, and applying the billing rule to all of them is what clipped their lower halves
+ * on a desktop with no scrollbar to recover with.
+ *
+ * The overflow therefore follows **the screen and the available height**, not the width
+ * breakpoint alone. Billing only stops scrolling while the window is at least 600px tall;
+ * shorter than that and its own completion buttons would be below an unscrollable fold,
+ * which the browser acceptance run demonstrated by being unable to click `Clear Draft` at
+ * 1366x420.
  */
 
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, describeError } from '@/api/errors';
 import { getDeviceId, subscribeToSession, type SessionState } from '@/api/session';
@@ -23,7 +69,8 @@ import { ensureDeviceId } from '@/db/meta';
 import type { Bootstrap } from '@/api/types';
 import type { MoneyPolicy } from '@/lib/money';
 import { Busy, Button, Field, Panel, StatusDot } from '@/components/primitives';
-import { COMMON, ERRORS, OFFLINE } from '@/lib/strings';
+import { navigateWithArrows } from '@/lib/keyboard';
+import { COMMON, ERRORS, NAV, OFFLINE } from '@/lib/strings';
 import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
 import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
@@ -48,38 +95,22 @@ const StockScreen = lazy(() =>
     default: module.StockScreen,
   })),
 );
-const PurchasesScreen = lazy(() =>
-  import('@/features/purchases/PurchasesScreen').then((module) => ({
-    default: module.PurchasesScreen,
-  })),
-);
 const CustomersScreen = lazy(() =>
   import('@/features/customers/CustomersScreen').then((module) => ({
     default: module.CustomersScreen,
   })),
 );
-const ImportsScreen = lazy(() =>
-  import('@/features/imports/ImportsScreen').then((module) => ({
-    default: module.ImportsScreen,
-  })),
-);
 
-const CountersScreen = lazy(() =>
-  import('@/features/admin/CountersScreen').then((module) => ({
-    default: module.CountersScreen,
-  })),
-);
-
-type Screen =
-  | 'billing'
-  | 'daily-bills'
-  | 'credit-bills'
-  | 'stock'
-  | 'purchases'
-  | 'customers'
-  | 'imports'
-  | 'counters'
-  | 'sync';
+/**
+ * `purchases`, `imports` and `counters` are **absent from this union**, which is the
+ * enforcement: `setScreen('counters')` no longer type-checks, so the sections cannot be
+ * reached by a stale link, a forgotten handler or a later edit. `PurchasesScreen`,
+ * `ImportsScreen` and `CountersScreen` remain in the repository with their tests, and
+ * every endpoint behind them is live — these are withdrawn entry points, not deleted
+ * capabilities. `GET`/`PUT /admin/counters` still work for an operator who needs them,
+ * and the permission that guards them is unchanged.
+ */
+type Screen = 'billing' | 'daily-bills' | 'credit-bills' | 'stock' | 'customers' | 'sync';
 
 /** `navigator.onLine` is a hint, not a guarantee — the client still handles failures. */
 function useOnline(): boolean {
@@ -107,6 +138,8 @@ export function AppShell() {
   const [policy, setPolicy] = useState<MoneyPolicy | null>(null);
   const [screen, setScreen] = useState<Screen>('billing');
   const [sessionLost, setSessionLost] = useState(false);
+  /** Bumped to re-run startup after a session loss; see `retriedAfterLoss`. */
+  const [attempt, setAttempt] = useState(0);
   const online = useOnline();
   const billing = useBillingStore();
 
@@ -158,9 +191,31 @@ export function AppShell() {
     // thinks a re-login costs them their typing will avoid logging in.
     setSessionLost(true);
     setSession(null);
+    // Ask startup to run again, once. On a server with unattended access it quietly
+    // recovers; on one without, it fails the same way it does today and the sign-in form
+    // renders — which is exactly what happens now.
+    if (!retriedAfterLoss.current) {
+      retriedAfterLoss.current = true;
+      setAttempt((value) => value + 1);
+    }
   }, []);
 
   useEffect(() => subscribeToSession(setSession), []);
+
+  /**
+   * One automatic retry per session loss.
+   *
+   * On a server that lets the shop in without a password, a session lost mid-shift
+   * should not leave the till staring at a sign-in form it was never meant to see —
+   * `startApplication` can simply get another one. A ref rather than state because it
+   * must not cause a render, and it is reset once a session exists so the *next* loss
+   * gets its own retry.
+   *
+   * Exactly one, so a server that refuses cannot be asked in a loop: the second failure
+   * falls through to the sign-in form, which is the right answer when automatic entry is
+   * not available.
+   */
+  const retriedAfterLoss = useRef(false);
 
   useEffect(() => {
     void (async () => {
@@ -170,8 +225,9 @@ export function AppShell() {
       setBootstrap(result.bootstrap);
       setPolicy(result.policy);
       setStarting(false);
+      if (result.session) retriedAfterLoss.current = false;
     })();
-  }, [onSessionLost]);
+  }, [onSessionLost, attempt]);
 
   // Once signed in: open the drafts for this counter, start the scheduler, warm the
   // offline catalog. In that order — drafts first, always.
@@ -223,26 +279,46 @@ export function AppShell() {
   // that cannot use a screen never sees its tab — rather than finding a 403 behind it.
   const canReadCatalog = session.permissions.has('catalog.read');
   const canAdjustStock = session.permissions.has('inventory.adjust');
-  const canReceive = session.permissions.has('inventory.receive');
+  // The stock sheet creates or updates a product **and** moves stock, so it needs both.
+  // The server re-asserts the pair in `StockEntryService`; this only decides whether the
+  // button is worth showing.
+  const canAddStock =
+    session.permissions.has('catalog.write') &&
+    session.permissions.has('inventory.adjust');
+  // Price cells on the bill are read-only without it, never hidden — the figure still
+  // has to be visible, and the server re-checks the override regardless (§5 rule 12).
+  const canOverridePrice = session.permissions.has('billing.price.override');
   const canEditCustomers = session.permissions.has('customer.manage');
   // Its own authority: editing a customer's details and taking money off what they owe
   // are different permissions server-side, so they are different props here too.
   const canRecordPayment = session.permissions.has('credit.payment.record');
-  const canManageImports = session.permissions.has('imports.manage');
-  // C-2. `admin.settings.manage`, which only the owner holds — a manager has
-  // `admin.devices.manage` and can revoke a stolen till, but choosing which counter a
-  // machine bills as is business configuration. The server enforces this on all three
-  // endpoints; hiding the tab only saves the owner a pointless 403.
-  const canManageCounters = session.permissions.has('admin.settings.manage');
+
+  /**
+   * The six everyday sections the owner asked for. Nothing else belongs here.
+   */
+  const sections: Array<{ key: Screen; label: string }> = [
+    { key: 'billing', label: NAV.billing },
+    ...(canReadSales ? [{ key: 'daily-bills' as Screen, label: NAV.dailyBills }] : []),
+    ...(canReadCredit ? [{ key: 'credit-bills' as Screen, label: NAV.creditBills }] : []),
+    ...(canReadCatalog ? [{ key: 'stock' as Screen, label: NAV.stock }] : []),
+    ...(canReadCredit ? [{ key: 'customers' as Screen, label: NAV.customers }] : []),
+    { key: 'sync', label: NAV.sync },
+  ];
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 pb-3">
+    // Full viewport, and the **only** scrolling region is inside `<main>`. The owner
+    // asked for the invoice workspace to fit without scrolling the page to reach its
+    // controls (R5.1), which `h-dvh` + `min-h-0` on every intermediate flex child is what
+    // actually delivers — `h-screen` alone is wrong on a phone with a dynamic toolbar.
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-slate-300 px-4 py-2">
         <div>
           <h1 className="text-lg font-semibold text-[#232852]">National Auto Spares</h1>
+          {/* Who is signed in, and nothing else. The counter name used to be appended
+              here; on a one-computer shop "Counter 1" told the owner nothing they did
+              not know and was the last place the withdrawn feature still showed. */}
           <p className="text-xs text-slate-500">
             {session.fullName} · {session.role}
-            {bootstrap?.counter ? ` · ${bootstrap.counter.name}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -258,167 +334,141 @@ export function AppShell() {
         </div>
       </header>
 
-      {!storageUsable ? (
-        // Blocking, and worded so nobody mistakes it for a minor warning (FE-E-1).
-        <Panel tone="danger" title="Bills cannot be saved on this computer">
-          {OFFLINE.storageUnavailable}
-        </Panel>
-      ) : null}
+      {/* `lg:flex-row` with the nav **last** in the DOM: on a wide screen it sits down
+          the right as the owner asked, and on a narrow one it falls below the content
+          rather than becoming the horizontal top row the owner rejected. One source
+          order, both layouts, and the reading order is the content first either way. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:flex-row">
+        {/* Billing is the fixed workspace and must not scroll the page to reach its
+            controls; every other screen is a list that has to. `lg:overflow-hidden` was
+            applied unconditionally, which is why Stock, Customers, Credit Bills, Daily
+            Bills and Saving-and-syncing were cut off at the foot of a desktop window
+            with no scrollbar to recover with — the content was rendered, just
+            unreachable. Below `lg` everything scrolls, billing included, because a
+            narrow window cannot hold the sheet.
 
-      {session.mustChangePassword ? (
-        <Panel tone="warning" title="Your password needs changing">
-          Ask the owner to help you set a new one before the end of the day.
-        </Panel>
-      ) : null}
-
-      <nav aria-label="Screens" className="flex flex-wrap gap-2">
-        <Button
-          variant={screen === 'billing' ? 'primary' : 'secondary'}
-          onClick={() => setScreen('billing')}
-          aria-current={screen === 'billing' ? 'page' : undefined}
+            **The height condition is not decoration.** "Fixed workspace" only makes
+            sense while the window is tall enough to hold one. At 1366x420 the browser
+            acceptance run could not click `Clear Draft` at all: the four completion
+            actions sat below the fold of a pane that had been told never to scroll, so a
+            cashier on a short window could not finish a sale and had nothing to drag.
+            Clipping the till's own buttons is a worse outcome than a scrollbar, so below
+            600px of height billing scrolls like everything else. 600 is comfortably under
+            any real counter monitor — the owner's is 768 — so the fixed layout is what
+            they will actually see; this is the escape hatch for a half-height window, a
+            large zoom level, or a laptop with every toolbar open. */}
+        <main
+          className={`flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto ${
+            screen === 'billing' ? 'lg:[@media(min-height:600px)]:overflow-hidden' : ''
+          }`}
         >
-          Billing
-        </Button>
-        {canReadSales ? (
-          <Button
-            variant={screen === 'daily-bills' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('daily-bills')}
-            aria-current={screen === 'daily-bills' ? 'page' : undefined}
-          >
-            Daily Bills
-          </Button>
-        ) : null}
-        {canReadCredit ? (
-          <Button
-            variant={screen === 'credit-bills' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('credit-bills')}
-            aria-current={screen === 'credit-bills' ? 'page' : undefined}
-          >
-            Credit Bills
-          </Button>
-        ) : null}
-        {canReadCatalog ? (
-          <Button
-            variant={screen === 'stock' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('stock')}
-            aria-current={screen === 'stock' ? 'page' : undefined}
-          >
-            Stock
-          </Button>
-        ) : null}
-        {canReceive ? (
-          <Button
-            variant={screen === 'purchases' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('purchases')}
-            aria-current={screen === 'purchases' ? 'page' : undefined}
-          >
-            Purchases
-          </Button>
-        ) : null}
-        {canReadCredit ? (
-          <Button
-            variant={screen === 'customers' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('customers')}
-            aria-current={screen === 'customers' ? 'page' : undefined}
-          >
-            Customers
-          </Button>
-        ) : null}
-        {canManageImports ? (
-          <Button
-            variant={screen === 'imports' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('imports')}
-            aria-current={screen === 'imports' ? 'page' : undefined}
-          >
-            Imports
-          </Button>
-        ) : null}
-        {canManageCounters ? (
-          <Button
-            variant={screen === 'counters' ? 'primary' : 'secondary'}
-            onClick={() => setScreen('counters')}
-            aria-current={screen === 'counters' ? 'page' : undefined}
-          >
-            Counters
-          </Button>
-        ) : null}
-        <Button
-          variant={screen === 'sync' ? 'primary' : 'secondary'}
-          onClick={() => setScreen('sync')}
-          aria-current={screen === 'sync' ? 'page' : undefined}
-        >
-          Saving and syncing
-        </Button>
-      </nav>
+          {!storageUsable ? (
+            // Blocking, and worded so nobody mistakes it for a minor warning (FE-E-1).
+            <Panel tone="danger" title="Bills cannot be saved on this computer">
+              {OFFLINE.storageUnavailable}
+            </Panel>
+          ) : null}
 
-      <main>
-        {policy === null ? (
-          <Panel tone="danger" title="Settings could not be loaded">
-            {/* Without the money policy the client would have to invent one, and a
+          {session.mustChangePassword ? (
+            <Panel tone="warning" title="Your password needs changing">
+              Ask the owner to help you set a new one before the end of the day.
+            </Panel>
+          ) : null}
+
+          {policy === null ? (
+            <Panel tone="danger" title="Settings could not be loaded">
+              {/* Without the money policy the client would have to invent one, and a
                 client that invents a rounding rule eventually disagrees with the
                 invoice it is previewing (rule 15). Billing is refused instead. */}
-            Billing is unavailable until the server's settings load. Tell the owner.
-          </Panel>
-        ) : (
-          <Suspense fallback={<Busy label={COMMON.loading} />}>
-            {/* No counter: say so, rather than spin.
+              Billing is unavailable until the server's settings load. Tell the owner.
+            </Panel>
+          ) : (
+            <Suspense fallback={<Busy label={COMMON.loading} />}>
+              {/* Say so, rather than spin.
                 `BillingCounter` renders `Busy("Opening your bills")` until its draft
-                store is ready, and the store is only initialised once a counter is
-                known. So when the server cannot tell us which counter this machine is,
-                the billing screen used to sit on that spinner **for ever** — no error,
-                no retry, nothing to act on. A freshly installed counter PC looked
-                broken in a way nobody could diagnose from the screen.
-                The server-side cause is fixed (bootstrap now resolves the counter from
-                the registered device), so this is the genuinely-unassigned case: it is
-                reported as itself, and it names the action that resolves it. No counter
-                is invented client-side — the client must never make up business
-                identity (rule 15). */}
-            {screen === 'billing' && !bootstrap?.counter ? (
-              <Panel tone="danger" title="This computer is not assigned to a counter">
-                Billing needs to know which counter this computer is. Ask the owner to set
-                it on the Counters screen, then sign in again. Any bills already saved on
-                this computer are safe.
-              </Panel>
-            ) : null}
-            {screen === 'billing' && bootstrap?.counter ? (
-              <BillingCounter
-                policy={policy}
-                online={online}
-                canBill={canBill}
-                onSynced={() => scheduler.notifyMutation()}
-                onOpenDailyBills={
-                  canReadSales ? () => setScreen('daily-bills') : undefined
-                }
-              />
-            ) : null}
-            {screen === 'daily-bills' && canReadSales ? (
-              <DailyBills
-                policy={policy}
-                canCancel={canCancelSales}
-                onRebuild={canBill ? rebuildFromCancelled : undefined}
-              />
-            ) : null}
-            {screen === 'credit-bills' && canReadCredit ? <CreditBills /> : null}
-            {screen === 'stock' && canReadCatalog ? (
-              <StockScreen canAdjust={canAdjustStock} />
-            ) : null}
-            {screen === 'purchases' && canReceive ? (
-              <PurchasesScreen canReceive={canReceive} />
-            ) : null}
-            {screen === 'customers' && canReadCredit ? (
-              <CustomersScreen
-                canEdit={canEditCustomers}
-                canRecordPayment={canRecordPayment}
-              />
-            ) : null}
-            {screen === 'imports' && canManageImports ? <ImportsScreen /> : null}
-            {screen === 'counters' && canManageCounters ? (
-              <CountersScreen canManage={canManageCounters} />
-            ) : null}
-            {screen === 'sync' ? <SyncPanel online={online} /> : null}
-          </Suspense>
-        )}
-      </main>
+                store is ready, and the store is only initialised once the server has
+                told us where bills are booked. If that never arrives the billing screen
+                would sit on that spinner **for ever** — no error, no retry, nothing to
+                act on — which is how a freshly installed PC came to look broken in a way
+                nobody could diagnose from the screen.
+                Signing in now prepares this computer for billing by itself, so reaching
+                this panel means something genuinely unusual (a shop with no active
+                counter at all, which only an operator can create). It therefore names
+                no setup step the owner no longer has: there is no screen for them to
+                visit, and inventing one client-side is forbidden regardless — the client
+                must never make up business identity (rule 15). */}
+              {screen === 'billing' && !bootstrap?.counter ? (
+                <Panel tone="danger" title={ERRORS.billingNotReadyTitle}>
+                  {ERRORS.billingNotReady}
+                </Panel>
+              ) : null}
+              {screen === 'billing' && bootstrap?.counter ? (
+                <BillingCounter
+                  policy={policy}
+                  online={online}
+                  canBill={canBill}
+                  canOverridePrice={canOverridePrice}
+                  // The shop's own heading, read from the server's `businesses` row — the
+                  // same source the printed bill's payload uses — so the screen and the
+                  // paper cannot disagree, and neither invents a value the owner has not
+                  // supplied (OD-4).
+                  business={bootstrap.business}
+                  businessDate={bootstrap.business_date}
+                  onSynced={() => scheduler.notifyMutation()}
+                  onOpenDailyBills={
+                    canReadSales ? () => setScreen('daily-bills') : undefined
+                  }
+                />
+              ) : null}
+              {screen === 'daily-bills' && canReadSales ? (
+                <DailyBills
+                  policy={policy}
+                  canCancel={canCancelSales}
+                  onRebuild={canBill ? rebuildFromCancelled : undefined}
+                />
+              ) : null}
+              {screen === 'credit-bills' && canReadCredit ? <CreditBills /> : null}
+              {screen === 'stock' && canReadCatalog ? (
+                <StockScreen
+                  canAdjust={canAdjustStock}
+                  canAddStock={canAddStock}
+                  // The shop's own date, so the movement report opens on today rather
+                  // than on whatever the browser's clock calls today (FE-E-3).
+                  businessDate={bootstrap?.business_date ?? ''}
+                />
+              ) : null}
+              {screen === 'customers' && canReadCredit ? (
+                <CustomersScreen
+                  canEdit={canEditCustomers}
+                  canRecordPayment={canRecordPayment}
+                />
+              ) : null}
+              {screen === 'sync' ? <SyncPanel online={online} /> : null}
+            </Suspense>
+          )}
+        </main>
+
+        {/* `lg:overflow-y-auto` rather than `visible`: six items fit any sensible
+            window, but a short one (a laptop with the browser's bookmarks bar and a
+            zoom level) must still be able to reach the last section. */}
+        <nav
+          aria-label={NAV.label}
+          className="flex shrink-0 flex-row gap-2 overflow-x-auto border-t border-slate-300 pt-2 lg:w-56 lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0"
+          onKeyDown={navigateWithArrows}
+        >
+          {sections.map((section) => (
+            <Button
+              key={section.key}
+              variant={screen === section.key ? 'primary' : 'secondary'}
+              onClick={() => setScreen(section.key)}
+              aria-current={screen === section.key ? 'page' : undefined}
+              className="shrink-0 lg:w-full lg:justify-start"
+            >
+              {section.label}
+            </Button>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }

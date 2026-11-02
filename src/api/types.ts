@@ -151,6 +151,24 @@ export type StockBalances = Schemas['StockBalancesOut'];
 export type StockBalance = StockBalances['items'][number];
 export type StockMovements = Schemas['StockMovementsOut'];
 export type StockMovement = StockMovements['items'][number];
+/** One business-local day of stock movements, grouped as added or sold. */
+export type MovementReport = Schemas['MovementReportOut'];
+export type MovementReportLine = MovementReport['items'][number];
+
+// --- the owner's four-column stock sheet --------------------------------------
+
+export type StockEntryRequest = Schemas['StockEntryRequest'];
+export type StockEntryRow = Schemas['StockEntryRow'];
+export type StockEntries = Schemas['StockEntriesOut'];
+export type StockEntryResult = StockEntries['items'][number];
+/**
+ * What saving one sheet row would do, answered before anything is written.
+ *
+ * `kind` is `new` | `existing` | `ambiguous` | `inactive`, produced by the same matcher
+ * the save uses — so the badge on screen cannot promise something the save does
+ * differently.
+ */
+export type StockEntryMatch = Schemas['StockEntryMatchOut'];
 
 // --- purchases (M25) ----------------------------------------------------------
 

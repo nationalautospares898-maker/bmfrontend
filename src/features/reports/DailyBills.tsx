@@ -263,7 +263,7 @@ export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsP
 // --- Credit Bills -------------------------------------------------------------
 
 /**
- * Credit Bills: customer-wise, two levels.
+ * Credit Bills: customer-wise, two levels, and a **permanent record**.
  *
  * Level 1 is `GET /credit/customers`, whose aggregates are **server-computed**. Level 2
  * reuses `GET /invoices?customer_id=…&is_credit=true` — no new contract was introduced
@@ -272,11 +272,30 @@ export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsP
  * Grouping keys on `customer_id`; the name is a display label only, so a customer who is
  * renamed keeps one row with their whole history rather than splitting into two
  * (FR-RPT-029).
+ *
+ * ## Why settled customers are shown by default
+ *
+ * The owner's complaint after the first demo: a credit bill **disappeared** once it was
+ * paid in full. It was never deleted — `GET /credit/customers` drops a customer whose
+ * outstanding sums to zero unless `include_settled` is set, and this screen defaulted
+ * that flag to `false`. So the customer vanished from the list and their paid bills went
+ * with them.
+ *
+ * The flag now defaults to **`true`**: Credit Bills is an enduring record of everyone who
+ * has ever had a credit bill, not a list of who currently owes. The toggle survives
+ * inverted — *"Only customers who still owe"* — because narrowing to the debtors is a
+ * genuinely useful second view, and it is now the thing you opt *into*.
+ *
+ * Nothing about retention changed on the server. FR-RPT-031 already required that
+ * "fully paid invoices stay in the customer's history… never deleted or permanently
+ * hidden", the per-customer invoice list was already unfiltered by payment status, and
+ * `GET /invoices/{id}` already carried the items. The defect was one default on one
+ * screen.
  */
 export function CreditBills() {
   const [customers, setCustomers] = useState<CreditCustomer[]>([]);
   const [overall, setOverall] = useState<Record<string, unknown> | null>(null);
-  const [includeSettled, setIncludeSettled] = useState(false);
+  const [includeSettled, setIncludeSettled] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [customerInvoices, setCustomerInvoices] = useState<InvoiceSummary[]>([]);
   const [busy, setBusy] = useState(true);
@@ -405,16 +424,19 @@ export function CreditBills() {
     <section className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center gap-4">
         <h1 className="text-xl font-semibold text-[#232852]">Credit Bills</h1>
+        {/* Inverted from "include settled", because the full history is now the default
+            view and narrowing to the debtors is the deliberate act (FR-RPT-031). */}
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            checked={includeSettled}
-            onChange={(event) => setIncludeSettled(event.target.checked)}
+            checked={!includeSettled}
+            onChange={(event) => setIncludeSettled(!event.target.checked)}
           />
-          {/* A settled customer's history is never hidden permanently (FR-RPT-031). */}
-          Include customers at zero balance
+          Only customers who still owe
         </label>
       </header>
+
+      <p className="text-sm text-slate-600">{CREDIT_BILLS.permanentRecord}</p>
 
       {error ? <Panel tone="danger">{error}</Panel> : null}
       {busy ? <Busy label={COMMON.loading} /> : null}

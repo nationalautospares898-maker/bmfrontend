@@ -13,7 +13,7 @@
  *   a screen reader has to be able to bill.
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,16 +90,50 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** A catalogue hit, in the shape `GET /products/search` actually returns. */
+const PRODUCT = {
+  id: 'p1',
+  name: 'AXEL PACKING',
+  sku: 'AX-100',
+  barcode: null,
+  unit: { code: 'NOS', name: 'Numbers', allows_fraction: false, decimal_places: 0 },
+  default_selling_price: '30.0000',
+  stock: { branch_quantity: '200.000', as_of: '2026-11-02T04:00:00Z' },
+  is_active: true,
+};
+
+const SECOND_PRODUCT = { ...PRODUCT, id: 'p2', name: '11L LE MAX', sku: 'LE-11' };
+
+/**
+ * Type into row 1's Item cell and pick the first match.
+ *
+ * This is the whole keyboard-only path the redesign had to preserve: the search box
+ * became a cell, so adding an item is "type in the cell, press Enter" rather than "type
+ * in the box above, press Enter" (FR-BILL-001).
+ */
+async function addFirstProduct(
+  user: ReturnType<typeof userEvent.setup>,
+  row = 1,
+  text = 'axel',
+): Promise<void> {
+  await user.type(screen.getByLabelText(`Item, row ${row}`), text);
+  // Selected with `Enter`, not a click, because that is the path a cashier actually
+  // uses and the one the owner asked to keep working: type, Enter, type the quantity,
+  // Enter. Clicking is also available and has its own assertion.
+  await screen.findByRole('listbox');
+  await user.keyboard('{Enter}');
+}
+
 describe('exactly four primary actions, and no fifth (OD-14)', () => {
   it('renders the four owner-decided labels', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     for (const label of ['Print Bill', 'Credit Bill', 'Save a Draft', 'Clear Draft']) {
       expect(screen.getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
     }
   });
 
   it('renders no fifth finalisation-like action', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     const labels = screen
       .getAllByRole('button')
       .map((button) => button.textContent ?? '');
@@ -110,7 +144,7 @@ describe('exactly four primary actions, and no fifth (OD-14)', () => {
   });
 
   it('shows the keyboard shortcut next to each action, never instead of it', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     const printBill = screen.getByRole('button', { name: /Print Bill/ });
     // Words first, shortcut as an addition. A shortcut-only affordance is invisible to
     // someone who has never been shown it.
@@ -121,7 +155,7 @@ describe('exactly four primary actions, and no fifth (OD-14)', () => {
 
 describe('offline (FR-OFFLINE-002, ADR-033)', () => {
   it('disables both finalisation buttons', () => {
-    render(<BillingCounter policy={POLICY} online={false} canBill />);
+    render(<BillingCounter policy={POLICY} online={false} canBill canOverridePrice />);
     expect(screen.getByRole('button', { name: /Print Bill/ })).toBeDisabled();
     // Credit is refused for the same reason as cash: since ADR-033 it finalises a
     // sale, and "credit" is about who owes money, not about whether the sale happened.
@@ -129,7 +163,7 @@ describe('offline (FR-OFFLINE-002, ADR-033)', () => {
   });
 
   it('leaves Save a Draft and Clear Draft available', () => {
-    render(<BillingCounter policy={POLICY} online={false} canBill />);
+    render(<BillingCounter policy={POLICY} online={false} canBill canOverridePrice />);
     // The bill is already safe on disk, so saving it offline is a success rather than
     // an error.
     expect(screen.getByRole('button', { name: /Save a Draft/ })).toBeEnabled();
@@ -137,7 +171,7 @@ describe('offline (FR-OFFLINE-002, ADR-033)', () => {
   });
 
   it('says what is happening and that nothing is lost', () => {
-    render(<BillingCounter policy={POLICY} online={false} canBill />);
+    render(<BillingCounter policy={POLICY} online={false} canBill canOverridePrice />);
     expect(screen.getByText(/Working offline/)).toBeInTheDocument();
     expect(screen.getByText(/nothing is lost/)).toBeInTheDocument();
   });
@@ -145,27 +179,47 @@ describe('offline (FR-OFFLINE-002, ADR-033)', () => {
 
 describe('permissions', () => {
   it('explains rather than silently failing when the user cannot bill', () => {
-    render(<BillingCounter policy={POLICY} online canBill={false} />);
+    render(<BillingCounter policy={POLICY} online canBill={false} canOverridePrice />);
     expect(screen.getByRole('button', { name: /Print Bill/ })).toBeDisabled();
     expect(screen.getByText(/Ask a supervisor/)).toBeInTheDocument();
+  });
+
+  it('shows the price but does not let it be edited without the permission', async () => {
+    // Read-only, never hidden: the cashier still has to be able to see what the bill
+    // says. The server re-checks the override regardless (§5 rule 12).
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice={false} />);
+    await addFirstProduct(user);
+
+    // Awaited: adding a line writes to Dexie before the store publishes, so the cell
+    // does not exist on the tick the key was pressed.
+    expect(await screen.findByLabelText('Price, row 1')).toBeDisabled();
+    // The quantity is still editable — only the price is permissioned.
+    expect(screen.getByLabelText('Quantity, row 1')).toBeEnabled();
   });
 });
 
 describe('the total is always a preview (ADR-032)', () => {
   it('labels it as confirmed on completion', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     expect(screen.getByText(/preview — confirmed on completion/)).toBeInTheDocument();
   });
 });
 
 describe('the empty state tells the cashier what to do', () => {
   it('prompts for a part rather than showing a bare table', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
-    expect(screen.getByText(/Type a part name or code above/)).toBeInTheDocument();
+    // FR-BILL-011 survives the redesign. Fifteen blank numbered rows are exactly the
+    // "empty table with no guidance" the requirement was written against, so the hint is
+    // rendered under the grid instead of inside it.
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    expect(
+      screen.getByText(/Type a part name or code in the Item column/),
+    ).toBeInTheDocument();
   });
 
   it('disables finalisation with no lines', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     // `EMPTY_SALE` should never reach the server from this client; if it does, that is
     // a client bug worth logging.
     expect(screen.getByRole('button', { name: /Print Bill/ })).toBeDisabled();
@@ -175,7 +229,7 @@ describe('the empty state tells the cashier what to do', () => {
 describe('Clear Draft asks first', () => {
   it('opens a confirmation naming how many items will go', async () => {
     const user = userEvent.setup();
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
     await user.click(screen.getByRole('button', { name: /Clear Draft/ }));
     const dialog = await screen.findByRole('dialog');
@@ -187,7 +241,7 @@ describe('Clear Draft asks first', () => {
 
   it('keeps the bill when the user backs out', async () => {
     const user = userEvent.setup();
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     await user.click(screen.getByRole('button', { name: /Clear Draft/ }));
     await user.click(screen.getByRole('button', { name: /Keep this bill/ }));
     await waitFor(() => {
@@ -200,7 +254,7 @@ describe('Clear Draft asks first', () => {
 describe('credit requires a saved customer (FR-CREDIT-009)', () => {
   it('refuses before sending and says why', async () => {
     const user = userEvent.setup();
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
     const draftId = useBillingStore.getState().activeDraftId;
     expect(draftId).toBeTruthy();
@@ -229,8 +283,8 @@ describe('credit requires a saved customer (FR-CREDIT-009)', () => {
 
 describe('the tab strip', () => {
   it('offers a new bill and marks the current one', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
-    expect(screen.getByRole('button', { name: 'New bill' })).toBeInTheDocument();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    expect(screen.getByRole('button', { name: 'Start a new bill' })).toBeInTheDocument();
     // `aria-current` rather than colour alone, so the active tab is announced.
     const current = screen
       .getAllByRole('button')
@@ -241,9 +295,9 @@ describe('the tab strip', () => {
   it('refuses a new bill at the limit and says nothing will be closed', async () => {
     const user = userEvent.setup();
     useBillingStore.setState({ maxOpenDrafts: 1 });
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    await user.click(screen.getByRole('button', { name: 'New bill' }));
+    await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
 
     const panel = await screen.findByRole('alert');
     // The wording matters as much as the refusal: a cashier who loses a half-typed
@@ -253,9 +307,233 @@ describe('the tab strip', () => {
   });
 });
 
+describe('the Excel-style invoice grid', () => {
+  it('shows fifteen numbered rows before anything is on the bill', () => {
+    // The owner's own sheet has its rows numbered whether or not they are used, and
+    // seeing three rows for a three-line bill was the specific complaint.
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    const grid = within(screen.getByRole('table', { name: /Bill items/i }));
+    for (const row of [1, 15]) {
+      expect(grid.getByLabelText(`Item, row ${row}`)).toBeInTheDocument();
+    }
+    // Fifteen, not sixteen, while the bill is empty: the spare row appears once rows
+    // start filling.
+    expect(grid.queryByLabelText('Item, row 16')).not.toBeInTheDocument();
+  });
+
+  it('uses the owner’s column headers', () => {
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    const grid = within(screen.getByRole('table', { name: /Bill items/i }));
+    for (const header of ['S.No', 'Item', 'Qty', 'Price', 'Total']) {
+      expect(grid.getByRole('columnheader', { name: header })).toBeInTheDocument();
+    }
+  });
+
+  it('keeps a spare row below the last item, so row 16 exists once 15 are filled', async () => {
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    const draftId = useBillingStore.getState().activeDraftId!;
+    for (let line = 0; line < 15; line += 1) {
+      await useBillingStore.getState().addLine(draftId, {
+        product_id: `p${line}`,
+        product_name: `PART ${line}`,
+        sku: null,
+        unit_code: 'NOS',
+        quantity: '1.000',
+        unit_price: '10.0000',
+        catalog_price_at_add: '10.0000',
+        price_source: 'catalog',
+        discount_percent: '0.000',
+        known_stock: null,
+        stock_as_of: null,
+      });
+    }
+    // Row 16 is already there when the cashier leaves row 15 — they never have to ask
+    // for one.
+    expect(await screen.findByLabelText('Item, row 16')).toBeInTheDocument();
+  });
+
+  it('adds a product from the Item cell and fills its price', async () => {
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    await addFirstProduct(user);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Quantity, row 1')).toHaveValue('1');
+    });
+    // The catalogue price, taken from the hit rather than typed.
+    expect(screen.getByLabelText('Price, row 1')).toHaveValue('30');
+  });
+
+  it('keeps a space a space while a product name is being typed', async () => {
+    // `AXEL PACKING` has one in the middle. A grid that swallowed `Space` to select a
+    // cell would make half the catalogue untypeable, so this is asserted rather than
+    // assumed.
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    const cell = screen.getByLabelText('Item, row 1');
+    await user.type(cell, 'axel packing');
+    expect(cell).toHaveValue('axel packing');
+  });
+
+  it('shows a prominent GRAND TOTAL', () => {
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    expect(screen.getByText('GRAND TOTAL')).toBeInTheDocument();
+  });
+
+  it('renders the bill header fields inline, mechanic included (FR-BILL-010)', () => {
+    // Inline on the bill, never behind a dialog, and never part of a credit-details
+    // form — that design was removed by OD-21/ADR-033 and must not come back.
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    expect(screen.getByLabelText(/Customer Name/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Mechanic Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Vehicle Number')).toBeInTheDocument();
+    expect(screen.getByText('ESTIMATE')).toBeInTheDocument();
+  });
+
+  it('shows the configured shop heading and nothing where a field is unset', () => {
+    // OD-4 is a go-live gate: the owner has supplied only the trading name. An empty
+    // address must render as nothing, never as a placeholder and never as the address
+    // printed in the reference workbook (FR-PRINT-016).
+    render(
+      <BillingCounter
+        policy={POLICY}
+        online
+        canBill
+        canOverridePrice
+        business={{
+          display_name: 'NATIONAL AUTO SPARES',
+          address_lines: [],
+          phone_numbers: [],
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { name: 'NATIONAL AUTO SPARES' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Address line/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('bill tabs behave like browser tabs', () => {
+  it('names a new tab "New bill" until its first product names it', async () => {
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    expect(tabs.getByRole('button', { name: 'New bill' })).toBeInTheDocument();
+
+    await addFirstProduct(user);
+
+    // Renamed to the product, which is what the owner asked for.
+    await waitFor(() => {
+      expect(tabs.getByRole('button', { name: 'AXEL PACKING' })).toBeInTheDocument();
+    });
+  });
+
+  it('gives two bills starting with the same product distinguishable names', async () => {
+    // A shop sells four of the same clutch plate in a morning. Two tabs reading
+    // `AXEL PACKING` would be a coin flip for the cashier deciding which to finalise, so
+    // the second is suffixed — display only, nothing about the bill changes.
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    useBillingStore.setState({ maxOpenDrafts: 4 });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    await addFirstProduct(user);
+    await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
+    await addFirstProduct(user);
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    await waitFor(() => {
+      expect(tabs.getByRole('button', { name: 'AXEL PACKING (2)' })).toBeInTheDocument();
+    });
+  });
+
+  it('keeps each tab’s items independent', async () => {
+    // One mock returning **both** products, and each is picked by name.
+    //
+    // `mockResolvedValueOnce` was wrong here and intermittently so: the cell debounces
+    // ~120 ms and `user.type` sends a keystroke at a time, so the number of searches per
+    // word is a timing detail. Which product the "once" applied to therefore varied, and
+    // the test failed on whichever run coalesced differently. Picking by name asserts the
+    // thing that matters — these two tabs hold two different bills — without depending on
+    // how many times the box was queried.
+    mocks.search.mockResolvedValue({ items: [PRODUCT, SECOND_PRODUCT], page: {} });
+    const user = userEvent.setup();
+    useBillingStore.setState({ maxOpenDrafts: 4 });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    async function pick(name: string): Promise<void> {
+      await user.type(screen.getByLabelText('Item, row 1'), 'a');
+      await screen.findByRole('listbox');
+      await user.click(screen.getByRole('button', { name: new RegExp(name) }));
+    }
+
+    await pick('AXEL PACKING');
+    const first = useBillingStore.getState().activeDraftId;
+    await waitFor(() => {
+      expect(
+        useBillingStore.getState().drafts.find((d) => d.id === first)?.lines,
+      ).toHaveLength(1);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
+    await pick('11L LE MAX');
+    const second = useBillingStore.getState().activeDraftId;
+    await waitFor(() => {
+      expect(
+        useBillingStore.getState().drafts.find((d) => d.id === second)?.lines,
+      ).toHaveLength(1);
+    });
+
+    expect(first).not.toBe(second);
+    const drafts = useBillingStore.getState().drafts;
+    // Different products: switching tabs must not mix one bill's items into another.
+    expect(drafts.find((d) => d.id === first)?.lines[0]?.product_id).toBe('p1');
+    expect(drafts.find((d) => d.id === second)?.lines[0]?.product_id).toBe('p2');
+  });
+
+  it('closes an empty tab straight away', async () => {
+    const user = userEvent.setup();
+    useBillingStore.setState({ maxOpenDrafts: 4 });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
+    await waitFor(() => expect(useBillingStore.getState().drafts).toHaveLength(2));
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    await user.click(tabs.getAllByRole('button', { name: /^Close / })[1]!);
+
+    await waitFor(() => expect(useBillingStore.getState().drafts).toHaveLength(1));
+  });
+
+  it('warns before closing a tab that has items, and offers to save it', async () => {
+    // §5 rule 18: no draft is ever auto-closed or silently discarded. A cashier who
+    // loses a half-typed bill to a stray click stops trusting the system.
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    await addFirstProduct(user);
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    await user.click(tabs.getAllByRole('button', { name: /^Close / })[0]!);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toMatch(/Save it as a draft/);
+    // Still there — nothing was discarded by opening the warning.
+    expect(useBillingStore.getState().drafts).toHaveLength(1);
+  });
+});
+
 describe('accessibility', () => {
   it('has no axe violations', async () => {
-    const { container } = render(<BillingCounter policy={POLICY} online canBill />);
+    const { container } = render(
+      <BillingCounter policy={POLICY} online canBill canOverridePrice />,
+    );
 
     const results = await axe.run(container, {
       // The rules that actually matter at a counter: labels, names, contrast-independent
@@ -271,7 +549,7 @@ describe('accessibility', () => {
   }, 30_000);
 
   it('labels every input, because a placeholder is not a label', () => {
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     for (const input of screen.getAllByRole('textbox')) {
       const labelled =
         input.getAttribute('aria-label') ??
@@ -301,7 +579,7 @@ describe('a bill the server has never seen (the NOT_FOUND defect)', () => {
     upsert.mockResolvedValue({ version: 4 });
     finalize.mockRejectedValue(new Error('stop after the push'));
 
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     const draftId = useBillingStore.getState().activeDraftId;
     await useBillingStore.getState().addLine(draftId!, {
       product_id: 'p1',
@@ -336,7 +614,7 @@ describe('a bill the server has never seen (the NOT_FOUND defect)', () => {
     mocks.draftUpsert.mockResolvedValue({ version: 7 });
     finalize.mockRejectedValue(new Error('stop after the push'));
 
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     const draftId = useBillingStore.getState().activeDraftId;
     await useBillingStore.getState().addLine(draftId!, {
       product_id: 'p1',
@@ -381,6 +659,25 @@ describe('the customer picker (FR-CREDIT-009)', () => {
    * "A credit bill needs a saved customer, not just a typed name" with no way to
    * satisfy it.
    */
+  /**
+   * How long to wait for a result that is behind the customer search's debounce.
+   *
+   * `CustomerPicker` waits 250 ms after the last keystroke before it searches, so an
+   * assertion on a match needs that, plus the mocked promise, plus a React render.
+   * Testing Library's default `findBy` patience is 1000 ms, which leaves roughly 700 ms
+   * of headroom — enough when this file runs alone, and **not** enough when twenty test
+   * files share the machine. These three tests failed only in a full run, which is the
+   * signature of a timing race rather than a defect, and they passed in isolation every
+   * time.
+   *
+   * This widens the window; it weakens nothing. The match must still appear, still be a
+   * button, and still carry the customer's name — a test that waits longer for the
+   * right answer is not a test that accepts a wrong one. Raising the floor is also
+   * preferable to shortening the debounce, which exists so that typing a name does not
+   * fire a request per keystroke at the counter.
+   */
+  const AFTER_DEBOUNCE = { timeout: 4000 };
+
   const SAVED = {
     id: 'cust-1',
     name: 'Rakesh Motors',
@@ -412,13 +709,73 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     });
   }
 
+  it('does not pull the caret out of the customer name the cashier is typing', async () => {
+    /**
+     * A real defect, found by this suite failing in a different place on each run.
+     *
+     * `FR-BILL-001` focuses row 1's Item cell when the screen is ready, on a
+     * `requestAnimationFrame`, and `store.ready` flips only after the open bills have
+     * been read out of Dexie. A cashier who clicked `Customer Name` and started typing
+     * inside that window had the caret dragged into the grid mid-word — so the
+     * customer's name was typed into the **product search** and the customer field was
+     * left empty. The diagnostic that caught it showed exactly that: `rakesh` sitting in
+     * the item cell.
+     *
+     * The automatic focus now yields to a field in use. The deliberate hand-off after
+     * adding a product does not, and `moves to the next row after a product is picked`
+     * is the test that holds that line.
+     */
+    const user = userEvent.setup();
+
+    /**
+     * The frame is **held**, not awaited.
+     *
+     * The race is "the frame lands while the cashier is mid-word", and a window that is
+     * ~16 ms wide in jsdom cannot be hit by waiting: typing six characters takes longer
+     * than that, so the steal had already happened and been harmless before the
+     * assertion looked. Capturing the callbacks and running them at the chosen moment
+     * reproduces the ordering exactly — and was verified to fail when the guard is
+     * removed, which the earlier timing-based version of this test did not.
+     */
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+
+    try {
+      render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+      const field = screen.getByLabelText(/Customer Name/);
+      field.focus();
+      await user.type(field, 'Sukith');
+
+      // Now the frame arrives. This is the instant focus used to be taken away.
+      // Wrapped in `act` because running the callbacks can set state.
+      act(() => {
+        for (const frame of frames.splice(0)) frame(performance.now());
+      });
+
+      expect(document.activeElement).toBe(field);
+      expect((field as HTMLInputElement).value).toBe('Sukith');
+      // And the name went nowhere near the catalogue search.
+      expect(screen.getByLabelText('Item, row 1')).toHaveValue('');
+    } finally {
+      raf.mockRestore();
+    }
+  });
+
   it('attaches the saved customer id to the draft when one is chosen', async () => {
     const user = userEvent.setup();
     mocks.customerSearch.mockResolvedValue({ items: [SAVED], page: {} });
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'rakesh');
-    await user.click(await screen.findByRole('button', { name: /Rakesh Motors/ }));
+    await user.type(screen.getByLabelText(/Customer Name/), 'rakesh');
+    await user.click(
+      await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
+    );
 
     const draftId = useBillingStore.getState().activeDraftId;
     await waitFor(() => {
@@ -431,10 +788,12 @@ describe('the customer picker (FR-CREDIT-009)', () => {
   it('fills the bill snapshot from the chosen customer', async () => {
     const user = userEvent.setup();
     mocks.customerSearch.mockResolvedValue({ items: [SAVED], page: {} });
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'rakesh');
-    await user.click(await screen.findByRole('button', { name: /Rakesh Motors/ }));
+    await user.type(screen.getByLabelText(/Customer Name/), 'rakesh');
+    await user.click(
+      await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
+    );
 
     await waitFor(() => {
       const draft = useBillingStore.getState().drafts[0];
@@ -443,16 +802,20 @@ describe('the customer picker (FR-CREDIT-009)', () => {
       expect(draft?.header.vehicle_number).toBe('KA01AB1234');
     });
     // And it says who the bill is for, rather than leaving the cashier to infer it.
-    expect(await screen.findByText(/Billing to:/)).toBeInTheDocument();
+    // In the spreadsheet header that is the name shown under the `Customer Name` label,
+    // where the search box was.
+    expect(await screen.findByText('Rakesh Motors')).toBeInTheDocument();
   });
 
   it('lets the customer be changed again, keeping the typed snapshot', async () => {
     const user = userEvent.setup();
     mocks.customerSearch.mockResolvedValue({ items: [SAVED], page: {} });
-    render(<BillingCounter policy={POLICY} online canBill />);
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'rakesh');
-    await user.click(await screen.findByRole('button', { name: /Rakesh Motors/ }));
-    await screen.findByText(/Billing to:/);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    await user.type(screen.getByLabelText(/Customer Name/), 'rakesh');
+    await user.click(
+      await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
+    );
+    await screen.findByText('Rakesh Motors');
 
     await user.click(screen.getByRole('button', { name: 'Change' }));
 
@@ -474,11 +837,15 @@ describe('the customer picker (FR-CREDIT-009)', () => {
       created: true,
       warnings: [],
     });
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'Sukith');
+    await user.type(screen.getByLabelText(/Customer Name/), 'Sukith');
     await user.click(
-      await screen.findByRole('button', { name: /Save as a new customer/ }),
+      await screen.findByRole(
+        'button',
+        { name: /Save as a new customer/ },
+        AFTER_DEBOUNCE,
+      ),
     );
 
     await waitFor(() => expect(mocks.customerUpsert).toHaveBeenCalled());
@@ -507,11 +874,15 @@ describe('the customer picker (FR-CREDIT-009)', () => {
         { code: 'CUSTOMER_DUPLICATE_SUSPECTED', message: 'Sukith may already exist.' },
       ],
     });
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'Sukith');
+    await user.type(screen.getByLabelText(/Customer Name/), 'Sukith');
     await user.click(
-      await screen.findByRole('button', { name: /Save as a new customer/ }),
+      await screen.findByRole(
+        'button',
+        { name: /Save as a new customer/ },
+        AFTER_DEBOUNCE,
+      ),
     );
 
     // Warned, and the customer is still attached — nothing was merged or refused.
@@ -528,12 +899,14 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     mocks.customerSearch.mockResolvedValue({ items: [SAVED], page: {} });
     mocks.draftUpsert.mockResolvedValue({ version: 1 });
     mocks.finalize.mockRejectedValue(new Error('stop after the request'));
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     await addLine();
 
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'rakesh');
-    await user.click(await screen.findByRole('button', { name: /Rakesh Motors/ }));
-    await screen.findByText(/Billing to:/);
+    await user.type(screen.getByLabelText(/Customer Name/), 'rakesh');
+    await user.click(
+      await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
+    );
+    await screen.findByText('Rakesh Motors');
 
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
 
@@ -555,17 +928,21 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     // genuinely share a name, and the cashier can see which person is standing there.
     const user = userEvent.setup();
     mocks.customerSearch.mockResolvedValue({ items: [SAVED], page: {} });
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    await user.type(screen.getByLabelText(/Find a saved customer/), 'rakesh');
+    await user.type(screen.getByLabelText(/Customer Name/), 'rakesh');
 
     // The match is offered...
     expect(
-      await screen.findByRole('button', { name: /Rakesh Motors/ }),
+      await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
     ).toBeInTheDocument();
     // ...and so is creating a new one.
     expect(
-      await screen.findByRole('button', { name: /Save as a new customer/ }),
+      await screen.findByRole(
+        'button',
+        { name: /Save as a new customer/ },
+        AFTER_DEBOUNCE,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/Not the right person/)).toBeInTheDocument();
   });
@@ -574,7 +951,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     // The guard stays. The picker gives it something to be satisfied by; it does not
     // weaken it.
     const user = userEvent.setup();
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     await addLine();
 
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
@@ -587,7 +964,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     const user = userEvent.setup();
     mocks.draftUpsert.mockResolvedValue({ version: 1 });
     mocks.finalize.mockRejectedValue(new Error('stop after the request'));
-    render(<BillingCounter policy={POLICY} online canBill />);
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
     await addLine();
 
     await user.click(screen.getByRole('button', { name: /Print Bill/ }));
@@ -595,5 +972,265 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
     const body = mocks.finalize.mock.calls[0]?.[0] as { customer?: { mode: string } };
     expect(body.customer?.mode).toBe('none');
+  });
+});
+
+/**
+ * The keyboard remediation of 2 November 2026.
+ *
+ * The cashier's report was precise: choose a customer, press Tab or Enter, and focus does
+ * not reach Mechanic Name — the touchpad becomes compulsory. Two separate defects sat
+ * behind it, and each has a test here that fails without its fix:
+ *
+ * 1. **The customer list could not be driven by the keyboard at all.** Its options were
+ *    `<button onMouseDown=...>`, and a keyboard press fires `click`, never `mousedown`.
+ *    So `Enter` on a focused suggestion genuinely did nothing, and there was no arrow
+ *    navigation to reach one in the first place.
+ * 2. **Focus was destroyed by the selection itself.** Choosing a customer replaces the
+ *    search box with the chosen name and a `Change` button. The focused node is unmounted
+ *    by that render, and a browser whose focused element disappears moves focus to
+ *    `<body>` — so the next `Tab` restarted from the top of the document.
+ */
+describe('keyboard: the customer box (the reported defect)', () => {
+  /**
+   * Local fixtures rather than the ones inside `the customer picker` describe above.
+   *
+   * Those are scoped to that block, and widening their scope would mean editing a
+   * passing suite to suit a new one — a change with no upside and a real chance of
+   * disturbing coverage that already works. Duplicating two small constants is the
+   * cheaper trade.
+   */
+  const WAIT = { timeout: 4000 };
+  const BASE = {
+    business_name: null,
+    primary_phone: '9876500011',
+    phones: ['9876500011'],
+    vehicles: [],
+    address_lines: [],
+    default_mechanic_name: null,
+    credit_terms_days: 30,
+    credit_limit: '50000.00',
+    is_active: true,
+  };
+
+  const MATCHES = [
+    { ...BASE, id: 'c-1', name: 'Rakesh Motors' },
+    { ...BASE, id: 'c-2', name: 'Rakesh Transport' },
+    { ...BASE, id: 'c-3', name: 'Rakesh Auto' },
+  ];
+
+  async function openList(user: ReturnType<typeof userEvent.setup>) {
+    mocks.customerSearch.mockResolvedValue({ items: MATCHES, page: {} });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    const field = screen.getByLabelText(/Customer Name/);
+    await user.click(field);
+    await user.keyboard('rakesh');
+    await screen.findByRole('listbox', {}, WAIT);
+    return field;
+  }
+
+  it('walks the matches with the arrow keys', async () => {
+    const user = userEvent.setup();
+    await openList(user);
+
+    const options = () => screen.getAllByRole('option');
+    // The first match is highlighted to begin with, so Enter always has a target.
+    expect(options()[0]).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{ArrowDown}');
+    expect(options()[1]).toHaveAttribute('aria-selected', 'true');
+    await user.keyboard('{ArrowDown}');
+    expect(options()[2]).toHaveAttribute('aria-selected', 'true');
+    // It stops at the end rather than wrapping, like the product cell.
+    await user.keyboard('{ArrowDown}');
+    expect(options()[2]).toHaveAttribute('aria-selected', 'true');
+    await user.keyboard('{ArrowUp}');
+    expect(options()[1]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('attaches the highlighted customer when Enter is pressed', async () => {
+    // The headline. Before the fix this did nothing whatsoever.
+    const user = userEvent.setup();
+    await openList(user);
+
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.header.customer_id).toBe('c-2'),
+    );
+    expect(screen.getByText('Rakesh Transport')).toBeInTheDocument();
+  });
+
+  it('moves focus to Mechanic Name once a customer is chosen', async () => {
+    /**
+     * The other half of the report. The search box is unmounted by the selection, so
+     * without a deliberate hand-off focus lands on `<body>` and the next Tab starts from
+     * the top of the page.
+     */
+    const user = userEvent.setup();
+    await openList(user);
+
+    await user.keyboard('{Enter}');
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText(/Mechanic Name/)),
+    );
+  });
+
+  it('moves to Mechanic Name on Enter even when no list is open', async () => {
+    // A walk-in with no saved record: the cashier types a name and carries on. Enter
+    // must not sit there doing nothing, and must not reach a finalisation.
+    const user = userEvent.setup();
+    mocks.customerSearch.mockResolvedValue({ items: [], page: {} });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    const field = screen.getByLabelText(/Customer Name/);
+    await user.click(field);
+    await user.keyboard('A walk-in{Enter}');
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText(/Mechanic Name/)),
+    );
+    expect(mocks.finalize).not.toHaveBeenCalled();
+    // And the typed name was kept — moving focus fires the blur that persists it.
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.header.customer_name).toBe(
+        'A walk-in',
+      ),
+    );
+  });
+
+  it('closes the list on Escape and keeps what was typed', async () => {
+    const user = userEvent.setup();
+    const field = await openList(user);
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    // Mid-word is the normal case; a key that discarded the typing would be worse than
+    // one that did nothing.
+    expect(field).toHaveValue('rakesh');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('does not make the matches tab stops', async () => {
+    /**
+     * With ten matches open, `Tab` used to walk through ten buttons before reaching
+     * Mechanic Name — and each one did nothing when pressed. Focus belongs in the box;
+     * the arrows walk the list.
+     */
+    const user = userEvent.setup();
+    const field = await openList(user);
+    expect(document.activeElement).toBe(field);
+
+    await user.tab();
+
+    const options = screen.getAllByRole('option');
+    for (const option of options) {
+      expect(option.querySelector('button')).not.toBe(document.activeElement);
+    }
+  });
+
+  it('lets the keyboard reach and press "save as a new customer"', async () => {
+    // Also `onMouseDown`-only before, so a keyboard user could focus it and press Enter
+    // to no effect.
+    const user = userEvent.setup();
+    mocks.customerSearch.mockResolvedValue({ items: [], page: {} });
+    mocks.customerUpsert.mockResolvedValue({
+      customer: { ...BASE, id: 'created-1', name: 'Sukith' },
+      created: true,
+      warnings: [],
+    });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    await user.click(screen.getByLabelText(/Customer Name/));
+    await user.keyboard('Sukith');
+    const save = await screen.findByRole(
+      'button',
+      { name: /Save as a new customer/ },
+      WAIT,
+    );
+
+    save.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(mocks.customerUpsert).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.header.customer_id).toBe('created-1'),
+    );
+  });
+
+  it('returns focus to the search box when the customer is changed', async () => {
+    // The same unmount trap in the other direction: pressing `Change` removes the button
+    // that was focused.
+    const user = userEvent.setup();
+    await openList(user);
+    await user.keyboard('{Enter}');
+    await screen.findByText('Rakesh Motors');
+
+    const change = screen.getByRole('button', { name: /Change/ });
+    change.focus();
+    await user.keyboard('{Enter}');
+
+    // Wait for the search box to come back before asserting where focus is. The box
+    // returns only once the draft store has committed through Dexie, which under a
+    // parallel test run is slower than the assertion's default patience — waiting for
+    // the precondition separately tests the behaviour instead of the test runner.
+    const search = await screen.findByLabelText(/Customer Name/, {}, WAIT);
+    await waitFor(() => expect(document.activeElement).toBe(search), WAIT);
+  });
+
+  it('declares the combobox contract so the matches are announced', async () => {
+    const user = userEvent.setup();
+    const field = await openList(user);
+
+    expect(field).toHaveAttribute('role', 'combobox');
+    expect(field).toHaveAttribute('aria-expanded', 'true');
+    expect(field).toHaveAttribute('aria-autocomplete', 'list');
+    // Reports the highlighted option while focus stays in the box, which is what lets
+    // the options stay out of the tab order.
+    const active = field.getAttribute('aria-activedescendant');
+    expect(active).toBeTruthy();
+    expect(document.getElementById(active!)).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('keyboard: the bill header carries on to the grid', () => {
+  it('Enter moves Mechanic Name to Vehicle Number, and Vehicle Number to the first item', async () => {
+    // The header is the one place `Enter` did nothing, which made it the odd one out on
+    // a screen where Enter means "next" everywhere else.
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    const mechanic = screen.getByLabelText(/Mechanic Name/);
+    mechanic.focus();
+    await user.keyboard('Ravi{Enter}');
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText(/Vehicle Number/)),
+    );
+
+    await user.keyboard('KA01AB1234{Enter}');
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Item, row 1')),
+    );
+  });
+
+  it('leaves the arrow keys to the text they are editing', async () => {
+    // Moving the caret is what the arrows are for in a field holding a registration
+    // number. A header that stole them would be a worse bug than the one being fixed.
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    const vehicle = screen.getByLabelText<HTMLInputElement>(/Vehicle Number/);
+    vehicle.focus();
+    await user.keyboard('KA01');
+    await user.keyboard('{ArrowLeft}{ArrowLeft}');
+    await user.keyboard('X');
+
+    // Caret ends after `KA01`, two lefts put it between `KA` and `01`, so the `X` lands
+    // there. The point is that the arrows moved the caret rather than being swallowed.
+    expect(vehicle).toHaveValue('KAX01');
+    expect(document.activeElement).toBe(vehicle);
   });
 });

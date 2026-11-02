@@ -18,13 +18,40 @@
  * Every business conflict renders as an **inline panel above the buttons**, never a
  * toast (PRD §6.1). A toast can be missed while looking at a customer, and these block
  * a sale.
+ *
+ * ## What the post-demo redesign changed, and what it did not
+ *
+ * The owner asked for this workspace to look like their own Excel bill: a bordered grid
+ * with `S.No · Item · Qty · Price · Total`, fifteen numbered rows always on screen, the
+ * header fields across the top, and `GRAND TOTAL` at the foot. Bill tabs behave like
+ * browser tabs — each with a close control, each renamed to its first product.
+ *
+ * **Nothing about the engine moved.** The same `draftStore`, the same `finalizeSale`, the
+ * same single `POST /sales:finalize`, the same idempotency discipline, the same derived
+ * totals. The layout is a different arrangement of the identical state; there is no
+ * second billing path, and a grid that computed its own money would eventually disagree
+ * with the bill it previews.
+ *
+ * Two earlier decisions were reversed by the owner and are recorded as reversed in
+ * `docs/UI-UX-SPECIFICATION.md §4a`: the application may now look like a spreadsheet
+ * *on this screen*, and the primary navigation is a right-hand column. The **printed**
+ * bill is untouched — its own headers, its own stylesheet, its own isolation (ADR-028).
+ *
+ * `window` keeps exactly one keyboard listener and it still returns immediately unless
+ * `ctrlKey` is held, which is what lets the grid own `Tab`, `Enter`, the arrows and
+ * `Space` without ever reaching `Print Bill`.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, describeError, fieldErrors, type ErrorCode } from '@/api/errors';
 import { customers as customersApi, invoices } from '@/api/endpoints';
-import type { DirectoryCustomer, FinalizeResponse, PrintPayload } from '@/api/types';
+import type {
+  Bootstrap,
+  DirectoryCustomer,
+  FinalizeResponse,
+  PrintPayload,
+} from '@/api/types';
 import type { LocalDraft, LocalDraftLine } from '@/db/schema';
 import { asText } from '@/lib/format';
 import { uuidv7 } from '@/lib/ids';
@@ -33,12 +60,12 @@ import {
   ACTIONS,
   ACTION_SHORTCUTS,
   BILLING,
-  COMMON,
   CREDIT,
   ERRORS,
   OFFLINE,
 } from '@/lib/strings';
 import { Busy, Button, Dialog, Field, Panel } from '@/components/primitives';
+import { focusOnNextFrame, isUserTyping } from '@/lib/keyboard';
 import {
   CounterSlipRoot,
   PrintRoot,
@@ -52,14 +79,28 @@ import {
   type FinalizeOutcome,
 } from './finalize';
 import { canFinalize, draftTotal, useBillingStore } from './draftStore';
-import { ItemTable } from './ItemTable';
-import { ProductSearch, type SearchHit } from './ProductSearch';
+import { BillGrid } from './BillGrid';
+import type { SearchHit } from './ItemCell';
 
 export interface BillingCounterProps {
   policy: MoneyPolicy;
   online: boolean;
   /** Whether the user may finalise at all; the UI explains rather than silently failing. */
   canBill: boolean;
+  /** `billing.price.override`. Without it the Price cell is read-only, never hidden. */
+  canOverridePrice: boolean;
+  /**
+   * The shop's own heading, **as configured**.
+   *
+   * From `/sync/bootstrap`, which reads the same `businesses` row the printed bill's
+   * payload does. Empty fields render as nothing: the owner has supplied only the
+   * trading name (OD-4 is a go-live gate for the legal name, address and phone) and
+   * inventing them — or copying them out of the reference workbook — is forbidden
+   * (FR-PRINT-016, Q-LEGAL-1).
+   */
+  business?: Bootstrap['business'] | undefined;
+  /** Today, in the **business's** timezone. Never derived from the browser (FE-E-3). */
+  businessDate?: string | undefined;
   onSynced?: (() => void) | undefined;
   /**
    * Switch the shell to Daily Bills.
@@ -80,6 +121,9 @@ export function BillingCounter({
   policy,
   online,
   canBill,
+  canOverridePrice,
+  business,
+  businessDate,
   onSynced,
   onOpenDailyBills,
 }: BillingCounterProps) {
@@ -92,15 +136,59 @@ export function BillingCounter({
   const [printPayload, setPrintPayload] = useState<PrintPayload | null>(null);
   const [slip, setSlip] = useState<CounterSlipData | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [closing, setClosing] = useState<LocalDraft | null>(null);
 
   const total = draftTotal(active);
   const ready = canFinalize(active) && canBill;
 
+  /**
+   * Focus the Item cell of a given row on the next paint.
+   *
+   * This is FR-BILL-001 in its new form. The requirement — *search is focused on load
+   * and after every added line* — is what makes keyboard-only billing possible, and
+   * `CLAUDE.md §6` says never to break it. The search box became a cell, so "focus the
+   * search" became "focus the next row's Item cell". Same behaviour, same hands.
+   *
+   * `yieldToTyping` is the difference between a convenience and a defect. This runs on a
+   * `requestAnimationFrame`, and the effect below runs when `store.ready` flips — which
+   * happens after Dexie has loaded the open bills, so it can be a long way after the
+   * screen became usable. A cashier who clicked `Customer Name` and started typing in
+   * that window had the caret yanked into the grid mid-word and the customer's name went
+   * into the product search. Found by three component tests that failed intermittently
+   * and in a different place each run; the diagnostic showed `rakesh` sitting in the item
+   * cell with the customer field empty.
+   *
+   * So the automatic focus now yields: if the user is already typing somewhere, it does
+   * nothing. The explicit hand-off from `addProduct` passes `yieldToTyping: false`,
+   * because moving from the cell just filled to the next row **is** the keyboard
+   * workflow and the focus it takes is its own.
+   */
+  const focusItemCell = useCallback(
+    (row: number, { yieldToTyping = false }: { yieldToTyping?: boolean } = {}) => {
+      requestAnimationFrame(() => {
+        if (yieldToTyping && isUserTyping()) return;
+        const cell = document.querySelector<HTMLElement>(`[data-cell="${row}-item"]`);
+        cell?.focus();
+      });
+    },
+    [],
+  );
+
+  // On mount, and whenever the cashier switches tabs, the cursor starts where they would
+  // put it: the first empty Item cell — unless they have already started typing
+  // elsewhere, in which case their hands win.
+  useEffect(() => {
+    if (!store.ready || !active) return;
+    focusItemCell(active.lines.length, { yieldToTyping: true });
+    // Keyed on the tab, not on the line count — re-focusing after every add is done by
+    // `addProduct`, which knows which row it filled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.ready, store.activeDraftId]);
+
   // --- adding and editing lines ---------------------------------------------
 
-  const addHit = useCallback(
-    async (hit: SearchHit) => {
+  const addProduct = useCallback(
+    async (hit: SearchHit, row: number) => {
       if (!active) return;
       const line: Omit<LocalDraftLine, 'id' | 'line_no'> = {
         product_id: hit.productId,
@@ -118,10 +206,12 @@ export function BillingCounter({
         stock_as_of: hit.stockAsOf,
       };
       await store.addLine(active.id, line);
-      // Focus back to search so the next part can be typed without the mouse.
-      searchRef.current?.focus();
+      // Straight to the next row's Item cell, so the next part can be typed without the
+      // mouse. `row + 1` rather than `lines.length` because a product picked into an
+      // earlier row should still hand over to the row beneath it.
+      focusItemCell(row + 1);
     },
-    [active, store],
+    [active, store, focusItemCell],
   );
 
   // --- the four actions ------------------------------------------------------
@@ -148,17 +238,11 @@ export function BillingCounter({
       let outcome: FinalizeOutcome;
       try {
         // The server resolves `draft_id` against its own `draft_bills` row and refuses
-        // with NOT_FOUND if it has never seen it. Nothing used to push a draft except
-        // the `Save a Draft` button, so typing a bill and pressing `Print Bill` — the
-        // ordinary way to use this screen — failed every time with "This bill is not
-        // confirmed". Pushed here, before the sale, and awaited: no sale is attempted
-        // against a draft the server does not have.
+        // with NOT_FOUND if it has never seen it. Pushed here, before the sale, and
+        // awaited: no sale is attempted against a draft the server does not have.
         const version = await store.ensureOnServer(active.id);
 
         outcome = await finalizeSale({
-          // The draft carries the version the server just confirmed, so
-          // `draft_version` matches and the optimistic-concurrency check still does its
-          // job rather than being bypassed.
           draft: version === null ? active : { ...active, version },
           saleType,
           policy,
@@ -174,19 +258,11 @@ export function BillingCounter({
           setConflict({ kind: 'error', code: 'SERVICE_UNAVAILABLE', details: {} });
           return;
         }
-        // Everything else is shown, never rethrown.
-        //
-        // `finalizeSale` never throws for a business outcome, but `ensureOnServer` above
-        // does — it is a plain `PUT /drafts/{id}` and a `NetworkError`, a 428 or a
-        // `DRAFT_VERSION_CONFLICT` all come out of it as exceptions. Both callers invoke
-        // this function as `void runFinalize(...)`, so rethrowing produced an unhandled
-        // rejection: `setBusy(false)` had already run, the button returned to normal,
-        // and **nothing at all happened**. A cashier pressed Print Bill, saw a flicker,
-        // and had no bill, no error and nothing to retry — the exact failure shape the
-        // draft-push fix above was meant to end, reintroduced by the push itself.
-        //
-        // An unknown failure is still reported as unknown; what it must not do is
-        // vanish.
+        // Everything else is shown, never rethrown. `ensureOnServer` is a plain
+        // `PUT /drafts/{id}` and a `NetworkError`, a 428 or a `DRAFT_VERSION_CONFLICT`
+        // all arrive here as exceptions; both callers invoke this as `void
+        // runFinalize(...)`, so rethrowing produced an unhandled rejection and the
+        // cashier saw a flicker and nothing else.
         setConflict(
           error instanceof ApiError
             ? { kind: 'error', code: error.code, details: error.details }
@@ -206,23 +282,17 @@ export function BillingCounter({
             // (OD-21). The confirmation card offers "Print now" instead, because a
             // credit bill is often filed rather than handed over.
             if (saleType === 'cash') setPrintPayload(outcome.response.print_payload);
-          } else {
+          } else if (active.invoice_id) {
             // `DRAFT_ALREADY_FINALIZED` with no body: the sale exists, so load it
             // rather than offering a retry.
-            if (active.invoice_id) {
-              const invoice = await invoices.get(active.invoice_id);
-              setConflict({
-                kind: 'error',
-                code: 'DRAFT_ALREADY_FINALIZED',
-                details: { internal_reference: invoice.internal_reference },
-              });
-            } else {
-              setConflict({
-                kind: 'error',
-                code: 'DRAFT_ALREADY_FINALIZED',
-                details: {},
-              });
-            }
+            const invoice = await invoices.get(active.invoice_id);
+            setConflict({
+              kind: 'error',
+              code: 'DRAFT_ALREADY_FINALIZED',
+              details: { internal_reference: invoice.internal_reference },
+            });
+          } else {
+            setConflict({ kind: 'error', code: 'DRAFT_ALREADY_FINALIZED', details: {} });
           }
           onSynced?.();
           return;
@@ -262,10 +332,47 @@ export function BillingCounter({
     }
   }, [active, store]);
 
+  /**
+   * Close a tab, like closing a browser tab — but never silently.
+   *
+   * An empty bill closes straight away. One with items asks first and offers to save it
+   * as a draft instead, because `No draft is ever auto-closed, auto-finalised or
+   * silently discarded` (§5 rule 18) and a cashier who loses a half-typed bill to a
+   * stray click stops trusting the system.
+   */
+  const closeTab = useCallback(
+    async (draft: LocalDraft) => {
+      if (draft.lines.length === 0) {
+        await store.clearDraft(draft.id);
+        return;
+      }
+      setClosing(draft);
+    },
+    [store],
+  );
+
+  const discardClosing = useCallback(async () => {
+    if (!closing) return;
+    const outcome = await store.clearDraft(closing.id);
+    setClosing(null);
+    if (outcome === 'refused_unconfirmed')
+      setConflict({ kind: 'unconfirmed', stale: false });
+  }, [closing, store]);
+
+  const saveClosing = useCallback(async () => {
+    if (!closing) return;
+    await store.saveDraftToServer(closing.id);
+    setClosing(null);
+    onSynced?.();
+  }, [closing, store, onSynced]);
+
   // --- keyboard shortcuts ----------------------------------------------------
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
+      // The guard that makes the spreadsheet grid possible: without `Ctrl` held, nothing
+      // here runs, so `Tab`, `Enter`, the arrows and `Space` belong entirely to whatever
+      // cell has focus and can never trigger a sale.
       if (!event.ctrlKey) return;
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
@@ -288,25 +395,16 @@ export function BillingCounter({
   if (!store.ready) return <Busy label="Opening your bills" />;
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Tab strip. The limit refuses rather than closing anything (FR-DRAFT-003). */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-300 pb-2">
-        {store.drafts.map((draft) => (
-          <Button
-            key={draft.id}
-            variant={draft.id === store.activeDraftId ? 'primary' : 'secondary'}
-            onClick={() => store.selectDraft(draft.id)}
-            aria-current={draft.id === store.activeDraftId ? 'true' : undefined}
-          >
-            {draft.label}
-            {draft.status === 'conflict' ? ' ⚠' : ''}
-            {draft.status === 'unconfirmed' ? ' …' : ''}
-          </Button>
-        ))}
-        <Button variant="quiet" onClick={() => void store.newDraft()}>
-          {BILLING.newTab}
-        </Button>
-      </div>
+    // `min-h-0` all the way down is what lets the grid be the only scrolling region, so
+    // the header, the grand total and the four buttons stay on screen (R5.1).
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <BillTabs
+        drafts={store.drafts}
+        activeId={store.activeDraftId}
+        onSelect={(id) => store.selectDraft(id)}
+        onClose={(draft) => void closeTab(draft)}
+        onNew={() => void store.newDraft()}
+      />
 
       {store.limitMessage ? (
         <Panel tone="warning" title={store.limitMessage}>
@@ -317,49 +415,47 @@ export function BillingCounter({
       {!online ? <Panel tone="warning">{OFFLINE.banner}</Panel> : null}
 
       {active ? (
-        <>
-          <ProductSearch
-            online={online}
-            onPick={(hit) => void addHit(hit)}
-            inputRef={searchRef}
-          />
-
-          <ItemTable
-            lines={active.lines}
-            readOnly={active.status === 'finalized' || busy}
-            onChangeLine={(lineId, patch) =>
-              void store.updateLine(active.id, lineId, patch)
-            }
-            onRemoveLine={(lineId) => void store.removeLine(active.id, lineId)}
-            onRestoreLine={(line) =>
-              void store.addLine(active.id, {
-                product_id: line.product_id,
-                product_name: line.product_name,
-                sku: line.sku,
-                unit_code: line.unit_code,
-                quantity: line.quantity,
-                unit_price: line.unit_price,
-                catalog_price_at_add: line.catalog_price_at_add,
-                price_source: line.price_source,
-                discount_percent: line.discount_percent,
-                known_stock: line.known_stock,
-                stock_as_of: line.stock_as_of,
-              })
-            }
-          />
-
-          <CustomerFields
+        <div className="flex min-h-0 flex-1 flex-col border border-nas-navy bg-white">
+          <BillHeader
+            business={business}
+            businessDate={businessDate}
             draft={active}
             onChange={(patch) => void store.updateHeader(active.id, patch)}
           />
 
-          <div className="flex items-baseline justify-end gap-3 border-t border-slate-300 pt-3">
-            {/* Labelled a preview, every time. The server confirms it on completion
-                and answers `TOTAL_MISMATCH` if it disagrees (ADR-032). */}
-            <span className="text-sm text-slate-600">{BILLING.totalPreviewLabel}</span>
-            <span className="text-2xl font-semibold">{formatForScreen(total)}</span>
-          </div>
+          <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">
+            <BillGrid
+              lines={active.lines}
+              readOnly={active.status === 'finalized' || busy}
+              online={online}
+              canOverridePrice={canOverridePrice}
+              onAddProduct={(hit, row) => void addProduct(hit, row)}
+              onChangeLine={(lineId, patch) =>
+                void store.updateLine(active.id, lineId, patch)
+              }
+              onRemoveLine={(lineId) => void store.removeLine(active.id, lineId)}
+            />
 
+            {/* GRAND TOTAL, in the owner's own words and prominent. Still labelled a
+                preview: the server confirms it on completion and answers
+                `TOTAL_MISMATCH` if it disagrees (ADR-032). */}
+            <div className="mt-2 flex items-baseline justify-end gap-4 border-t-2 border-nas-navy pt-2">
+              <span className="text-base font-semibold tracking-wide text-nas-navy">
+                {BILLING.grandTotal}
+              </span>
+              <span className="min-w-36 text-right text-2xl font-bold tabular-nums">
+                {formatForScreen(total)}
+              </span>
+            </div>
+            <p className="text-right text-xs text-slate-500">
+              {BILLING.totalPreviewLabel}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {active ? (
+        <>
           {conflict ? (
             <ConflictPanel
               conflict={conflict}
@@ -443,6 +539,27 @@ export function BillingCounter({
         {BILLING.clearDraftConfirm(active?.lines.length ?? 0)}
       </Dialog>
 
+      <Dialog
+        open={closing !== null}
+        title={BILLING.closeTabTitle}
+        onDismiss={() => setClosing(null)}
+        actions={
+          <>
+            <Button variant="quiet" onClick={() => setClosing(null)}>
+              {BILLING.closeTabKeep}
+            </Button>
+            <Button variant="secondary" onClick={() => void saveClosing()}>
+              {BILLING.closeTabSaveFirst}
+            </Button>
+            <Button variant="danger" onClick={() => void discardClosing()}>
+              {BILLING.closeTabDiscard}
+            </Button>
+          </>
+        }
+      >
+        {BILLING.closeTabHasWork(closing?.lines.length ?? 0)}
+      </Dialog>
+
       <PrintRoot
         payload={printPayload}
         policy={policy}
@@ -451,6 +568,225 @@ export function BillingCounter({
       />
       <CounterSlipRoot data={slip} policy={policy} onAfterPrint={() => setSlip(null)} />
     </div>
+  );
+}
+
+// --- the tab strip ------------------------------------------------------------
+
+/**
+ * Bill tabs that behave like browser tabs.
+ *
+ * Each has a close control and the name of its first product. The strip scrolls
+ * horizontally rather than wrapping or collapsing, because `No tab is ever unreachable`
+ * (UI-UX §4) and twenty open bills must all stay clickable — a hidden tab is a bill
+ * somebody cannot finish.
+ *
+ * Switching is local-only and instant: never a fetch, never a finalisation.
+ *
+ * ## A labelled list, deliberately **not** `role="tablist"`
+ *
+ * These look like tabs and are called tabs, but they are not the WAI-ARIA tab widget.
+ * That pattern requires each tab to own a `tabpanel` via `aria-controls` *and* to move
+ * between tabs with the arrow keys — and the arrows belong to the invoice grid here, which
+ * is the whole point of the redesign. Declaring `tablist` while honouring neither is a
+ * promise to a screen reader that the keyboard then breaks, and axe caught exactly that:
+ * `aria-required-children`, because each tab is wrapped with its own close button.
+ *
+ * So it is a list of buttons with a name, and the current bill is marked with
+ * `aria-current` — the same way the section navigation marks the current screen. Honest
+ * about what it is, and reachable with `Tab` like every other control.
+ */
+function BillTabs({
+  drafts,
+  activeId,
+  onSelect,
+  onClose,
+  onNew,
+}: {
+  drafts: readonly LocalDraft[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onClose: (draft: LocalDraft) => void;
+  onNew: () => void;
+}) {
+  return (
+    <nav aria-label="Open bills" className="shrink-0 border-b border-slate-300 pb-1">
+      <ul className="flex items-center gap-1 overflow-x-auto">
+        {drafts.map((draft) => {
+          const current = draft.id === activeId;
+          return (
+            <li
+              key={draft.id}
+              className={`flex shrink-0 items-center rounded-t border border-b-0 ${
+                current
+                  ? 'border-nas-navy bg-nas-navy text-white'
+                  : 'border-slate-300 bg-slate-50 text-slate-700'
+              }`}
+            >
+              <button
+                type="button"
+                aria-current={current ? 'true' : undefined}
+                onClick={() => onSelect(draft.id)}
+                className="max-w-56 truncate px-3 py-2 text-sm font-medium"
+                title={draft.label}
+              >
+                {draft.label}
+                {/* A mark **in addition to** the status word in the panels below, never
+                    colour or a glyph alone (NFR-FE-UX-007). */}
+                {draft.status === 'conflict' ? ' ⚠' : ''}
+                {draft.status === 'unconfirmed' ? ' …' : ''}
+                {draft.status === 'finalized' ? ' ✓' : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => onClose(draft)}
+                aria-label={BILLING.closeTab(draft.label)}
+                className={`px-2 py-2 text-sm ${
+                  current ? 'hover:bg-white/20' : 'hover:bg-slate-200'
+                }`}
+              >
+                ×
+              </button>
+            </li>
+          );
+        })}
+        <li className="shrink-0">
+          <Button variant="quiet" onClick={onNew} aria-label={BILLING.newTabAction}>
+            {/* The `+` is decoration. The accessible name is "Start a new bill" — not
+                "New bill" — because a tab is *called* `New bill` until its first product
+                renames it, and two controls sharing one name is ambiguous both to a
+                screen reader and to anyone saying "click New bill". The visible text is
+                contained in the accessible name, so WCAG 2.5.3 still holds. */}
+            <span aria-hidden="true">+ </span>
+            {BILLING.newTab}
+          </Button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
+// --- the Excel bill header ----------------------------------------------------
+
+/**
+ * The top of the owner's bill: the shop, then the four header fields, then `ESTIMATE`.
+ *
+ * Every business value is **configured, never invented**. `business` comes from
+ * `/sync/bootstrap`, which reads the same `businesses` row the printed bill's payload
+ * does, and an empty address or phone renders as nothing at all — not a placeholder, and
+ * not the address printed in the reference workbook (FR-PRINT-016, OD-4 is still a
+ * go-live gate).
+ *
+ * `ESTIMATE` is the document's own label for cash and credit alike (OD-24, FR-PRINT-021).
+ * `BILL`, `INVOICE` and `Tax Invoice` are not permitted as literals anywhere.
+ *
+ * The four fields are editable **inline**, which FR-BILL-010 requires explicitly — never
+ * behind a dialog, and never as part of a credit-details form (that design was removed
+ * by OD-21/ADR-033 and must not come back).
+ */
+function BillHeader({
+  business,
+  businessDate,
+  draft,
+  onChange,
+}: {
+  business: Bootstrap['business'] | undefined;
+  businessDate: string | undefined;
+  draft: LocalDraft;
+  onChange: (patch: Partial<LocalDraft['header']>) => void;
+}) {
+  const address = (business?.address_lines ?? []).filter((line) => line.trim() !== '');
+  const phones = (business?.phone_numbers ?? []).filter((line) => line.trim() !== '');
+
+  /**
+   * `Enter` in a header field means "done with this one", and moves to the next.
+   *
+   * The screen already works this way everywhere else — the grid's `Enter` moves down a
+   * row — so a header where `Enter` did nothing was the odd one out, and it is half of
+   * what the cashier reported. `Tab` is unchanged and still does the same thing; this
+   * adds a second way rather than replacing the first.
+   *
+   * Only `Enter` is intercepted, and only to move focus. The arrows are left alone so
+   * they keep moving the caret inside the text, which is what they are for in a field
+   * holding a mechanic's name or a registration number.
+   *
+   * The last field hands over to the first free Item cell, so the whole header can be
+   * filled and the first part typed without reaching for the mouse.
+   */
+  function headerKeys(next: 'vehicle' | 'item') {
+    return (event: React.KeyboardEvent<HTMLInputElement>): void => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      // Moving focus fires `onBlur`, which is what persists the field (§4.1 rule 4).
+      focusOnNextFrame(
+        next === 'vehicle'
+          ? '[data-bill-field="vehicle"]'
+          : `[data-cell="${draft.lines.length}-item"]`,
+      );
+    };
+  }
+
+  return (
+    <header className="shrink-0 border-b border-nas-navy px-3 py-2">
+      <div className="text-center">
+        {/* `h2`, not `h1`. The shell's application title is the screen's one `h1`, and
+            "one h1 per screen with no level skipped" is asserted in
+            `tests/e2e/accessibility.spec.ts`. Visually unchanged — the size comes from
+            the classes, not the level.
+
+            The shop's name comes from the server and **has no client-side fallback**.
+            This used to read `business?.display_name ?? 'NATIONAL AUTO SPARES'`, which
+            is a business-identity literal in the client — the thing rule 15 forbids. It
+            was wrong in two directions at once: a tenant whose profile had not loaded
+            would be told it was National Auto Spares, and any *other* shop running this
+            software would see the wrong name on its own bills. Empty renders nothing,
+            which is the same rule the address and phone lines already follow (OD-4,
+            FR-PRINT-016): never a placeholder where a real value belongs. */}
+        <h2 className="text-xl font-bold tracking-wide text-nas-navy">
+          {business?.display_name ?? ''}
+        </h2>
+        {/* Rendered only when set. Nothing is printed in place of an empty field. */}
+        {address.length > 0 ? (
+          <p className="text-xs text-slate-600">{address.join(', ')}</p>
+        ) : null}
+        {phones.length > 0 ? (
+          <p className="text-xs text-slate-600">{phones.join(', ')}</p>
+        ) : null}
+      </div>
+
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <CustomerPicker draft={draft} onChange={onChange} />
+        <Field
+          label={BILLING.headerMechanic}
+          key={`mech-${draft.id}-${draft.header.mechanic_name}`}
+          defaultValue={draft.header.mechanic_name}
+          // The hand-off target when a customer is chosen. Choosing one unmounts the
+          // search box, so focus has to be placed deliberately or it falls to `<body>`.
+          data-bill-field="mechanic"
+          onBlur={(event) => onChange({ mechanic_name: event.target.value })}
+          onKeyDown={headerKeys('vehicle')}
+        />
+        <Field
+          label={BILLING.headerVehicle}
+          key={`veh-${draft.id}-${draft.header.vehicle_number}`}
+          defaultValue={draft.header.vehicle_number}
+          data-bill-field="vehicle"
+          onBlur={(event) => onChange({ vehicle_number: event.target.value })}
+          onKeyDown={headerKeys('item')}
+        />
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-slate-700">{BILLING.headerDate}</span>
+          {/* The **business's** date, from bootstrap. Never `new Date()`: a counter PC set
+              to UTC is on yesterday's business date for the first five and a half hours of
+              every Asia/Kolkata day (FE-E-3). */}
+          <span className="min-h-11 content-center text-base">{businessDate ?? '—'}</span>
+        </div>
+      </div>
+
+      <p className="mt-1 text-sm font-semibold tracking-widest text-nas-navy">
+        {BILLING.estimate}
+      </p>
+    </header>
   );
 }
 
@@ -670,85 +1006,21 @@ function CompletionCard({
   );
 }
 
-// --- customer fields ----------------------------------------------------------
-
-/**
- * Header fields, optional for **both** sale types and persisted whenever present
- * (FR-CREDIT-012). A vehicle number typed on a cash bill is still what the customer
- * will quote next time they come in.
- */
-function CustomerFields({
-  draft,
-  onChange,
-}: {
-  draft: LocalDraft;
-  onChange: (patch: Partial<LocalDraft['header']>) => void;
-}) {
-  return (
-    <fieldset className="flex flex-col gap-3">
-      <legend className="text-sm font-medium text-slate-700">Customer (optional)</legend>
-
-      <CustomerPicker draft={draft} onChange={onChange} />
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/*
-          Through the `Field` primitive rather than hand-rolled markup, so every input in
-          the application is labelled the same way — `<label for>` tied to the input's id,
-          not an implicit wrapper and never a placeholder standing in for a label.
-
-          Still free text, and still sent for **both** sale types (FR-CREDIT-012): a
-          vehicle number typed on a cash bill is what the customer will quote next time.
-          Selecting a saved customer fills them in; they stay editable because the
-          snapshot on this bill is allowed to differ from the customer record — a
-          different vehicle came in today.
-        */}
-        <Field
-          label="Name"
-          key={`name-${draft.header.customer_id ?? 'none'}-${draft.header.customer_name}`}
-          defaultValue={draft.header.customer_name}
-          onBlur={(event) => onChange({ customer_name: event.target.value })}
-        />
-        <Field
-          label="Vehicle number"
-          key={`veh-${draft.header.customer_id ?? 'none'}-${draft.header.vehicle_number}`}
-          defaultValue={draft.header.vehicle_number}
-          onBlur={(event) => onChange({ vehicle_number: event.target.value })}
-        />
-        <Field
-          label="Phone"
-          inputMode="tel"
-          key={`ph-${draft.header.customer_id ?? 'none'}-${draft.header.phone}`}
-          defaultValue={draft.header.phone}
-          onBlur={(event) => onChange({ phone: event.target.value })}
-        />
-      </div>
-
-      {!draft.header.customer_id ? (
-        <p className="text-xs text-slate-500">{BILLING.creditNeedsCustomer}</p>
-      ) : null}
-    </fieldset>
-  );
-}
+// --- the customer picker ------------------------------------------------------
 
 /**
  * Attach a **saved** customer to the bill.
  *
- * Why this exists: `draft.header.customer_id` was only ever *read* — at five places,
- * including the credit guard — and never written anywhere in the application. So
- * `saleType === 'credit' && !customer_id` was always true and the `Credit Bill` button
- * could never succeed. A cashier typing a name, vehicle and phone got
- * "A credit bill needs a saved customer, not just a typed name" with no way to satisfy
- * it. The three fields below are invoice *snapshots* (FR-CREDIT-012); they are not a
- * customer record and were never meant to be one.
+ * `draft.header.customer_id` is the association; the typed name, vehicle and phone are
+ * this bill's *snapshot* of it (FR-CREDIT-012) and are not a customer record. Credit
+ * requires the id, not the text (FR-CREDIT-009).
  *
  * Creating from here uses `PUT /customers/{id}` with a **client-generated** id, which is
- * the documented creation contract and is "naturally idempotent via the client-generated
- * id" (`API-SPECIFICATION.md §5`) — so a double click or a retry is an upsert, not a
- * second customer. That is preferred over `customer.mode: "new"` on finalisation for one
- * reason that matters at the counter: the server's `CUSTOMER_DUPLICATE_SUSPECTED`
- * warning then arrives **before** the sale is committed, while the cashier can still
- * pick the existing customer instead. Through `mode: "new"` the warning would come back
- * attached to a completed invoice, too late to act on. Nothing is ever merged
+ * the documented creation contract and is naturally idempotent — so a double click or a
+ * retry is an upsert, not a second customer. That is preferred over `customer.mode:
+ * "new"` on finalisation for one reason that matters at the counter: the server's
+ * `CUSTOMER_DUPLICATE_SUSPECTED` warning then arrives **before** the sale is committed,
+ * while the cashier can still pick the existing customer instead. Nothing is ever merged
  * automatically (FR-CUST-004).
  */
 function CustomerPicker({
@@ -760,10 +1032,66 @@ function CustomerPicker({
 }) {
   const [term, setTerm] = useState('');
   const [results, setResults] = useState<DirectoryCustomer[] | null>(null);
-  const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<string[] | null>(null);
+  /**
+   * Which match the keyboard is standing on.
+   *
+   * The same model `ItemCell` uses for products, because the cashier should not have to
+   * learn two different autocompletes on one screen. Reset whenever the matches change —
+   * otherwise a highlight left at index 4 points into a shorter list and `Enter` picks
+   * nothing, which reads as "Enter is broken".
+   */
+  const [highlighted, setHighlighted] = useState(0);
+  const listId = useId();
+
+  /**
+   * Where focus should go once this component has been rebuilt, or `null` for nowhere.
+   *
+   * Choosing a customer and pressing `Change` both **replace** this component's controls:
+   * the search box becomes a name plus a `Change` button, and back again. React unmounts
+   * the focused node either way, and a browser whose focused element is removed puts
+   * focus on `<body>` — so the next `Tab` restarts from the top of the document. That is
+   * the defect the cashier reported as "after picking a customer, Tab does nothing".
+   *
+   * The hand-off is recorded here and performed in the effect below rather than in the
+   * handler, because the handler runs *before* React has committed the replacement and
+   * cannot focus something that does not exist yet. An earlier attempt polled for the
+   * element on animation frames; it worked four times in five and is why this is now
+   * done the way React actually offers — after the commit, when the element is certain
+   * to be there.
+   *
+   * A ref, not state: it must not cause a render of its own, and it is read exactly once.
+   */
+  const handOff = useRef<'mechanic' | 'customer' | null>(null);
+
+  useEffect(() => {
+    // The arrows move a highlight rather than focus, and a browser only auto-scrolls for
+    // real focus — so without this the highlight walks out of sight in a long list and
+    // `Enter` appears to pick something at random.
+    document
+      .getElementById(`${listId}-${highlighted}`)
+      // Optional call: scrolling the highlight into view is a nicety, and jsdom (which
+      // the component tests run in) does not implement `scrollIntoView` at all.
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [highlighted, listId]);
+
+  useEffect(() => {
+    const target = handOff.current;
+    if (!target) return;
+    handOff.current = null;
+    if (target === 'mechanic') {
+      // A sibling that was never unmounted, so it is already there.
+      document.querySelector<HTMLElement>('[data-bill-field="mechanic"]')?.focus();
+      return;
+    }
+    searchBox.current?.focus();
+    // Keyed on the association, because that is exactly what swaps the controls over.
+  }, [draft.header.customer_id]);
+
+  /** The search box, so the hand-off needs no lookup when it comes back. */
+  const searchBox = useRef<HTMLInputElement | null>(null);
 
   // Debounced, and late replies are discarded: typing fires a search per keystroke and
   // without the guard the slowest reply wins, showing matches for a prefix the box no
@@ -778,43 +1106,89 @@ function CustomerPicker({
     const sequence = latest.current + 1;
     latest.current = sequence;
     const timer = setTimeout(() => {
-      setSearching(true);
       void customersApi
         .search(text)
         .then((response) => {
-          if (sequence === latest.current) setResults(response.items);
+          if (sequence === latest.current) {
+            setResults(response.items);
+            setHighlighted(0);
+          }
         })
         .catch(() => {
           if (sequence === latest.current) setResults([]);
-        })
-        .finally(() => {
-          if (sequence === latest.current) setSearching(false);
         });
     }, 250);
     return () => clearTimeout(timer);
   }, [term]);
 
   function attach(customer: DirectoryCustomer): void {
-    // The id is the association; the rest are this bill's snapshot of it.
     onChange({
       customer_id: customer.id,
       customer_name: customer.name,
       customer_business_name: customer.business_name ?? '',
       phone: customer.primary_phone ?? '',
+      ...(customer.default_mechanic_name
+        ? { mechanic_name: customer.default_mechanic_name }
+        : {}),
       ...(customer.vehicles[0] ? { vehicle_number: customer.vehicles[0] } : {}),
     });
     setTerm('');
     setResults(null);
     setDuplicates(null);
     setProblem(null);
+    // Mechanic Name is the next field in the header's own reading order, so continuing
+    // there is the sequence the screen already implies rather than a new workflow.
+    handOff.current = 'mechanic';
   }
 
-  function detach(): void {
-    // Clears the association but keeps the typed snapshot: the goods were still sold to
-    // whoever is standing there, and a cash bill does not need a customer record.
-    onChange({ customer_id: null });
-    setProblem(null);
-    setDuplicates(null);
+  /**
+   * The customer box's keys, mirroring `ItemCell` so the screen has one grammar.
+   *
+   * While the list is open it owns `↓ ↑`, `Enter` and `Escape`. With the list closed,
+   * `Enter` moves on to the next field — the same "Enter means next" the grid uses, and
+   * the answer to "I press Enter and nothing happens".
+   *
+   * `Escape` closes the list and keeps what was typed: the cashier may be mid-word, and a
+   * key that discarded their typing would be worse than one that did nothing. It never
+   * clears the bill.
+   */
+  function onSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void {
+    const matches = results ?? [];
+    const listOpen = results !== null && matches.length > 0;
+
+    if (listOpen) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setHighlighted((current) => Math.min(current + 1, matches.length - 1));
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setHighlighted((current) => Math.max(current - 1, 0));
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const chosen = matches[highlighted];
+        if (chosen) attach(chosen);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setResults(null);
+        return;
+      }
+    }
+
+    if (event.key === 'Enter') {
+      // No list to choose from, so Enter means "I have finished with this field".
+      // `preventDefault` so it can never reach a form submission or a default action.
+      event.preventDefault();
+      // The typed name is this bill's snapshot even without a saved customer
+      // (FR-CREDIT-012); `onBlur` persists it, and moving focus fires that blur.
+      // Mechanic Name is mounted either way here, so a single frame is enough.
+      focusOnNextFrame('[data-bill-field="mechanic"]');
+    }
   }
 
   async function createAndAttach(): Promise<void> {
@@ -825,8 +1199,7 @@ function CustomerPicker({
     try {
       const id = uuidv7();
       const result = await customersApi.upsert(id, { name });
-      // The **persisted** id, read back from the response rather than assumed, so the
-      // bill is linked to what the server actually stored.
+      // The **persisted** id, read back from the response rather than assumed.
       attach({
         id: result.customer?.id ?? id,
         name: result.customer?.name ?? name,
@@ -858,88 +1231,176 @@ function CustomerPicker({
 
   if (draft.header.customer_id) {
     return (
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-3 rounded border border-[#232852] bg-[#f3f4fb] px-3 py-2">
-          <span className="text-sm">
-            <span className="text-slate-600">{BILLING.billingTo} </span>
-            <span className="font-semibold">{draft.header.customer_name}</span>
-            {draft.header.phone ? (
-              <span className="text-slate-600"> · {draft.header.phone}</span>
-            ) : null}
-            {draft.header.vehicle_number ? (
-              <span className="text-slate-600"> · {draft.header.vehicle_number}</span>
-            ) : null}
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium text-slate-700">
+          {BILLING.headerCustomer}
+        </span>
+        <div className="flex min-h-11 items-center justify-between gap-2 rounded border border-nas-navy bg-[#f3f4fb] px-2">
+          <span
+            className="truncate text-base font-semibold"
+            title={draft.header.customer_name}
+          >
+            {draft.header.customer_name}
           </span>
-          <Button variant="quiet" onClick={detach}>
+          <Button
+            variant="quiet"
+            className="min-h-0 px-2 text-xs"
+            onClick={() => {
+              // Clears the association but keeps the typed snapshot: the goods were
+              // still sold to whoever is standing there, and a cash bill needs no
+              // customer record.
+              onChange({ customer_id: null });
+              setProblem(null);
+              setDuplicates(null);
+              // This button is itself unmounted by that change, so focus would land on
+              // `<body>` — the same trap as choosing a customer, in the other direction.
+              // Put the cashier in the search box they just asked for.
+              handOff.current = 'customer';
+            }}
+          >
             {BILLING.changeCustomer}
           </Button>
         </div>
         {duplicates ? (
-          <Panel tone="warning" title={BILLING.duplicateSuspected}>
-            {duplicates.join(' ')}
-          </Panel>
+          <p className="text-xs text-amber-800">{duplicates.join(' ')}</p>
         ) : null}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end gap-2">
-        <Field
-          label={BILLING.findCustomer}
-          hint={BILLING.findCustomerHint}
-          value={term}
-          onChange={(event) => setTerm(event.target.value)}
-          className="w-72"
-        />
-        {searching ? (
-          <span className="text-xs text-slate-500">{COMMON.loading}</span>
-        ) : null}
-      </div>
-
-      {problem ? <Panel tone="danger">{problem}</Panel> : null}
-
-      {results && results.length > 0 ? (
-        <ul className="flex flex-col gap-1">
-          {results.map((customer) => (
-            <li key={customer.id}>
-              <Button variant="secondary" onClick={() => attach(customer)}>
-                {customer.name}
-                {customer.primary_phone ? ` · ${customer.primary_phone}` : ''}
-              </Button>
-            </li>
-          ))}
-        </ul>
+    <div className="relative flex flex-col gap-1">
+      <Field
+        label={BILLING.headerCustomer}
+        value={term}
+        autoComplete="off"
+        placeholder={BILLING.findCustomerHint}
+        ref={searchBox}
+        data-bill-field="customer"
+        // The combobox contract, so a screen reader announces the matches and which one
+        // the arrows are standing on. `aria-activedescendant` is how a listbox reports
+        // the highlighted option while focus stays in the input — which is what lets the
+        // options stay out of the tab order below.
+        role="combobox"
+        aria-expanded={results !== null && results.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        {...(results !== null && results.length > 0
+          ? { 'aria-activedescendant': `${listId}-${highlighted}` }
+          : {})}
+        onKeyDown={onSearchKeyDown}
+        onChange={(event) => setTerm(event.target.value)}
+        // Persisted on **blur**, not per keystroke.
+        //
+        // The typed name is still kept on the bill without a saved customer — a name on
+        // a cash bill is persisted on the invoice snapshot (FR-CREDIT-012) — but writing
+        // it on every keystroke meant a Dexie transaction and a store re-publish per
+        // character. That breaks `ARCHITECTURE.md §4.1` rule 4 (text is debounced
+        // ~300 ms; only add/remove-line is immediate) and it made this component
+        // genuinely flaky: each write re-read and re-published the draft, racing the
+        // debounced customer search and intermittently discarding its results.
+        onBlur={(event) => onChange({ customer_name: event.target.value })}
+      />
+      {problem ? (
+        <p role="alert" className="text-xs text-red-700">
+          {problem}
+        </p>
       ) : null}
-
-      {/*
-        Offered whenever a name has been typed, **not** only when nothing matched.
-
-        It used to appear only on an empty result set, which meant a near-match blocked
-        the action entirely: a shop that already has a "Ramesh Kumar" could not add a
-        second, different Ramesh Kumar from the billing screen at all — the matches
-        showed, none was the right person, and there was no way forward except
-        abandoning the bill and going to the Customers screen. Two customers may
-        genuinely share a name, so the decision belongs to the cashier who can see the
-        person in front of them. The server still warns on a suspected duplicate and
-        still merges nothing (FR-CUST-004), which is what makes offering this safe.
-      */}
       {results ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-600">
-            {results.length === 0
-              ? BILLING.customerNotFound
-              : BILLING.notTheRightCustomer}
-          </span>
-          <Button
-            variant="secondary"
-            busy={creating}
-            onClick={() => void createAndAttach()}
-          >
-            {BILLING.saveAsNewCustomer}
-          </Button>
+        <div className="absolute left-0 top-full z-30 w-72 rounded border border-nas-navy bg-white p-1 shadow-lg">
+          {/*
+            Rendered only when there is something in it. A search that found nothing used
+            to leave an empty `<ul role="listbox">` behind — announced by a screen reader
+            as a list with no items, and inconsistent with `aria-expanded`, which is
+            already false in that case. The "save as a new customer" block below is what
+            an empty result has to offer, and it stays.
+          */}
+          {results.length > 0 ? (
+            <ul
+              id={listId}
+              role="listbox"
+              /**
+               * **Not a tab stop, even though it scrolls.**
+               *
+               * Chromium makes a scrollable container keyboard-focusable so it can be
+               * scrolled with the arrows — which is helpful for a page region and wrong
+               * for a listbox, where focus belongs in the input and `aria-activedescendant`
+               * reports the highlight. Without this, `Tab` out of the customer box landed
+               * on the list itself: a stop with no label, no action, and nothing to do.
+               * Found in the browser, not in jsdom, which does not implement the rule.
+               */
+              tabIndex={-1}
+              className="max-h-48 overflow-y-auto"
+            >
+              {results.map((customer, index) => (
+                <li
+                  key={customer.id}
+                  id={`${listId}-${index}`}
+                  role="option"
+                  aria-selected={index === highlighted}
+                >
+                  <button
+                    type="button"
+                    /**
+                     * **Not a tab stop.** Focus stays in the search box and the arrows walk
+                     * the list, which is the combobox pattern and the one `ItemCell`
+                     * already uses. Without this, `Tab` out of a box showing ten matches
+                     * went through ten buttons before reaching Mechanic Name — and each of
+                     * those buttons did nothing when pressed, because the handler below
+                     * was `onMouseDown` only and a keyboard press fires `click`.
+                     */
+                    tabIndex={-1}
+                    // `onMouseDown` cancels the default *only* to stop the input's blur
+                    // closing the list before the click lands. The selection itself is on
+                    // `onClick`, which both a mouse and a keyboard produce — the earlier
+                    // arrangement was reachable by mouse alone.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => attach(customer)}
+                    className={`w-full px-2 py-1 text-left text-sm hover:bg-slate-100 ${
+                      index === highlighted ? 'bg-slate-100' : ''
+                    }`}
+                  >
+                    {customer.name}
+                    {customer.primary_phone ? ` · ${customer.primary_phone}` : ''}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {/*
+            Offered whenever a name has been typed, **not** only when nothing matched. A
+            near-match used to block the action entirely: a shop that already has a
+            "Ramesh Kumar" could not add a second, different one from the billing screen
+            at all. Two customers may genuinely share a name, so the decision belongs to
+            the cashier who can see the person in front of them.
+          */}
+          <div className="border-t border-slate-200 p-1">
+            <span className="text-xs text-slate-600">
+              {results.length === 0
+                ? BILLING.customerNotFound
+                : BILLING.notTheRightCustomer}
+            </span>
+            {/*
+              Reachable by `Tab` from the search box, and activated by `Enter` or
+              `Space` like any button — it was previously `onMouseDown` only, so a
+              keyboard user could focus it and press Enter to no effect at all.
+              `busy` disables it while the request is in flight, so neither a double
+              press nor a double click can create two customers.
+            */}
+            <Button
+              variant="secondary"
+              busy={creating}
+              className="mt-1 min-h-9 w-full text-xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void createAndAttach()}
+            >
+              {BILLING.saveAsNewCustomer}
+            </Button>
+          </div>
         </div>
+      ) : null}
+      {!draft.header.customer_id ? (
+        <p className="text-xs text-slate-500">{BILLING.creditNeedsCustomer}</p>
       ) : null}
     </div>
   );

@@ -19,6 +19,7 @@ import { auth, sync } from '@/api/endpoints';
 import { configureAuth, refreshSession } from '@/api/client';
 import {
   clearSession,
+  getDeviceId,
   setBusinessToday,
   setCounter,
   setDeviceId,
@@ -120,7 +121,22 @@ export async function startApplication(options: StartupOptions): Promise<Startup
   // be a `DEVICE_REVOKED` branch and it had become unreachable — a revoked machine now
   // reaches the login screen and is told why when it tries to sign in, which is the
   // screen that can actually say it. Local data is **never** deleted either way (§8).
-  const session = await refreshSession();
+  let session = await refreshSession();
+
+  // 2b. No cookie to recover? Ask whether this server lets the shop in without one.
+  //
+  // The owner asked for the application to open straight into billing rather than onto a
+  // sign-in form. A server with `BM_UNATTENDED_ACCESS` on issues an ordinary session
+  // here; a server without it refuses, and the login screen renders exactly as before.
+  // So this is additive: nothing changes for a deployment that has not opted in.
+  //
+  // It runs **after** the refresh, not instead of it, because an existing session should
+  // be continued rather than replaced — a fresh session would rotate the cookie and
+  // start a new refresh family for no reason.
+  if (!session) {
+    session = await unattendedSession(storageUsable);
+  }
+
   if (!session) return { storageUsable, session: null, bootstrap: null, policy: null };
 
   // 3. Bootstrap. Everything the client is not allowed to assume.
@@ -155,6 +171,37 @@ export async function startApplication(options: StartupOptions): Promise<Startup
   }
 
   return { storageUsable, session, bootstrap, policy: toMoneyPolicy(bootstrap) };
+}
+
+/**
+ * Try to open a session with no password.
+ *
+ * Resolves `null` for every failure, which covers the two cases that are not errors:
+ * the server has not enabled unattended access (`PERMISSION_DENIED`), or it has but this
+ * device has been revoked (`DEVICE_REVOKED`). Both mean "show the sign-in form", which
+ * is what the caller does with `null`.
+ *
+ * Nothing is logged or surfaced for a refusal. On a server that has not opted in this
+ * runs once per cold start and is simply the answer "no" — reporting it would turn
+ * ordinary configuration into an error message on a working application.
+ */
+async function unattendedSession(storageUsable: boolean): Promise<SessionState | null> {
+  // The device id is what makes revocation meaningful, so it is sent here exactly as it
+  // is on a password login. Without storage there is no stable id, and a machine that
+  // cannot be identified should not be let in without a password.
+  if (!storageUsable) return null;
+  const deviceId = getDeviceId();
+  if (!deviceId) return null;
+
+  try {
+    const session = toSessionState(
+      await auth.unattended({ device: { id: deviceId, label: 'Counter PC' } }),
+    );
+    setSession(session);
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 /**

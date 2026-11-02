@@ -151,33 +151,108 @@ describe('the document title comes from the server (OD-24, FR-PRINT-021)', () =>
   });
 });
 
-describe('item rows (FR-PRINT-018)', () => {
-  it('pads to the payload capacity with blank rows, never zeros', () => {
-    const { container } = render(
-      <InvoicePrintLayout payload={payload()} policy={POLICY} />,
-    );
-    // Scoped to the item table: the totals table has rows of its own, and counting
-    // both would make this pass for the wrong reason.
-    const rows = container.querySelectorAll('.bill__items tbody tr');
-    // One real line plus 24 fillers, so the grand total lands in the same physical
-    // place on every bill — which is what makes a pre-printed pad usable.
-    expect(rows).toHaveLength(25);
+/**
+ * The owner's instruction after the second review: the printed estimate keeps the
+ * workspace's appearance — 15 numbered rows — however few items were sold, and grows
+ * past 15 without ever dropping one.
+ *
+ * `item_row_capacity` comes from the server (`print_payload.ITEM_ROWS`), so these pass
+ * the capacity in explicitly rather than hardcoding the policy twice.
+ */
+function linesFor(count: number): PrintPayload['lines'] {
+  return Array.from({ length: count }, (_, index) => ({
+    sl_no: index + 1,
+    item: `Item ${index + 1}`,
+    quantity: '1.000',
+    price: '100.00',
+    total: '100.00',
+  }));
+}
 
-    const fillers = container.querySelectorAll('tr.is-filler');
-    expect(fillers).toHaveLength(24);
-    for (const filler of fillers) {
-      // Blank, not `0`. The reference workbook has hand-typed zeros; the bill must not.
-      const cells = [...filler.querySelectorAll('td')];
-      expect(cells).toHaveLength(5);
-      for (const cell of cells) expect(cell.textContent).toBe('');
+function itemRowsOf(container: HTMLElement): HTMLTableRowElement[] {
+  // Scoped to the item table: the totals table has rows of its own, and counting both
+  // would make these pass for the wrong reason.
+  return [...container.querySelectorAll<HTMLTableRowElement>('.bill__items tbody tr')];
+}
+
+/** `S R`, `ITEM`, `QTY`, `PRICE`, `TOTAL` for one row. */
+function cellsOf(row: HTMLTableRowElement): string[] {
+  return [...row.querySelectorAll('td')].map((cell) => cell.textContent ?? '');
+}
+
+describe('item rows (FR-PRINT-018)', () => {
+  it.each([
+    { items: 1, label: 'one item' },
+    { items: 3, label: 'three items' },
+    { items: 10, label: 'ten items' },
+    { items: 15, label: 'exactly fifteen items' },
+  ])('prints 15 numbered rows for $label', ({ items }) => {
+    const { container } = render(
+      <InvoicePrintLayout
+        payload={payload({ lines: linesFor(items), item_row_capacity: 15 })}
+        policy={POLICY}
+      />,
+    );
+
+    const rows = itemRowsOf(container);
+    expect(rows).toHaveLength(15);
+    // Numbered 1..15 straight down the S R column, whether the row carries an item or
+    // not — the owner's own workbook numbers its unused rows the same way.
+    expect(rows.map((row) => cellsOf(row)[0])).toEqual(
+      Array.from({ length: 15 }, (_, index) => String(index + 1)),
+    );
+    // Every row after the real ones is blank apart from its number. Blank, not `0`:
+    // the reference workbook has hand-typed zeros and the bill must not.
+    for (const row of rows.slice(items)) {
+      expect(cellsOf(row).slice(1)).toEqual(['', '', '', '']);
     }
   });
 
+  it('keeps every item when there are more than fifteen, and stops padding', () => {
+    const { container } = render(
+      <InvoicePrintLayout
+        payload={payload({ lines: linesFor(23), item_row_capacity: 15 })}
+        policy={POLICY}
+      />,
+    );
+
+    const rows = itemRowsOf(container);
+    // 23 rows, not 15 and not 25. Never truncated, never padded back up.
+    expect(rows).toHaveLength(23);
+    expect(container.querySelectorAll('tr.is-filler')).toHaveLength(0);
+    // Each item present exactly once, in order — nothing dropped and nothing doubled.
+    expect(rows.map((row) => cellsOf(row)[1])).toEqual(
+      Array.from({ length: 23 }, (_, index) => `Item ${index + 1}`),
+    );
+  });
+
+  it('pads to the payload capacity rather than to a number of its own', () => {
+    // The capacity is the server's decision (T3-11): the layout must follow whatever it
+    // is sent, so that changing `ITEM_ROWS` changes the paper and nothing here has to
+    // be edited in step.
+    const { container } = render(
+      <InvoicePrintLayout
+        payload={payload({ lines: linesFor(2), item_row_capacity: 25 })}
+        policy={POLICY}
+      />,
+    );
+    expect(itemRowsOf(container)).toHaveLength(25);
+  });
+
   it('renders quantities in their shortest exact form', () => {
-    render(<InvoicePrintLayout payload={payload()} policy={POLICY} />);
+    const { container } = render(
+      <InvoicePrintLayout payload={payload()} policy={POLICY} />,
+    );
     // `2.000` prints as `2`. A customer's bill does not show trailing zeros on a
     // whole number of items.
-    expect(screen.getByText('2')).toBeInTheDocument();
+    //
+    // Read out of the quantity **cell** rather than searched for across the document:
+    // now that unused rows carry their serial number, a bare `getByText('2')` also
+    // matches row 2's `S R` and fails as ambiguous. Scoping it to the column under test
+    // is what the assertion always meant.
+    const firstRow = itemRowsOf(container)[0];
+    expect(firstRow).toBeDefined();
+    expect(cellsOf(firstRow!)[2]).toBe('2');
   });
 
   it('renders whole rupees with no decimals under the owner policy (OD-23)', () => {

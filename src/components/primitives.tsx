@@ -13,7 +13,7 @@
  */
 
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
-import { forwardRef, useId } from 'react';
+import { forwardRef, useEffect, useId, useRef } from 'react';
 
 function classes(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ');
@@ -210,30 +210,114 @@ export interface DialogProps {
 }
 
 /**
- * A modal dialog built on `<dialog>`, so focus trapping and `Escape` come from the
- * platform instead of from code that has to be kept correct.
+ * A modal dialog.
  *
  * `onDismiss` is optional on purpose: a conflict dialog has no safe default, so it
  * offers no way out except a decision.
+ *
+ * ## Two defects fixed here, both found while making the keyboard work everywhere
+ *
+ * This used to claim in its own docstring that it was "built on `<dialog>`, so focus
+ * trapping and `Escape` come from the platform instead of from code that has to be kept
+ * correct". It was not: it is a `<div role="dialog">`, and the consequences were real
+ * rather than theoretical.
+ *
+ * 1. **`Escape` did nothing.** The handler sat on the panel, and nothing inside it had
+ *    focus when it opened, so the keystroke was delivered to `<body>` and never reached
+ *    the listener. A cashier who opened the close-bill warning with the keyboard could
+ *    not dismiss it with the keyboard.
+ * 2. **`Tab` walked out of the dialog** into the screen behind it, which is still fully
+ *    rendered. The user could focus the bill grid underneath a modal that was supposedly
+ *    blocking it, press `Enter`, and act on the thing the dialog was asking about.
+ *
+ * Rather than restyle everything around a real `<dialog>` — which brings its own
+ * top-layer and backdrop behaviour, and would change every existing dialog at once —
+ * the two behaviours the platform would have given us are implemented explicitly:
+ * focus moves in on open and is contained by the `Tab` handler, and `Escape` is caught
+ * on the container that actually has focus. Focus is also **restored** to whatever
+ * opened the dialog, so dismissing a warning puts the cashier back where they were.
+ *
+ * A third, separate fix: `max-h-[calc(100dvh-2rem)]` with `overflow-y-auto` on the body.
+ * A dialog taller than the window — a long conflict explanation, a confirmation with
+ * several lines of detail — was previously clipped, with its action buttons off-screen
+ * and unreachable. Requirement C is explicit that forms and dialogs must not be cut off.
  */
 export function Dialog({ open, title, children, actions, onDismiss }: DialogProps) {
   const titleId = useId();
+  const panel = useRef<HTMLDivElement | null>(null);
+  const restoreTo = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // Remember where the user was, so dismissing returns them rather than dropping focus
+    // on `<body>` — where the next `Tab` would start again from the top of the page.
+    restoreTo.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    // Focus the dialog itself rather than its first button: a screen reader then
+    // announces the title and the body before the user is standing on an action, and
+    // nothing is pre-selected in a dialog whose whole purpose is to ask a question.
+    panel.current?.focus();
+
+    return () => {
+      // `isConnected` because the element that opened this may itself have gone — the
+      // close control of a bill tab that is now closed, for instance.
+      if (restoreTo.current?.isConnected) restoreTo.current.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-lg rounded bg-white p-6 shadow-lg"
+        // Focusable so the dialog can hold focus, but **not** a tab stop: `-1` keeps it
+        // out of the sequence while still being a valid `focus()` target.
+        tabIndex={-1}
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col rounded bg-white p-6 shadow-lg"
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && onDismiss) onDismiss();
+          if (event.key === 'Escape' && onDismiss) {
+            onDismiss();
+            return;
+          }
+          if (event.key !== 'Tab') return;
+
+          // Contain `Tab` within the dialog. Without this the focus order continues into
+          // the screen behind, which a modal is supposed to be preventing access to.
+          const focusable = [
+            ...event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          ];
+          if (focusable.length === 0) {
+            // Nothing to move to, so keep focus on the dialog rather than letting it
+            // escape to the page underneath.
+            event.preventDefault();
+            return;
+          }
+          const first = focusable[0]!;
+          const last = focusable[focusable.length - 1]!;
+          const onEdge = event.shiftKey
+            ? document.activeElement === first ||
+              document.activeElement === event.currentTarget
+            : document.activeElement === last;
+          if (!onEdge) return;
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
         }}
       >
         <h2 id={titleId} className="text-lg font-semibold text-[#232852]">
           {title}
         </h2>
-        <div className="mt-3 text-sm text-slate-800">{children}</div>
+        {/* The body scrolls; the title and the actions stay put, so the buttons are
+            always reachable however long the explanation is. */}
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto text-sm text-slate-800">
+          {children}
+        </div>
         <div className="mt-5 flex flex-wrap justify-end gap-2">{actions}</div>
       </div>
     </div>

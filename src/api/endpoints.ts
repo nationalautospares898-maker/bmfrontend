@@ -45,7 +45,10 @@ import type {
   ReversalResponse,
   ServerDraft,
   SessionResponse,
+  MovementReport,
   StockBalances,
+  StockEntries,
+  StockEntryMatch,
   StockMovements,
   SupplierList,
   SyncBatchRequest,
@@ -73,6 +76,23 @@ export const auth = {
   refresh(): Promise<SessionResponse> {
     return data(
       api.post<SessionResponse>('/auth/refresh', undefined, {
+        skipAuth: true,
+        retry: 'never',
+      }),
+    );
+  },
+  /**
+   * Ask for a session without a password.
+   *
+   * Succeeds only on a server whose operator has turned unattended access on; anywhere
+   * else it is refused with `PERMISSION_DENIED`, and the caller falls back to the
+   * sign-in form. `skipAuth` because there is no session yet — that is the point — and
+   * `retry: 'never'` because a refusal is a settled answer about how the server is
+   * configured, not a transient failure worth repeating.
+   */
+  unattended(body: { device: { id: string; label: string } }): Promise<SessionResponse> {
+    return data(
+      api.post<SessionResponse>('/auth/unattended', body, {
         skipAuth: true,
         retry: 'never',
       }),
@@ -410,10 +430,83 @@ export const inventory = {
   ): Promise<StockBalances> {
     return data(api.get<StockBalances>('/inventory/balances', { params }));
   },
+  /**
+   * One product's complete history — every movement, not only sales.
+   *
+   * `oldest_first` is what the History panel wants: read downwards, each row's
+   * `balance_after` follows from the one above it. Each row also carries a `reference`
+   * (an invoice reference for a sale or its reversal) when the movement has a document a
+   * human can look up, and `null` when it does not — a sheet arrival has none, and the
+   * screen shows nothing rather than inventing a placeholder.
+   */
   movements(
-    params: { product_id?: string; limit?: number } = {},
+    params: { product_id?: string; limit?: number; oldest_first?: boolean } = {},
   ): Promise<StockMovements> {
     return data(api.get<StockMovements>('/inventory/movements', { params }));
+  },
+  /**
+   * One day's movements, for the Stock Movement Report.
+   *
+   * The sibling of `movements` above: that one answers "what happened to this part",
+   * this one answers "what moved today". Both read the same append-only ledger, so the
+   * two screens can never disagree.
+   *
+   * `on_date` is a **business-local** date (`YYYY-MM-DD`) — the server resolves the day
+   * boundary in the shop's own timezone, the same way Daily Bills does, so the client
+   * never has to reason about UTC. `kind` is `added` (everything that increased stock)
+   * or `sold` (sale deductions only).
+   *
+   * `signal` is accepted so the caller can abandon a request whose answer is no longer
+   * wanted: changing the date twice quickly must not let the first reply land last.
+   */
+  movementReport(
+    params: { on_date: string; kind: 'added' | 'sold' },
+    signal?: AbortSignal,
+  ): Promise<MovementReport> {
+    return data(
+      api.get<MovementReport>('/inventory/movements/report', {
+        params,
+        ...(signal ? { signal } : {}),
+      }),
+    );
+  },
+  /**
+   * Save the owner's four-column sheet. **Adds to stock; never replaces it.**
+   *
+   * One request per sheet, applied all-or-nothing, so a row with an ambiguous name does
+   * not leave the first four received and the rest not.
+   *
+   * The key is persisted-key discipline's simpler cousin: the server **claims** it, so
+   * the double-tap this button invites books one delivery. `retry: 'auto'` is only safe
+   * because of that — and because `stock_movements` can never be deleted, a second
+   * booking could not be tidied away afterwards.
+   */
+  saveStockEntries(
+    body: {
+      entries: Array<{ item: string; price: string; min_qty: string; stock_qty: string }>;
+    },
+    idempotencyKey: string,
+  ): Promise<StockEntries> {
+    return data(
+      api.post<StockEntries>('/inventory/stock-entries', body, {
+        idempotencyKey,
+        retry: 'auto',
+      }),
+    );
+  },
+  /**
+   * Will this name add a new product, or top up an existing one?
+   *
+   * **No retry**: the user is typing, exactly as with product search (§7).
+   */
+  resolveStockEntry(item: string, signal?: AbortSignal): Promise<StockEntryMatch> {
+    return data(
+      api.get<StockEntryMatch>('/inventory/stock-entries:resolve', {
+        params: { item },
+        retry: 'never',
+        signal,
+      }),
+    );
   },
   /**
    * A reasoned, audited correction — **never** a way to set a quantity.

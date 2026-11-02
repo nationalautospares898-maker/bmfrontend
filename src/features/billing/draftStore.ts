@@ -65,6 +65,28 @@ interface BillingActions {
   reload(): Promise<void>;
 }
 
+/** What a tab is called until its first product names it (R9). */
+export const NEW_BILL_LABEL = 'New bill';
+
+/**
+ * A tab label that is not already taken, suffixing `(2)`, `(3)`… if it is.
+ *
+ * Two bills can genuinely start with the same part — a shop sells four of the same
+ * clutch plate in a morning — and two tabs reading `AXEL PACKING` would be a coin flip
+ * for the cashier deciding which to finalise. The suffix is **display only**: nothing
+ * about the product, the lines or the invoice changes, and `label` is the draft's name,
+ * never its identity (that is `draft.id`).
+ */
+export function uniqueLabel(preferred: string, taken: readonly string[]): string {
+  const used = new Set(taken);
+  if (!used.has(preferred)) return preferred;
+  for (let suffix = 2; suffix < 100; suffix += 1) {
+    const candidate = `${preferred} (${suffix})`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return preferred;
+}
+
 /**
  * Persist, then re-read, then publish.
  *
@@ -127,7 +149,16 @@ export const useBillingStore = create<BillingState & BillingActions>((set, get) 
     const { counterId, maxOpenDrafts, drafts } = get();
     if (!counterId) return null;
     try {
-      const draft = await draftsDb.createDraft(counterId, maxOpenDrafts);
+      // `New bill` until the first product names it (R9). Made unique up front so two
+      // freshly opened tabs are still tellable apart before either has an item on it.
+      const draft = await draftsDb.createDraft(
+        counterId,
+        maxOpenDrafts,
+        uniqueLabel(
+          NEW_BILL_LABEL,
+          drafts.map((candidate) => candidate.label),
+        ),
+      );
       set({
         drafts: [...drafts, draft],
         activeDraftId: draft.id,
@@ -150,8 +181,38 @@ export const useBillingStore = create<BillingState & BillingActions>((set, get) 
   },
 
   async addLine(draftId, line) {
+    // The tab takes the name of the first product on the bill (R9). Computed here, in
+    // the one place a line is appended, so a tab cannot be renamed by any other path.
+    //
+    // Only on the **first** line, and only while the bill is still being edited: a
+    // finalised or in-flight tab keeps the name it was completed under, because the
+    // cashier is looking for the bill they just printed and renaming it underneath them
+    // is how the wrong tab gets closed.
+    const existing = get().drafts.find((candidate) => candidate.id === draftId);
+    const rename =
+      existing !== undefined &&
+      existing.lines.length === 0 &&
+      existing.status === 'editing' &&
+      line.product_name.trim() !== '';
+    const label = rename
+      ? uniqueLabel(
+          line.product_name.trim(),
+          get()
+            .drafts.filter((candidate) => candidate.id !== draftId)
+            .map((candidate) => candidate.label),
+        )
+      : null;
+
     // Structural change: written immediately, not debounced.
-    await persist(draftId, (draft) => draftsDb.appendLine(draft, line), set, get);
+    await persist(
+      draftId,
+      (draft) => {
+        draftsDb.appendLine(draft, line);
+        if (label !== null) draft.label = label;
+      },
+      set,
+      get,
+    );
   },
 
   async updateLine(draftId, lineId, patch) {

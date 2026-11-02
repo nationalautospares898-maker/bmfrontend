@@ -306,8 +306,14 @@ test('a real login reaches the counter with the server-supplied policy', async (
   page,
 }) => {
   await signIn(page);
-  // The owner has every back-office tab, because the server said so.
-  for (const tab of ['Daily Bills', 'Credit Bills', 'Stock', 'Purchases', 'Customers']) {
+  // The owner has every everyday section, because the server said so.
+  //
+  // `Purchases` left this list on 2026-11-02 when the owner withdrew it from the
+  // everyday interface (`docs/UI-UX-SPECIFICATION.md §3a`). `PurchasesScreen`, its
+  // tests and `POST /purchases/{id}:confirm` are all untouched — the entry point is
+  // withdrawn, the capability is not, and `Stock → Add Items` is the everyday path for
+  // goods arriving at the shop.
+  for (const tab of ['Daily Bills', 'Credit Bills', 'Stock', 'Customers']) {
     await expect(page.getByRole('button', { name: tab, exact: true })).toBeVisible();
   }
 });
@@ -328,7 +334,20 @@ test('product search returns a product the server actually has', async ({ page }
   await signIn(page);
   const { sku } = await createStockedProduct(page);
 
-  const search = page.getByRole('combobox').or(page.getByLabel(/Find an item/));
+  /**
+   * The **Item cell**, named exactly.
+   *
+   * This used to be `getByRole('combobox').first()`. That was unambiguous only because
+   * the product cell was the single combobox on the screen — and it stopped being so
+   * when the customer box gained `role="combobox"`, which it should always have had: it
+   * is a text field with a popup listbox, which is what the role means. `.first()` then
+   * resolved to the customer box, the part code was typed into the customer search, and
+   * four tests failed with "the product never appeared on the bill".
+   *
+   * Naming the cell is both correct and stable; the role is a property of the control,
+   * not an identity.
+   */
+  const search = page.getByLabel('Item, row 1', { exact: true });
   await search.first().fill(sku);
 
   await expect(page.getByText(new RegExp(`E2E Tie Rod ${sku}`)).first()).toBeVisible({
@@ -477,7 +496,20 @@ test('a draft saved on the server survives a reload', async ({ page }) => {
   await signIn(page);
   const { sku } = await createStockedProduct(page);
 
-  const search = page.getByRole('combobox').or(page.getByLabel(/Find an item/));
+  /**
+   * The **Item cell**, named exactly.
+   *
+   * This used to be `getByRole('combobox').first()`. That was unambiguous only because
+   * the product cell was the single combobox on the screen — and it stopped being so
+   * when the customer box gained `role="combobox"`, which it should always have had: it
+   * is a text field with a popup listbox, which is what the role means. `.first()` then
+   * resolved to the customer box, the part code was typed into the customer search, and
+   * four tests failed with "the product never appeared on the bill".
+   *
+   * Naming the cell is both correct and stable; the role is a property of the control,
+   * not an identity.
+   */
+  const search = page.getByLabel('Item, row 1', { exact: true });
   await search.first().fill(sku);
   await expect(page.getByText(new RegExp(`E2E Tie Rod ${sku}`)).first()).toBeVisible({
     timeout: 15_000,
@@ -546,7 +578,20 @@ test('finalisation is refused offline, and nothing is created', async ({
   await signIn(page);
   const { sku } = await createStockedProduct(page);
 
-  const search = page.getByRole('combobox').or(page.getByLabel(/Find an item/));
+  /**
+   * The **Item cell**, named exactly.
+   *
+   * This used to be `getByRole('combobox').first()`. That was unambiguous only because
+   * the product cell was the single combobox on the screen — and it stopped being so
+   * when the customer box gained `role="combobox"`, which it should always have had: it
+   * is a text field with a popup listbox, which is what the role means. `.first()` then
+   * resolved to the customer box, the part code was typed into the customer search, and
+   * four tests failed with "the product never appeared on the bill".
+   *
+   * Naming the cell is both correct and stable; the role is a property of the control,
+   * not an identity.
+   */
+  const search = page.getByLabel('Item, row 1', { exact: true });
   await search.first().fill(sku);
   await expect(page.getByText(new RegExp(`E2E Tie Rod ${sku}`)).first()).toBeVisible({
     timeout: 15_000,
@@ -587,8 +632,13 @@ test('the back-office screens load real server data', async ({ page }) => {
     timeout: 20_000,
   });
 
-  await page.getByRole('button', { name: 'Purchases', exact: true }).click();
-  await expect(page.getByText('E2E Supplier').first()).toBeVisible({ timeout: 20_000 });
+  // Customers, not Purchases: Purchases is no longer reachable from the navigation
+  // (§3a). This still proves a back-office screen renders real server data, which is
+  // what the test is for.
+  await page.getByRole('button', { name: 'Customers', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Customers/ }).first()).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test('stock cannot be set to a number anywhere on the Stock screen', async ({ page }) => {

@@ -276,7 +276,7 @@ test.describe('M25 — the back-office screens load and show real data', () => {
     await open(page);
 
     await page.getByRole('button', { name: 'Stock', exact: true }).click();
-    await expect(page.getByText('Tie Rod End Bolero')).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Tie Rod End Bolero' })).toBeVisible();
     // 4 on hand against a reorder level of 10. The badge is words, not just a colour.
     //
     // Scoped to the table: "Only what is running low" is also the filter button's
@@ -284,7 +284,16 @@ test.describe('M25 — the back-office screens load and show real data', () => {
     await expect(page.getByRole('table').getByText('Running low')).toBeVisible();
   });
 
-  test('purchases says a saved bill has not moved stock', async ({ page }) => {
+  /**
+   * Withdrawn from the navigation on 2026-11-02, so it cannot be reached by clicking.
+   *
+   * `PurchasesScreen` and every endpoint behind it are untouched, and the behaviour this
+   * case covered — FR-PUR-003's "entered, not received" distinction — is still asserted
+   * in `src/features/purchases/PurchasesScreen.test.tsx`. Skipped rather than deleted so
+   * the gap is on the record: if the owner ever wants Purchases back in the nav, this is
+   * the case to re-enable (`docs/UI-UX-SPECIFICATION.md §3a`).
+   */
+  test.skip('purchases says a saved bill has not moved stock', async ({ page }) => {
     await stub(page, OWNER_PERMISSIONS);
     await open(page);
 
@@ -304,7 +313,13 @@ test.describe('M25 — the back-office screens load and show real data', () => {
     await expect(page.getByText(/It cannot be typed in/)).toBeVisible();
   });
 
-  test('imports blocks apply until every row is decided (FR-IMP-007)', async ({
+  /**
+   * Withdrawn from the navigation on 2026-11-02 — see the note on the Purchases case
+   * above. FR-IMP-007's per-row decision gate is still asserted in
+   * `src/features/imports/ImportsScreen.test.tsx` and in the backend's
+   * `tests/api/test_imports.py`.
+   */
+  test.skip('imports blocks apply until every row is decided (FR-IMP-007)', async ({
     page,
   }) => {
     await stub(page, OWNER_PERMISSIONS);
@@ -344,7 +359,7 @@ test.describe('SECURITY.md §3 — the shell gates on permission, not the screen
     await open(page);
 
     await page.getByRole('button', { name: 'Stock', exact: true }).click();
-    await expect(page.getByText('Tie Rod End Bolero')).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Tie Rod End Bolero' })).toBeVisible();
     // `inventory.adjust` is absent, so the control is too.
     await expect(page.getByRole('button', { name: 'Adjust' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'History' })).toBeVisible();

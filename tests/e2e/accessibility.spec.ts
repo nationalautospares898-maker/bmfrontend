@@ -130,15 +130,22 @@ function blocking(run: AxeRun): AxeResult[] {
   );
 }
 
-/** Every screen the shell can reach, by the tab that opens it. */
+/**
+ * Every screen the navigation can reach — which is now exactly the owner's six.
+ *
+ * `Purchases` and `Imports` left this list on 2026-11-02 when the owner withdrew them
+ * from the everyday interface (`docs/UI-UX-SPECIFICATION.md §3a`). `Counters` followed
+ * once the server stopped needing it: a computer binds itself to the shop's counter on
+ * first sign-in, so there is no stranded state for the screen to rescue. Their components
+ * and their own suites are untouched — they are simply no longer reachable from the nav,
+ * so a nav-driven sweep cannot visit them.
+ */
 const SCREENS = [
   'Billing',
   'Daily Bills',
   'Credit Bills',
   'Stock',
-  'Purchases',
   'Customers',
-  'Imports',
   'Saving and syncing',
 ] as const;
 
@@ -275,7 +282,7 @@ test.describe('names, structure and the keyboard', () => {
   test('the navigation is a landmark a screen reader can jump to', async ({ page }) => {
     await stubApi(page, OWNER_PERMISSIONS);
     await openApp(page);
-    await expect(page.getByRole('navigation', { name: 'Screens' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
     await expect(page.getByRole('main')).toBeVisible();
   });
 
@@ -352,7 +359,20 @@ test.describe('names, structure and the keyboard', () => {
     await stubApi(page, OWNER_PERMISSIONS);
     await openApp(page);
 
-    const search = page.getByRole('combobox').or(page.getByLabel(/Find an item/));
+    /**
+     * The **Item cell**, named exactly.
+     *
+     * This used to be `getByRole('combobox').first()`. That was unambiguous only because
+     * the product cell was the single combobox on the screen — and it stopped being so
+     * when the customer box gained `role="combobox"`, which it should always have had: it
+     * is a text field with a popup listbox, which is what the role means. `.first()` then
+     * resolved to the customer box, the part code was typed into the customer search, and
+     * four tests failed with "the product never appeared on the bill".
+     *
+     * Naming the cell is both correct and stable; the role is a property of the control,
+     * not an identity.
+     */
+    const search = page.getByLabel('Item, row 1', { exact: true });
     await search.first().focus();
     await page.keyboard.type('TT-407');
     await expect(page.getByText('Tie Rod End Bolero').first()).toBeVisible({

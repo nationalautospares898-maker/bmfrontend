@@ -27,6 +27,26 @@ export const ACTION_SHORTCUTS = {
   clearDraft: 'Ctrl+Shift+Backspace',
 } as const;
 
+/**
+ * The navigation the owner asked for after the first demo: six sections, vertical, on
+ * the right. These six and nothing else.
+ *
+ * `Imports`, `Counters` and `Purchases` are deliberately **absent**. They are product
+ * decisions, not deletions — the screens, their routes and every backend module behind
+ * them are untouched. `Counters` was the last to go and could only go once the server
+ * stopped needing it: a computer now prepares itself for billing on first sign-in, so
+ * there is no stranded state left for the screen to rescue (see `AppShell`).
+ */
+export const NAV = {
+  label: 'Sections',
+  billing: 'Billing',
+  dailyBills: 'Daily Bills',
+  creditBills: 'Credit Bills',
+  stock: 'Stock',
+  customers: 'Customers',
+  sync: 'Saving and syncing',
+} as const;
+
 export const BILLING = {
   searchPlaceholder: 'Type a part name or code',
   searchLabel: 'Find an item',
@@ -38,6 +58,39 @@ export const BILLING = {
   columnUnitPrice: 'Unit Price',
   columnTotal: 'Total',
   columnRemove: 'Remove',
+  // --- the bill header, as the owner's own sheet labels it ---------------------
+  //
+  // These are the ON-SCREEN labels for the spreadsheet workspace the owner approved
+  // after the first demo. The PRINTED bill keeps its own headers in `PRINT` below
+  // (`S R · ITEM · QTY · PRICE · TOTAL`) — the two surfaces still have different
+  // audiences, and `print.css` is still isolated from application styling (ADR-028).
+  // What changed is only that the *screen* now follows the sheet too.
+  estimate: 'ESTIMATE',
+  headerCustomer: 'Customer Name',
+  headerMechanic: 'Mechanic Name',
+  headerVehicle: 'Vehicle Number',
+  headerDate: 'Date',
+  grandTotal: 'GRAND TOTAL',
+  columnPrice: 'Price',
+  gridLabel: 'Bill items',
+  /** FR-BILL-011 — an empty bill still tells the user what to do. */
+  emptyHint: 'Type a part name or code in the Item column to start this bill.',
+  cellItemLabel: (row: number) => `Item, row ${row}`,
+  cellQuantityLabel: (row: number) => `Quantity, row ${row}`,
+  cellPriceLabel: (row: number) => `Price, row ${row}`,
+  removeRow: (name: string) => `Remove ${name}`,
+  /** Shown once, under the grid: the keys that move the cursor. */
+  keyboardHint:
+    'Tab or the arrow keys move between cells. Enter moves down a row. ' +
+    'While a product list is open, the arrows choose from it and Enter picks.',
+  closeTab: (label: string) => `Close ${label}`,
+  closeTabTitle: 'Close this bill?',
+  closeTabHasWork: (lines: number) =>
+    `This bill has ${lines} item${lines === 1 ? '' : 's'} on it. ` +
+    'Closing it discards them. Save it as a draft instead if you want to come back to it.',
+  closeTabSaveFirst: 'Save it as a draft',
+  closeTabDiscard: 'Discard this bill',
+  closeTabKeep: 'Keep this bill open',
   removeUndo: 'Removed. Undo',
   stockAnnotation: (quantity: string, asOf: string) =>
     `In stock: ${quantity} (as of ${asOf})`,
@@ -45,6 +98,13 @@ export const BILLING = {
   outOfStockAnnotation: 'Not in stock — the server will check when you complete the bill',
   inactiveProduct: 'This item is no longer stocked',
   newTab: 'New bill',
+  /**
+   * The accessible name of the **action**, distinct from a tab that happens to be
+   * *called* `New bill` until its first product renames it. Two controls with one name
+   * is ambiguous for a screen reader and for anyone saying "click New bill". The visible
+   * text stays `+ New bill`, which this contains, so WCAG 2.5.3 still holds.
+   */
+  newTabAction: 'Start a new bill',
   tabLimitReached: (max: number) =>
     `All ${max} bill tabs are in use. Complete or clear one before starting another. ` +
     'Nothing will be closed for you.',
@@ -105,6 +165,19 @@ export const OFFLINE = {
 } as const;
 
 export const ERRORS = {
+  /**
+   * The last resort on the billing screen, and it should never be seen.
+   *
+   * Signing in prepares this computer for billing automatically, so this wording covers
+   * only the case no login can fix: a shop with no active counter at all. It names no
+   * screen, because the one that used to be named has been withdrawn, and it does not
+   * ask the user to do something the application cannot offer them.
+   */
+  billingNotReadyTitle: 'Billing is not ready on this computer',
+  billingNotReady:
+    'This computer could not be prepared for billing. Try signing out and in again. ' +
+    'If it still will not start, the shop needs setting up by whoever installed it. ' +
+    'Any bills already saved on this computer are safe.',
   insufficientStock: 'There is not enough stock for some items.',
   insufficientStockLine: (name: string, requested: string, available: string) =>
     `${name}: you entered ${requested}, only ${available} in stock.`,
@@ -194,7 +267,8 @@ export const STOCK = {
   emptyNoLowStock: 'Nothing is running low.',
   emptyNoMatch: 'No item matches what you typed.',
   historyTitle: 'Stock history',
-  historyCaption: 'Every change to this item’s stock, newest first',
+  historyCaption:
+    'Every change to this item’s stock, oldest first, so the running total reads downwards',
   colWhen: 'When',
   colWhy: 'What happened',
   colChange: 'Change',
@@ -216,6 +290,110 @@ export const STOCK = {
   amountMustBePositive: 'Enter how many — more than zero.',
   reasonRequired: 'Say why. This is kept as a permanent record.',
   wouldGoNegative: 'That would take the stock below zero. Check the number.',
+  // --- the owner's four-column entry sheet -------------------------------------
+  //
+  // Wording chosen so nobody can read `Stock Qty` as a new total. "How many came in"
+  // and the live `20 + 200 = 220` preview both say the same thing, because getting this
+  // wrong destroys real inventory and the ledger would agree with itself afterwards.
+  addItems: 'Add Items',
+  sheetTitle: 'Add stock',
+  sheetExplainer:
+    'One row per item. Stock Qty is how many came in now — it is added to what is ' +
+    'already on the shelf, never used to replace it.',
+  colPrice: 'Price',
+  colMinQty: 'Min Qty',
+  colStockQty: 'Stock Qty',
+  sheetAddRow: 'Add another row',
+  sheetRemoveRow: (row: number) => `Remove row ${row}`,
+  sheetSave: 'Save these items',
+  sheetCancel: 'Cancel',
+  sheetNewItem: 'New item',
+  sheetExisting: (current: string, incoming: string, after: string) =>
+    `In stock ${current} + ${incoming} = ${after}`,
+  sheetExistingShort: 'Adds to existing stock',
+  sheetAmbiguous: 'More than one item has this name — open Stock and pick the right one.',
+  sheetInactive: 'This item is no longer stocked. Make it active again first.',
+  sheetNeedRow: 'Fill in at least one row.',
+  sheetNeedName: 'Every filled row needs an item name.',
+  sheetNeedQty: 'Every filled row needs a Stock Qty above zero.',
+  sheetNeedPrice: 'Every filled row needs a price.',
+  sheetDuplicate: (row: number) =>
+    `Already on row ${row}. Put the whole quantity on one row.`,
+  sheetSaved: (count: number, created: number) =>
+    `Saved ${count} item${count === 1 ? '' : 's'}. ${created} new, ${count - created} topped up.`,
+  sheetKeyboardHint:
+    'Tab or the arrow keys move between cells. Enter moves down to the next row.',
+  colReference: 'Bill',
+  noReference: '—',
+  lowStockHeading: 'Running low',
+  lowStockListLabel: 'Items running low',
+  lowStockEmpty: 'Nothing is below its minimum quantity.',
+  lowStockLine: (current: string, minimum: string) =>
+    `${current} left, minimum ${minimum}`,
+  /** The boundary, said out loud, because "below" and "at or below" are not the same. */
+  lowStockRule: 'An item is listed here once its stock falls below its own Min Qty.',
+
+  // --- the day's stock movement report -----------------------------------------
+  //
+  // The per-product History answers "what happened to this part". This answers the
+  // other question the owner asks at closing time: "what moved today?"
+  reportAction: 'Stock Movement Report',
+  reportTitle: 'Stock movement on one day',
+  reportClose: 'Close report',
+  /**
+   * Named apart from the Stock page's own `Refresh`, which is still on screen behind the
+   * report. Two buttons both called "Refresh" is ambiguous for anyone saying "press
+   * Refresh" and for a screen reader reading the page twice over; the component test
+   * found the collision.
+   */
+  reportRefresh: 'Refresh report',
+  reportDateLabel: 'Date',
+  reportAdded: 'Stock Added',
+  reportSold: 'Stock Sold',
+  reportTableAdded: 'Stock added on the chosen day',
+  reportTableSold: 'Stock sold on the chosen day',
+  reportEmptyAdded: 'No stock was added on this date.',
+  reportEmptySold: 'Nothing was sold on this date.',
+  reportColProduct: 'Product',
+  reportColCode: 'Product Code',
+  reportColQtyAdded: 'Quantity Added',
+  reportColQtySold: 'Quantity Sold',
+  reportColBefore: 'Stock Before',
+  reportColAfter: 'Stock After',
+  reportColMovement: 'Movement Type',
+  reportColReference: 'Reference',
+  reportColInvoice: 'Invoice Number',
+  reportColSaleType: 'Sale Type',
+  reportColTime: 'Time',
+  reportCash: 'Cash',
+  reportCredit: 'Credit',
+  /** A bill cancelled later: the deduction stands, and its reversal is in Stock Added. */
+  reportCancelled: 'Cancelled',
+  reportSummaryProducts: 'Products affected',
+  reportSummaryQuantityAdded: 'Total quantity added',
+  reportSummaryQuantitySold: 'Total quantity sold',
+  reportSummaryMovements: 'Stock movements',
+  reportSummaryInvoices: 'Invoices',
+  /** Said plainly rather than letting a capped list look complete. */
+  reportTruncated:
+    'This day had more movements than can be shown at once. The figures above cover the ' +
+    'movements listed.',
+  /** The movement vocabulary, in the owner's words rather than the database's. */
+  reportReason: (reason: string): string =>
+    ({
+      opening: 'Opening stock',
+      purchase_receipt: 'Purchase',
+      adjustment_increase: 'Correction (more)',
+      adjustment_decrease: 'Correction (less)',
+      sale: 'Sale',
+      sale_cancellation: 'Cancelled bill returned',
+      customer_return: 'Customer return',
+      supplier_return: 'Returned to supplier',
+      transfer_in: 'Transferred in',
+      transfer_out: 'Transferred out',
+      import_apply: 'Imported',
+      scrap: 'Scrapped',
+    })[reason] ?? reason,
 } as const;
 
 export const PURCHASES = {
@@ -320,6 +498,15 @@ export const CREDIT_BILLS = {
   whatWasBought: 'What was bought on this bill',
   billTotal: 'Bill total',
   noOpenBills: 'No credit bills for this customer.',
+  /**
+   * Said out loud, because the opposite was the owner's first-demo complaint: a paid
+   * credit bill looked deleted. It never was — the list hid the customer once they owed
+   * nothing. Now it does not, and the screen says so.
+   */
+  permanentRecord:
+    'Every customer who has ever had a credit bill is listed here, including those who ' +
+    'have paid in full. Open a customer to see all their bills, and a bill to see what ' +
+    'was bought on it.',
 } as const;
 
 export const CUSTOMERS = {

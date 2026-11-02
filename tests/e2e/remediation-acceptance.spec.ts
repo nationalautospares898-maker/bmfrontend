@@ -89,7 +89,7 @@ function action(page: Page, which: keyof typeof ACTION) {
 
 async function openScreen(page: Page, name: string): Promise<void> {
   await page
-    .getByRole('navigation', { name: 'Screens' })
+    .getByRole('navigation', { name: 'Sections' })
     .getByRole('button', { name, exact: true })
     .click();
 }
@@ -227,9 +227,25 @@ async function stockedProduct(
 }
 
 async function addLineByCode(page: Page, product: { sku: string; name: string }) {
-  await page.getByLabel('Find an item').fill(product.sku);
+  // The next **empty** row, not row 1.
+  //
+  // The old screen had one always-present search box, so every line went in through the
+  // same control. In the grid an Item cell that already holds a line renders as read-only
+  // text — editing an item means removing the line and typing again — so a second call
+  // has to target the next free row. Counting the `Quantity, row N` inputs gives the
+  // number of lines, because only a filled row has one.
+  const filled = await page
+    .getByRole('table', { name: /Bill items/i })
+    .getByLabel(/^Quantity, row /)
+    .count();
+  await page.getByLabel(`Item, row ${filled + 1}`, { exact: true }).fill(product.sku);
   await page.getByRole('option').first().click();
-  await expect(page.getByLabel(`Qty for ${product.name}`)).toBeVisible({
+  await expect(
+    page
+      .getByRole('table', { name: /Bill items/i })
+      .getByText(product.name)
+      .first(),
+  ).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -243,11 +259,11 @@ async function finalise(page: Page, which: 'printBill' | 'creditBill'): Promise<
 
 /** Attach a saved customer, creating them from the billing screen. */
 async function attachNewCustomer(page: Page, name: string): Promise<void> {
-  await page.getByLabel('Find a saved customer').fill(name);
+  await page.getByLabel(/Customer Name/).fill(name);
   await page
     .getByRole('button', { name: 'Save as a new customer' })
     .click({ timeout: 20_000 });
-  await expect(page.getByText('Billing to:')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(name).first()).toBeVisible({ timeout: 15_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +360,7 @@ test.describe('the session survives ordinary use', () => {
       })
       .toBe(200);
     // And the shell is still the signed-in shell, not the login screen.
-    await expect(page.getByRole('navigation', { name: 'Screens' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
   });
 
   test('signing out still works immediately', async ({ page }) => {
@@ -519,10 +535,15 @@ test.describe('correcting a finalised bill', () => {
     expect(cancelled.body.internal_reference).toBeTruthy();
 
     // …and we are on Billing with the original lines carried over.
-    await expect(page.getByLabel(`Qty for ${product.name}`)).toBeVisible({
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(product.name)
+        .first(),
+    ).toBeVisible({
       timeout: 20_000,
     });
-    const qty = page.getByLabel(`Qty for ${product.name}`);
+    const qty = page.getByLabel('Quantity, row 1', { exact: true });
     await qty.fill('2');
     await qty.blur();
     const replacement = await finalise(page, 'printBill');

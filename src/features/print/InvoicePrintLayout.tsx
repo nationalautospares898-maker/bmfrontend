@@ -148,8 +148,20 @@ export function InvoicePrintLayout({ payload, policy }: InvoicePrintLayoutProps)
           ))}
           {Array.from({ length: fillerCount }, (_, index) => (
             <tr className="is-filler" key={`filler-${index}`}>
-              {/* Five empty cells. Blank, not zero. */}
-              <td />
+              {/*
+                Numbered, then blank.
+
+                The owner asked for "at least 15 **numbered** item rows", and their own
+                workbook numbers every unused row down column A. The serial is positional
+                — the nth row of a table is the nth row however the table is filled — so
+                continuing the count here is not this component inventing bill content;
+                it is the same arithmetic as `fillerCount` on the line above.
+
+                Item, quantity, price and total stay empty. Blank, never the reference
+                workbook's hand-typed `0` (FR-PRINT-018): a zero in a price column reads
+                as "this was priced at nothing" rather than "nothing was sold here".
+              */}
+              <td>{payload.lines.length + index + 1}</td>
               <td />
               <td />
               <td />

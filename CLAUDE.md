@@ -154,18 +154,41 @@ moment, or an HTTP client other than the project's `api/client.ts` wrapper, with
 
 The billing counter is the product. Full spec in `docs/UI-UX-SPECIFICATION.md §4`.
 
+> ⚠️ **The owner revised this screen on 2026-11-02.** It is now a spreadsheet: a bordered grid
+> with **fifteen numbered rows always visible**, the search **inside the Item cell**, the header
+> fields across the top, `GRAND TOTAL` at the foot, and browser-like bill tabs that take the name
+> of their first product. Navigation moved to a **right-hand** column of six sections.
+> `docs/UI-UX-SPECIFICATION.md §3a/§4a/§4b` record the reversal and its exact scope.
+>
+> Everything below still holds except the two rows marked **superseded**. In particular there is
+> still **one** billing engine, still four actions, and the **printed bill is untouched**.
+
 - **Search is auto-focused on load and after every added line.** This single behaviour is what makes
-  keyboard-only billing possible (FR-BILL-001) — never break it.
+  keyboard-only billing possible (FR-BILL-001) — never break it. Since the redesign the search
+  *is* the Item cell, so this means: focus row 1's Item cell on load, and the next row's Item cell
+  after every added line. The control changed; the keyboard-only path did not.
 - Results appear from the **first character**, debounced ~120 ms, prior request aborted.
 - `↓`/`↑` highlight, `Enter` adds, `Esc` closes, focus returns to search.
 - **≥ 20 bill tabs**, all reachable, switching is local-only and instant — never a fetch, never a
-  finalisation.
-- Item table columns are exactly **S.No · Item · Qty · Unit Price · Total · remove**. Stock is a
-  sub-line annotation, not a column.
-  > These are the **on-screen** labels and are deliberately *not* the printed bill's labels. The
-  > **printed** bill uses the owner's own headers **`S R · ITEM · QTY · PRICE · TOTAL`**
-  > (`docs/UI-UX-SPECIFICATION.md §12.1`). The app is not a spreadsheet replica; the bill is.
-  > **Do not "align" one to the other** — they are different surfaces with different audiences.
+  finalisation. Each has a `×`; closing one with items on it warns and offers to save it as a
+  draft first (§5 rule 18 — nothing is ever silently discarded).
+- **Keyboard belongs to the grid, not to `window`.** The one window-level listener returns
+  immediately unless `ctrlKey` is held. That guard is what lets `Tab`, `Enter`, the arrows and
+  `Space` work as spreadsheet keys without ever reaching `Print Bill` or `Credit Bill`. `Space`
+  stays a character — a part is called `AXEL PACKING`.
+- ~~Item table columns are exactly **S.No · Item · Qty · Unit Price · Total · remove**.~~
+  **Superseded 2026-11-02:** the grid's columns are **S.No · Item · Qty · Price · Total · ×**.
+  Stock is still a sub-line annotation, not a column.
+  > ~~The app is not a spreadsheet replica; the bill is. Do not "align" one to the other.~~
+  > **Superseded for this screen only.** The owner asked for the billing workspace and the stock
+  > sheet to follow their Excel bill, and that request outranks the recommendation (which the
+  > fidelity audit classed as a *technical recommendation*, F-16 — not an owner decision).
+  >
+  > **The printed bill is still a different surface and is unchanged.** It keeps the owner's own
+  > headers **`S R · ITEM · QTY · PRICE · TOTAL`** (`docs/UI-UX-SPECIFICATION.md §12.1`), its 25
+  > rows, its blank unused rows and its absent invoice number, and `print.css` stays isolated from
+  > application styling (ADR-028). Restyling the app must still be unable to change the bill. Do
+  > **not** read "the screen may look like the sheet" as "the sheet may be edited".
 - Editing is **in place**. No edit dialog for a line.
 - Stock warnings are **non-blocking** — the server decides (ADR-006).
 - Removal has a 5-second inline **undo**, not a confirmation dialog.

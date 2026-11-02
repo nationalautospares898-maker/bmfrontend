@@ -25,6 +25,9 @@ import { uuidv7 } from '@/lib/ids';
 import { formatQuantity, parseMoney, tryParseMoney } from '@/lib/money';
 import { normalizeName, normalizeSku } from '@/lib/normalize';
 import { COMMON, ERRORS, STOCK } from '@/lib/strings';
+import { isLow } from './lowStock';
+import { MovementReport } from './MovementReport';
+import { StockSheet } from './StockSheet';
 
 /** Adjustment reasons, matching the server's closed set (`MovementReason`). */
 const REASONS = [
@@ -49,18 +52,51 @@ const MOVEMENT_LABELS: Record<string, string> = {
   scrap: 'Scrapped',
 };
 
-export interface StockScreenProps {
-  /** `inventory.adjust` is gated on `inventory.adjust`; without it the button is absent. */
-  canAdjust: boolean;
+/**
+ * How a movement reads once its source is taken into account.
+ *
+ * `adjustment_increase` is two different events to a shopkeeper. Written by the stock
+ * sheet it means *goods arrived*; written by the Adjust dialog it means *somebody
+ * corrected the figure*. The ledger reason is deliberately the same — the sheet has no
+ * supplier document, so claiming `purchase_receipt` would put an orphan receipt in the
+ * purchase ledger — and `source_type` is what tells them apart.
+ */
+function movementLabel(movement: StockMovement): string {
+  if (movement.source_type === 'stock_entry') {
+    return movement.reason === 'opening' ? 'Opening stock' : 'Stock received';
+  }
+  return MOVEMENT_LABELS[movement.reason] ?? movement.reason;
 }
 
-export function StockScreen({ canAdjust }: StockScreenProps) {
+export interface StockScreenProps {
+  /** `inventory.adjust`; without it the Adjust button is absent. */
+  canAdjust: boolean;
+  /**
+   * `catalog.write` **and** `inventory.adjust` — the sheet creates or updates a product
+   * and moves stock. The server re-asserts both in `StockEntryService`; this only
+   * decides whether `Add Items` is worth showing.
+   */
+  canAddStock: boolean;
+  /**
+   * Today, in the **business's** timezone, straight from `/sync/bootstrap`.
+   *
+   * Passed in rather than derived here: a counter PC set to UTC would make
+   * `new Date()` yesterday for the first five and a half hours of every `Asia/Kolkata`
+   * day, and the report would open on the wrong one (FE-E-3).
+   */
+  businessDate: string;
+}
+
+export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScreenProps) {
   const [rows, setRows] = useState<StockBalance[] | null>(null);
   const [lowOnly, setLowOnly] = useState(false);
   const [filter, setFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<StockBalance | null>(null);
   const [adjusting, setAdjusting] = useState<StockBalance | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRows(null);
@@ -103,6 +139,24 @@ export function StockScreen({ canAdjust }: StockScreenProps) {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-lg font-semibold text-[#232852]">{STOCK.title}</h2>
         <div className="flex flex-wrap items-end gap-3">
+          {/* The owner's entry point. Primary, and first, because adding stock is what
+              this screen is opened to do. */}
+          {canAddStock ? (
+            <Button
+              variant="primary"
+              onClick={() => {
+                // The previous delivery's confirmation is cleared on the way in. Left
+                // standing it becomes a lie the moment a second sheet is opened —
+                // "Saved 1 item" sitting above a sheet that has saved nothing yet — and
+                // a stale success message is worse than none, because it is the thing a
+                // user checks to know whether their work landed.
+                setSaved(null);
+                setSheetOpen(true);
+              }}
+            >
+              {STOCK.addItems}
+            </Button>
+          ) : null}
           <Field
             label={STOCK.filterLabel}
             value={filter}
@@ -117,11 +171,51 @@ export function StockScreen({ canAdjust }: StockScreenProps) {
           >
             {STOCK.lowStockOnly}
           </Button>
+          {/* The day's report, alongside the per-product History the table already
+              offers — a second question about the same ledger, not a replacement for
+              the first. */}
+          <Button
+            aria-expanded={reportOpen}
+            onClick={() => setReportOpen((open) => !open)}
+          >
+            {STOCK.reportAction}
+          </Button>
           <Button onClick={() => void load()}>{COMMON.refresh}</Button>
         </div>
       </header>
 
+      {reportOpen ? (
+        <MovementReport
+          businessDate={businessDate}
+          onClose={() => setReportOpen(false)}
+        />
+      ) : null}
+
+      {sheetOpen ? (
+        <StockSheet
+          onClose={() => setSheetOpen(false)}
+          onSaved={(message) => {
+            setSheetOpen(false);
+            setSaved(message);
+            // Reloaded straight away so the new figures — and the low-stock list — are
+            // the ones on screen, not the ones from before the delivery.
+            void load();
+          }}
+        />
+      ) : null}
+
+      {saved ? (
+        <Panel tone="success" title={saved}>
+          {STOCK.lowStockRule}
+        </Panel>
+      ) : null}
+
       {error ? <Panel tone="danger">{error}</Panel> : null}
+
+      {/* The low-stock section, always visible rather than behind the filter: the owner
+          asked for items below their own minimum to be easy to spot. Driven from the same
+          rows the table renders, so the two can never disagree. */}
+      {rows !== null && !lowOnly ? <LowStockSection rows={rows} /> : null}
 
       {visible === null ? (
         <Busy label={COMMON.loading} />
@@ -143,10 +237,13 @@ export function StockScreen({ canAdjust }: StockScreenProps) {
                 {STOCK.colItem}
               </th>
               <th scope="col" className="py-2 text-right">
-                {STOCK.colQuantity}
+                {STOCK.colPrice}
               </th>
               <th scope="col" className="py-2 text-right">
-                {STOCK.colReorder}
+                {STOCK.colMinQty}
+              </th>
+              <th scope="col" className="py-2 text-right">
+                {STOCK.colQuantity}
               </th>
               <th scope="col" className="py-2">
                 {COMMON.actions}
@@ -157,23 +254,30 @@ export function StockScreen({ canAdjust }: StockScreenProps) {
             {visible.map((row) => {
               const quantity = parseMoney(row.quantity);
               const reorder = row.reorder_level ? parseMoney(row.reorder_level) : null;
-              // Low stock is `quantity <= reorder_level`, and only when a reorder level
-              // exists. A missing level is not a level of zero.
-              const low = reorder !== null && quantity.lte(reorder);
               return (
                 <tr key={row.product_id} className="border-b border-slate-100">
-                  <td className="py-2">{row.name}</td>
-                  <td className="py-2 text-right font-medium">
+                  <td className="py-2">
+                    {row.name}
+                    {row.sku ? (
+                      <span className="ml-2 text-xs text-slate-500">{row.sku}</span>
+                    ) : null}
+                  </td>
+                  <td className="py-2 text-right tabular-nums">
+                    {row.default_selling_price
+                      ? formatQuantity(parseMoney(row.default_selling_price))
+                      : '—'}
+                  </td>
+                  <td className="py-2 text-right text-slate-600 tabular-nums">
+                    {reorder === null ? STOCK.noReorderLevel : formatQuantity(reorder)}
+                  </td>
+                  <td className="py-2 text-right font-medium tabular-nums">
                     {formatQuantity(quantity)}
-                    {low ? (
+                    {isLow(row) ? (
                       // Words, not just a colour (NFR-FE-UX-007).
                       <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-900">
                         {STOCK.lowBadge}
                       </span>
                     ) : null}
-                  </td>
-                  <td className="py-2 text-right text-slate-600">
-                    {reorder === null ? STOCK.noReorderLevel : formatQuantity(reorder)}
                   </td>
                   <td className="py-2">
                     <div className="flex gap-2">
@@ -212,6 +316,56 @@ export function StockScreen({ canAdjust }: StockScreenProps) {
   );
 }
 
+// --- low stock ----------------------------------------------------------------
+
+/**
+ * Items below their own minimum, listed where they cannot be missed.
+ *
+ * Derived from the rows already on screen rather than fetched separately, so the section,
+ * the badges in the table and the "only what is running low" filter cannot disagree about
+ * the same item — and so the list updates the instant a delivery is saved without a
+ * second request.
+ *
+ * Each line carries both figures, because "running low" without the numbers tells a
+ * shopkeeper to go and look them up.
+ */
+function LowStockSection({ rows }: { rows: readonly StockBalance[] }) {
+  const low = rows.filter(isLow);
+  if (low.length === 0) {
+    return (
+      <p className="text-sm text-slate-600">
+        {STOCK.lowStockEmpty} {STOCK.lowStockRule}
+      </p>
+    );
+  }
+  return (
+    <section className="rounded border border-amber-500 bg-amber-50 p-3">
+      <h3 className="text-base font-semibold text-amber-900">
+        {STOCK.lowStockHeading} ({low.length})
+      </h3>
+      {/* Named, so the list is addressable in its own right — by assistive technology,
+          and by a test that needs to ask "is *this* item short?" without matching the
+          same name in the table below. */}
+      <ul
+        aria-label={STOCK.lowStockListLabel}
+        className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-amber-900"
+      >
+        {low.map((row) => (
+          <li key={row.product_id}>
+            <span className="font-medium">{row.name}</span>{' '}
+            <span className="text-xs">
+              {STOCK.lowStockLine(
+                formatQuantity(parseMoney(row.quantity)),
+                formatQuantity(parseMoney(row.reorder_level ?? '0')),
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // --- movement history ---------------------------------------------------------
 
 function MovementHistory({
@@ -228,7 +382,15 @@ function MovementHistory({
     let cancelled = false;
     void (async () => {
       try {
-        const response = await inventory.movements({ product_id: product.product_id });
+        // Oldest first, so the running balance reads downwards: each row's "In stock
+        // after" follows from the one above it, which is how a shopkeeper checks a
+        // figure. Every movement is here — the opening figure, each delivery, each
+        // correction, each sale and each reversal of a cancelled bill — read from the
+        // ledger's own `balance_after` and never reconstructed from today's total.
+        const response = await inventory.movements({
+          product_id: product.product_id,
+          oldest_first: true,
+        });
         if (!cancelled) setMovements(response.items);
       } catch (caught) {
         if (!cancelled) {
@@ -269,6 +431,9 @@ function MovementHistory({
               <th scope="col" className="py-1">
                 {STOCK.colWhy}
               </th>
+              <th scope="col" className="py-1">
+                {STOCK.colReference}
+              </th>
               <th scope="col" className="py-1 text-right">
                 {STOCK.colChange}
               </th>
@@ -286,7 +451,7 @@ function MovementHistory({
                     {new Date(movement.created_at).toLocaleString()}
                   </td>
                   <td className="py-1">
-                    {MOVEMENT_LABELS[movement.reason] ?? movement.reason}
+                    {movementLabel(movement)}
                     {movement.oversell_override ? (
                       <span className="ml-1 text-xs text-amber-900">
                         {STOCK.wasOversold}
@@ -298,7 +463,13 @@ function MovementHistory({
                       </div>
                     ) : null}
                   </td>
-                  <td className="py-1 text-right">
+                  <td className="py-1 text-slate-600">
+                    {/* The bill this came from, when there is one to look up. A delivery
+                        sheet, a correction and the opening figure have no document, and
+                        show a dash rather than an invented placeholder. */}
+                    {movement.reference ?? STOCK.noReference}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">
                     {/* The sign is the information. `+` is added explicitly because a
                         bare number reads as a quantity, not as a change. */}
                     {delta.isNegative() ? '' : '+'}

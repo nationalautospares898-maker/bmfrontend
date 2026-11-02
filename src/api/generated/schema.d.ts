@@ -310,6 +310,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/unattended": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unattended
+         * @description Open a session with no password, when this server is configured to allow it.
+         *
+         *     The shop runs from one computer and wanted the application to open straight into
+         *     billing. This is how: the browser asks for a session, and a server that has been told
+         *     to vouch for it issues an ordinary one.
+         *
+         *     **Disabled unless somebody turns it on.** `BM_UNATTENDED_ACCESS` is off by default and
+         *     a server with it off refuses here, so no deployment acquires this by upgrading. When
+         *     it is on, `BM_UNATTENDED_USERNAME` names the account the session belongs to — the
+         *     audit trail still says who acted, and the row carries a reason recording that no
+         *     password was presented.
+         *
+         *     **Nothing downstream changes.** The response is the same `SessionOut` a login returns,
+         *     with the same access token, the same rotating refresh cookie, the same permissions and
+         *     the same device registration. Every other endpoint still demands that token and still
+         *     checks its permissions; a revoked device is still refused here and everywhere else.
+         *
+         *     **The risk, stated plainly:** anyone who can reach this endpoint gets a working
+         *     session. Enable it only where the network is already controlled — bound to localhost,
+         *     or on a LAN the shop owns — never on a server reachable from the open internet.
+         */
+        post: operations["unattended_api_v1_auth_unattended_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/brands": {
         parameters: {
             query?: never;
@@ -882,9 +921,56 @@ export interface paths {
         };
         /**
          * List Movements
-         * @description The append-only ledger (FR-INV-001).
+         * @description The append-only ledger (FR-INV-001) — one product's complete history.
+         *
+         *     Every movement is here, not only sales: the opening figure, each sheet arrival, each
+         *     correction, each sale, and each reversal of a cancelled bill. `balance_after` is the
+         *     stock the database actually held after that row, recorded when the movement was
+         *     written — so the history is read from the ledger and never reconstructed backwards
+         *     from today's total.
+         *
+         *     `oldest_first=true` is what the History panel asks for, so the running balance reads
+         *     downwards.
          */
         get: operations["list_movements_api_v1_inventory_movements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/movements/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Movement Report
+         * @description What moved in or out of stock on one day.
+         *
+         *     The per-product History answers "what happened to this part"; this answers "what
+         *     happened today", from the same append-only ledger — so the two can never disagree and
+         *     nothing is recomputed from the current total.
+         *
+         *     `kind=added` is every movement that **increased** stock: the opening figure, a
+         *     purchase receipt, the owner's stock sheet, a correction upwards, a customer return, an
+         *     applied import, and the reversal of a cancelled bill. `kind=sold` is `reason = 'sale'`
+         *     alone — what customers took away.
+         *
+         *     Three exclusions are structural rather than filtered, which is what makes them
+         *     reliable: a **draft** writes no movement, a **reprint** writes no movement, and a
+         *     **credit payment** moves money rather than goods. None of them can appear here
+         *     whatever this endpoint does.
+         *
+         *     `stock_before` and `stock_after` are the ledger's own figures. The day is the
+         *     business-local one (`(created_at AT TIME ZONE …)::date`), the same boundary Daily
+         *     Bills uses, so the two screens agree on what "today" means.
+         */
+        get: operations["movement_report_api_v1_inventory_movements_report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -939,6 +1025,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inventory/stock-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Stock Entries
+         * @description Save a sheet of stock arrivals. **Adds to stock; never replaces it.**
+         *
+         *     The route declares `catalog.write` because a row may create a product;
+         *     `StockEntryService` additionally re-asserts `inventory.adjust`, so a caller who may
+         *     edit the catalog but not move stock is refused there rather than here.
+         *
+         *     The key is **claimed**, not merely required. Requiring the header and then ignoring it
+         *     is worse than not asking for it: the caller is told the retry is safe while a second
+         *     press books the delivery a second time, and because `stock_movements` can never be
+         *     deleted the only correction left is a third, opposite movement. `claim` runs before
+         *     any stock is locked and `store_response` commits in the same transaction as the
+         *     movements, so a replay returns the first outcome verbatim (`§5.2.1`, `§5.2.8`).
+         */
+        post: operations["create_stock_entries_api_v1_inventory_stock_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-entries:resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve Stock Entry
+         * @description What would saving this item name do — add a new product, or top up an existing one?
+         *
+         *     Read-only, and answered by the **same** matcher the save uses, so the screen's
+         *     "will update existing stock" can never promise something the save then does
+         *     differently (FR-INV-008, the owner's stock sheet).
+         */
+        get: operations["resolve_stock_entry_api_v1_inventory_stock_entries_resolve_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invoices": {
         parameters: {
             query?: never;
@@ -966,7 +1107,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Invoice */
+        /**
+         * Get Invoice
+         * @description One bill with its lines.
+         *
+         *     `credit.read` is accepted as well as `reports.sales.read` because this is how the
+         *     Credit Bills folder shows what a customer actually bought on an invoice. Every
+         *     seeded role holding `credit.read` happens to hold `reports.sales.read` too, so this
+         *     changes nothing for them — it stops a *custom* credit-only role from seeing a
+         *     customer's bill list it may read and then a 403 on every bill in it.
+         *
+         *     No widening of what is returned: the cost snapshot still needs `catalog.cost.read`
+         *     and is omitted, not nulled (FR-CAT-004), and `InvoiceReader.get` predicates on the
+         *     caller's `business_id` so a cross-tenant id is a 404.
+         */
         get: operations["get_invoice_api_v1_invoices__invoice_id__get"];
         put?: never;
         post?: never;
@@ -1851,6 +2005,20 @@ export interface components {
             /** Supplier Id */
             supplier_id?: string | null;
         };
+        /**
+         * BootstrapBusinessOut
+         * @description The shop's heading as configured. Every field may be empty, and an empty field is
+         *     rendered as nothing — never a placeholder and never the reference workbook's address
+         *     (FR-PRINT-016, OD-4).
+         */
+        BootstrapBusinessOut: {
+            /** Address Lines */
+            address_lines?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Phone Numbers */
+            phone_numbers?: string[];
+        };
         /** BootstrapCounterOut */
         BootstrapCounterOut: {
             /** Code */
@@ -1869,6 +2037,7 @@ export interface components {
         BootstrapOut: {
             /** Branch Id */
             branch_id: string | null;
+            business?: components["schemas"]["BootstrapBusinessOut"] | null;
             /**
              * Business Date
              * Format: date
@@ -2818,6 +2987,72 @@ export interface components {
             /** Version */
             version: number;
         };
+        /**
+         * MovementReportLineOut
+         * @description One movement on the day's report.
+         */
+        MovementReportLineOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Invoice Cancelled */
+            invoice_cancelled?: boolean | null;
+            /** Is Credit */
+            is_credit?: boolean | null;
+            /**
+             * Movement Id
+             * Format: uuid
+             */
+            movement_id: string;
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
+            /** Product Name */
+            product_name: string;
+            /** Quantity */
+            quantity: string;
+            /** Reason */
+            reason: string;
+            /** Reference */
+            reference?: string | null;
+            /** Sku */
+            sku?: string | null;
+            /** Stock After */
+            stock_after: string;
+            /** Stock Before */
+            stock_before: string;
+        };
+        /** MovementReportOut */
+        MovementReportOut: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Invoices */
+            invoices: number;
+            /** Items */
+            items: components["schemas"]["MovementReportLineOut"][];
+            /** Kind */
+            kind: string;
+            /** Movements */
+            movements: number;
+            /**
+             * On Date
+             * Format: date
+             */
+            on_date: string;
+            /** Products */
+            products: number;
+            /** Total Quantity */
+            total_quantity: string;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** NamedOut */
         NamedOut: {
             /**
@@ -3409,6 +3644,8 @@ export interface components {
         };
         /** StockBalanceOut */
         StockBalanceOut: {
+            /** Default Selling Price */
+            default_selling_price?: string | null;
             /** Name */
             name: string;
             /**
@@ -3420,6 +3657,8 @@ export interface components {
             quantity: string;
             /** Reorder Level */
             reorder_level?: string | null;
+            /** Sku */
+            sku?: string | null;
         };
         /** StockBalancesOut */
         StockBalancesOut: {
@@ -3430,6 +3669,102 @@ export interface components {
             as_of: string;
             /** Items */
             items: components["schemas"]["StockBalanceOut"][];
+        };
+        /** StockEntriesOut */
+        StockEntriesOut: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Items */
+            items: components["schemas"]["StockEntryResultOut"][];
+        };
+        /**
+         * StockEntryCandidateOut
+         * @description One of several products sharing a normalised name, for the user to choose between.
+         */
+        StockEntryCandidateOut: {
+            /** Name */
+            name: string;
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
+        };
+        /**
+         * StockEntryMatchOut
+         * @description What saving this row would do, answered before anything is written.
+         *
+         *     `kind` is one of:
+         *
+         *     | `kind` | Meaning |
+         *     |---|---|
+         *     | `new` | No product has this name; saving creates one |
+         *     | `existing` | One active product matches; saving **adds** to its stock |
+         *     | `ambiguous` | Two or more match — the user must pick, nothing is guessed |
+         *     | `inactive` | The match is withdrawn from the catalog; reactivate it first |
+         */
+        StockEntryMatchOut: {
+            /** Candidates */
+            candidates?: components["schemas"]["StockEntryCandidateOut"][];
+            /** Current Min Qty */
+            current_min_qty?: string | null;
+            /** Current Price */
+            current_price?: string | null;
+            /** Current Quantity */
+            current_quantity?: string | null;
+            /** Kind */
+            kind: string;
+            /** Product Id */
+            product_id?: string | null;
+            /** Product Name */
+            product_name?: string | null;
+        };
+        /** StockEntryRequest */
+        StockEntryRequest: {
+            /** Entries */
+            entries: components["schemas"]["StockEntryRow"][];
+        };
+        /** StockEntryResultOut */
+        StockEntryResultOut: {
+            /** Created */
+            created: boolean;
+            /** Item */
+            item: string;
+            /**
+             * Movement Id
+             * Format: uuid
+             */
+            movement_id: string;
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
+            /** Quantity Added */
+            quantity_added: string;
+            /** Quantity After */
+            quantity_after: string;
+            /** Quantity Before */
+            quantity_before: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * StockEntryRow
+         * @description One row of the owner's four-column sheet: Item · Price · Min Qty · Stock Qty.
+         */
+        StockEntryRow: {
+            /** Item */
+            item: string;
+            /** Min Qty */
+            min_qty: number | string;
+            /** Price */
+            price: number | string;
+            /** Stock Qty */
+            stock_qty: number | string;
         };
         /** StockMovementOut */
         StockMovementOut: {
@@ -3458,6 +3793,8 @@ export interface components {
             quantity_delta: string;
             /** Reason */
             reason: string;
+            /** Reference */
+            reference?: string | null;
             /**
              * Source Id
              * Format: uuid
@@ -3587,6 +3924,13 @@ export interface components {
             } | null;
             /** Status */
             status: string;
+        };
+        /**
+         * UnattendedRequest
+         * @description No credentials — the device is the only thing the caller supplies.
+         */
+        UnattendedRequest: {
+            device: components["schemas"]["DeviceInput"];
         };
         /** UnitOut */
         UnitOut: {
@@ -4228,6 +4572,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SelectBranchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unattended_api_v1_auth_unattended_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "user-agent"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnattendedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
                 };
             };
             /** @description Validation Error */
@@ -5357,6 +5736,7 @@ export interface operations {
             query?: {
                 product_id?: string | null;
                 limit?: number;
+                oldest_first?: boolean;
             };
             header?: {
                 authorization?: string | null;
@@ -5375,6 +5755,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StockMovementsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    movement_report_api_v1_inventory_movements_report_get: {
+        parameters: {
+            query: {
+                /** @description Business-local date, YYYY-MM-DD */
+                on_date: string;
+                kind?: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementReportOut"];
                 };
             };
             /** @description Validation Error */
@@ -5445,6 +5862,79 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_stock_entries_api_v1_inventory_stock_entries_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockEntriesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_stock_entry_api_v1_inventory_stock_entries_resolve_get: {
+        parameters: {
+            query: {
+                item: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockEntryMatchOut"];
                 };
             };
             /** @description Validation Error */

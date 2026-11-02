@@ -77,6 +77,17 @@ let token = '';
 let finalised: Array<{ id: string; total: string }> = [];
 /** The last finalisation request body the application sent. */
 let lastFinalizeBody: Record<string, unknown> | null = null;
+/**
+ * The `Idempotency-Key` the application sent with that finalisation.
+ *
+ * Read from the **header**, which is where it travels (`src/api/client.ts` sets
+ * `Idempotency-Key`; the body has never carried it). This used to be read as
+ * `lastFinalizeBody.idempotency_key`, which is always `undefined` — so the replay below
+ * was being handed `undefined` as its key and the assertion that the finalisation
+ * carried one could not pass. Observing the header restores what the test is for:
+ * replaying the application's own request, with the application's own key.
+ */
+let lastFinalizeKey: string | null = null;
 
 /**
  * Read the server back through its own API, from inside the page.
@@ -120,6 +131,7 @@ async function signIn(page: Page): Promise<void> {
   token = '';
   finalised = [];
   lastFinalizeBody = null;
+  lastFinalizeKey = null;
 
   // The print dialog, which cannot be driven from automation.
   //
@@ -156,6 +168,8 @@ async function signIn(page: Page): Promise<void> {
     }
     if (url.includes('/sales:finalize') && response.status() < 300) {
       lastFinalizeBody = response.request().postDataJSON() as Record<string, unknown>;
+      // Header names arrive lower-cased from `request().headers()`.
+      lastFinalizeKey = response.request().headers()['idempotency-key'] ?? null;
       void response
         .json()
         .then((body: { invoice?: { id?: string; total?: string } }) => {
@@ -275,13 +289,32 @@ async function stockedProduct(
 
 /** Type a part code into the real search box and pick the first suggestion. */
 async function addLineByCode(page: Page, code: string): Promise<void> {
-  await page.getByLabel('Find an item').fill(code);
+  // The next **empty** row, not row 1.
+  //
+  // The old screen had one always-present search box, so every line went in through the
+  // same control. In the grid an Item cell that already holds a line renders as read-only
+  // text — editing an item means removing the line and typing again — so a second call
+  // has to target the next free row. Counting the `Quantity, row N` inputs gives the
+  // number of lines, because only a filled row has one.
+  const filled = await page
+    .getByRole('table', { name: /Bill items/i })
+    .getByLabel(/^Quantity, row /)
+    .count();
+  await page.getByLabel(`Item, row ${filled + 1}`, { exact: true }).fill(code);
   await page.getByRole('option').first().click();
   // The line must be on screen before anything else happens: adding goes through a
   // state update, and acting before it lands finalises an empty bill.
-  await expect(page.getByLabel(`Qty for Acceptance Part ${code}`)).toBeVisible({
-    timeout: 15_000,
-  });
+  // The old item table labelled this input `Qty for <product>`; the spreadsheet grid
+  // labels cells by position (`Quantity, row N`), because a row is a coordinate and a
+  // line is a record (`docs/UI-UX-SPECIFICATION.md §4a`). The barrier therefore waits for
+  // the product to appear **in the grid**, which is what "the line landed" actually means
+  // and does not assume which row it landed on.
+  await expect(
+    page
+      .getByRole('table', { name: /Bill items/i })
+      .getByText(`Acceptance Part ${code}`)
+      .first(),
+  ).toBeVisible({ timeout: 15_000 });
 }
 
 /**
@@ -306,6 +339,23 @@ function action(page: Page, which: keyof typeof ACTION) {
 
 /** Everything sent to the printer so far, newest last. */
 async function printedDocuments(page: Page): Promise<string[]> {
+  // Waited for, not merely read.
+  //
+  // `Print Bill` resolves the sale and *then* React renders the print portal, whose
+  // effect calls `window.print()`. Reading `__printed` on the tick the confirmation
+  // appears can therefore find it still empty — which looked like "nothing was printed"
+  // and is really "not printed yet". A probe driving the same flow with this wait
+  // captures a 2.8 kB document containing `ESTIMATE`, `GRAND TOTAL` and the workbook's
+  // own `S R`/`QTY` headers, and carrying no invoice number (OD-3).
+  await page
+    .waitForFunction(
+      () => ((window as unknown as { __printed?: string[] }).__printed ?? []).length > 0,
+      null,
+      { timeout: 20_000 },
+    )
+    .catch(() => {
+      /* a caller asserting that nothing printed still gets an empty list */
+    });
   return page.evaluate(
     () => (window as unknown as { __printed?: string[] }).__printed ?? [],
   );
@@ -326,7 +376,7 @@ async function finalise(page: Page, which: 'printBill' | 'creditBill'): Promise<
 /** Navigate by clicking the real nav button. */
 async function openScreen(page: Page, name: string): Promise<void> {
   await page
-    .getByRole('navigation', { name: 'Screens' })
+    .getByRole('navigation', { name: 'Sections' })
     .getByRole('button', { name })
     .click();
 }
@@ -349,15 +399,27 @@ async function addCustomerViaUi(
 }
 
 // ---------------------------------------------------------------------------
-// A. Authentication and counter access
+// A. Authentication
 // ---------------------------------------------------------------------------
 
-test.describe('A. authentication and counter access', () => {
-  test('a real login reaches the billing counter', async ({ page }) => {
+test.describe('A. authentication', () => {
+  test('a real login reaches the billing workspace with no setup step', async ({
+    page,
+  }) => {
     await signIn(page);
-    // The counter is named on screen, so a wrong assignment is visible to whoever is
-    // standing at it rather than discovered in a report later.
-    await expect(page.getByText(/C1|Counter/).first()).toBeVisible();
+
+    // This used to assert the counter was **named on screen**, so that a wrong
+    // assignment would be visible to whoever was standing at it. The owner has since
+    // withdrawn the counter from the workflow — they run one computer, and "Counter 1"
+    // told them nothing they did not know — so the name is gone from the header and
+    // asserting it would now be asserting a reversed decision.
+    //
+    // What replaces it is stronger: the grid itself. Row 1's Item cell only exists once
+    // the draft store has opened the bills, which only happens once the server has said
+    // where bills are booked. So its presence proves the counter resolved, through the
+    // thing a cashier actually uses rather than through a label.
+    await expect(page.getByLabel('Item, row 1', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Billing is not ready on this computer/)).toHaveCount(0);
   });
 
   test('a wrong password is refused in words, and signs nothing in', async ({ page }) => {
@@ -515,7 +577,7 @@ test.describe('B. billing and finalisation', () => {
     const product = await stockedProduct(page, { price: '100.0000', quantity: '20.000' });
     await addLineByCode(page, product.sku);
 
-    const qty = page.getByLabel(`Qty for ${product.name}`);
+    const qty = page.getByLabel('Quantity, row 1', { exact: true });
     await qty.fill('3');
     await qty.blur();
 
@@ -539,11 +601,11 @@ test.describe('B. billing and finalisation', () => {
     const product = await stockedProduct(page);
 
     // The "no match, save as new" path, driven from Billing itself.
-    await page.getByLabel('Find a saved customer').fill(name);
+    await page.getByLabel(/Customer Name/).fill(name);
     await page
       .getByRole('button', { name: 'Save as a new customer' })
       .click({ timeout: 20_000 });
-    await expect(page.getByText('Billing to:')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(name).first()).toBeVisible({ timeout: 15_000 });
 
     await addLineByCode(page, product.sku);
     await finalise(page, 'creditBill');
@@ -574,8 +636,8 @@ test.describe('B. billing and finalisation', () => {
 
     // Typed into the snapshot field, with no customer picked. The guard stays: the
     // picker gives it something to be satisfied by, it does not weaken it.
-    await page.getByLabel('Name', { exact: true }).fill('Walk In Person');
-    await page.getByLabel('Name', { exact: true }).blur();
+    await page.getByLabel(/Customer Name/).fill('Walk In Person');
+    await page.getByLabel(/Customer Name/).blur();
 
     await action(page, 'creditBill').click();
 
@@ -608,7 +670,12 @@ test.describe('B. billing and finalisation', () => {
     });
 
     // The line came back from IndexedDB, and the bill still completes.
-    await expect(page.getByLabel(`Qty for ${product.name}`)).toBeVisible({
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(product.name)
+        .first(),
+    ).toBeVisible({
       timeout: 15_000,
     });
     await finalise(page, 'printBill');
@@ -674,11 +741,11 @@ test.describe('C+D. daily bills, credit and payments', () => {
     await signIn(page);
     const product = await stockedProduct(page);
 
-    await page.getByLabel('Find a saved customer').fill(name);
+    await page.getByLabel(/Customer Name/).fill(name);
     await page
       .getByRole('button', { name: 'Save as a new customer' })
       .click({ timeout: 20_000 });
-    await expect(page.getByText('Billing to:')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(name).first()).toBeVisible({ timeout: 15_000 });
     await addLineByCode(page, product.sku);
     await finalise(page, 'creditBill');
 
@@ -747,6 +814,7 @@ test.describe('F+G. stock and purchases', () => {
     const product = await stockedProduct(page, { quantity: '7.000' });
 
     await openScreen(page, 'Stock');
+    // The Stock screen's own filter, which is unchanged — not the billing grid's cell.
     await page.getByLabel('Find an item').fill(product.sku);
 
     await expect(page.getByText(product.name)).toBeVisible({ timeout: 20_000 });
@@ -766,7 +834,21 @@ test.describe('F+G. stock and purchases', () => {
     ).toHaveCount(0);
   });
 
-  test('a purchase adds stock only once received, and twice never', async ({ page }) => {
+  /**
+   * Skipped 2026-11-02: the step in the middle presses `Receive into stock` on the
+   * **Purchases screen**, which the owner withdrew from the navigation (§3a), so it
+   * cannot be reached by clicking.
+   *
+   * FR-PUR-003's invariant — entered is not received, and never twice — is still covered
+   * where it is decided: `bmbackend/tests/api/test_purchases*` drives
+   * `POST /purchases/{id}:confirm` and its idempotency against the real database, and
+   * `src/features/purchases/PurchasesScreen.test.tsx` covers the screen itself. Skipped
+   * rather than deleted so this is the case to re-enable if Purchases ever returns to
+   * the navigation.
+   */
+  test.skip('a purchase adds stock only once received, and twice never', async ({
+    page,
+  }) => {
     await signIn(page);
     const product = await stockedProduct(page, { quantity: '5.000' });
     expect(await serverStock(page, product.id)).toMatch(/^5(\.0+)?$/);
@@ -828,9 +910,8 @@ test.describe('financial and inventory invariants', () => {
     // which is what a retry after a lost response looks like. Hand-building a payload
     // here would exercise a payload nobody sends.
     expect(lastFinalizeBody, 'no finalisation body was captured').not.toBeNull();
-    // The key the application itself used. Read here rather than inside the page so it
-    // is a known `string` on both sides, instead of stringifying an `unknown`.
-    const sentKey = lastFinalizeBody?.idempotency_key;
+    // The key the application itself used, observed on the wire.
+    const sentKey = lastFinalizeKey;
     expect(typeof sentKey, 'the finalisation carried no idempotency key').toBe('string');
 
     const replay = await page.evaluate(
@@ -854,7 +935,7 @@ test.describe('financial and inventory invariants', () => {
           code: parsed.error?.code,
         };
       },
-      { bearer: token, key: sentKey as string, body: lastFinalizeBody },
+      { bearer: token, key: sentKey ?? '', body: lastFinalizeBody },
     );
 
     // Either the same invoice back, or a refusal — never a second sale and never a

@@ -178,9 +178,13 @@ test.describe('the offline boundary (FR-OFFLINE-002, ADR-033)', () => {
     await signIn(page);
 
     // Type a bill while still online.
-    await page.getByLabel('Find an item').fill('TT-407-BS');
+    await page.getByLabel('Item, row 1', { exact: true }).fill('TT-407-BS');
     await page.getByRole('option').first().click();
-    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(PRODUCT.name, { exact: true }),
+    ).toBeVisible();
 
     // A real network cut, not a flag.
     await context.setOffline(true);
@@ -208,16 +212,24 @@ test.describe('the offline boundary (FR-OFFLINE-002, ADR-033)', () => {
     await page.waitForFunction(() => navigator.onLine === false);
 
     // Offline search comes from the Dexie cache warmed at startup.
-    await page.getByLabel('Find an item').fill('tt407bs');
+    await page.getByLabel('Item, row 1', { exact: true }).fill('tt407bs');
     await expect(page.getByText(/saved on this computer/)).toBeVisible();
     await page.getByRole('option').first().click();
-    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(PRODUCT.name, { exact: true }),
+    ).toBeVisible();
 
     // The reload is the test. Everything in memory is gone; only IndexedDB remains.
     await context.setOffline(false);
     await page.reload();
 
-    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible({
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(PRODUCT.name, { exact: true }),
+    ).toBeVisible({
       timeout: 20_000,
     });
   });
@@ -226,7 +238,7 @@ test.describe('the offline boundary (FR-OFFLINE-002, ADR-033)', () => {
     await stubApi(page);
     await signIn(page);
 
-    await page.getByLabel('Find an item').fill('TT-407-BS');
+    await page.getByLabel('Item, row 1', { exact: true }).fill('TT-407-BS');
     await page.getByRole('option').first().click();
 
     await context.setOffline(true);
@@ -374,11 +386,15 @@ test.describe('keyboard-only billing', () => {
     await signIn(page);
 
     // Search, arrow to the result, Enter to add — no mouse.
-    await page.getByLabel('Find an item').focus();
+    await page.getByLabel('Item, row 1', { exact: true }).focus();
     await page.keyboard.type('TT-407-BS');
     await expect(page.getByRole('option').first()).toBeVisible();
     await page.keyboard.press('Enter');
-    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(PRODUCT.name, { exact: true }),
+    ).toBeVisible();
 
     // `Ctrl+Enter` finalises a cash bill.
     await page.keyboard.press('Control+Enter');
@@ -400,7 +416,7 @@ test.describe('keyboard-only billing', () => {
     await stubApi(page, { finalize: 'conflict' });
     await signIn(page);
 
-    await page.getByLabel('Find an item').focus();
+    await page.getByLabel('Item, row 1', { exact: true }).focus();
     await page.keyboard.type('TT-407-BS');
     await expect(page.getByRole('option').first()).toBeVisible();
     await page.keyboard.press('Enter');
@@ -409,7 +425,11 @@ test.describe('keyboard-only billing', () => {
     // bill — which is refused, and then nothing under test ever happens. The sibling
     // test above already waits here; these two did not, and one of them failed on CI
     // having never failed locally.
-    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(PRODUCT.name, { exact: true }),
+    ).toBeVisible();
 
     await page.keyboard.press('Control+Enter');
 
@@ -525,11 +545,15 @@ test.describe('the printed bill', () => {
     );
 
     await signIn(page);
-    await page.getByLabel('Find an item').focus();
+    await page.getByLabel('Item, row 1', { exact: true }).focus();
     await page.keyboard.type('TT-407-BS');
     await expect(page.getByRole('option').first()).toBeVisible();
     await page.keyboard.press('Enter');
-    await expect(page.getByText(PRODUCT.name, { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('table', { name: /Bill items/i })
+        .getByText(PRODUCT.name, { exact: true }),
+    ).toBeVisible();
     await page.keyboard.press('Control+Enter');
 
     const bill = page.locator('#print-root .bill');

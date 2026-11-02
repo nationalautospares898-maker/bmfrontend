@@ -9,9 +9,26 @@
 | Primary user | Counter staff with little computer experience, on a desktop, under time pressure |
 | Last updated | 2026-10-30 |
 
+> ## ⚠️ SUPERSEDED IN PART BY THE OWNER, 2026-11-02 — see §3a and §4a
+>
+> The three sentences immediately below were an **engineering recommendation**, not an owner
+> decision (the fidelity audit classes keeping the screen's labels distinct from the printed
+> bill's as a *technical recommendation* — `PHASE-2-REQUIREMENTS-FIDELITY-AUDIT.md` F-16). After
+> the first demo the owner asked for the **billing workspace and the stock-entry sheet** to look
+> like their own Excel bill, and for the primary navigation to run down the **right**. That
+> request supersedes the recommendation for those two screens. The reversal and its exact scope
+> are recorded in **§3a** (navigation) and **§4a** (the spreadsheet workspaces).
+>
+> **What has NOT changed:** §12 and the printed bill. Its headers stay `S R · ITEM · QTY ·
+> PRICE · TOTAL`, its 25 pre-numbered rows stay 25, its unused rows still print blank, it still
+> carries no invoice number, and `print.css` is still isolated from application styling so
+> restyling the app cannot change the bill (ADR-028, OD-5, OD-23, OD-3). The screen now follows
+> the sheet too; the bill is still the only thing the sheet *governs*.
+>
 > **§12 (the printed bill) is the only part of this document that follows the Excel reference.**
 > Everything else is a modern, restrained application interface. The application must **not** look
 > like a spreadsheet.
+> *(Superseded for the billing workspace and the stock sheet — see §3a/§4a.)*
 >
 > ## ✅ §12 — LAYOUT VERIFIED FROM THE WORKBOOK (2026-10-30) · PAGE SETUP STILL OPEN
 >
@@ -158,6 +175,61 @@ screen. Disabled entirely under `prefers-reduced-motion` (NFR-FE-A11Y-010).
 
 Clicking opens the Sync panel (§10). When "Not confirmed" is present it is shown in preference to
 everything else, because it is the only state where a customer may be waiting for a bill.
+
+---
+
+## 3a. Navigation as built — owner revision, 2026-11-02
+
+**This supersedes §3's diagram and FR-NAV-002's item list.** The owner asked for a simpler
+everyday application after the first demo: six sections, as words, in a **vertical column down the
+right-hand side**.
+
+```
+┌──────────────────────────────────────────────────────────┬────────────┐
+│ NATIONAL AUTO SPARES   Ravi · owner · Counter 1  ● Online│            │
+├──────────────────────────────────────────────────────────┤  Billing   │
+│                                                          │  Daily     │
+│                      ROUTE CONTENT                       │   Bills    │
+│                                                          │  Credit    │
+│   (the only scrolling region — the shell does not scroll) │   Bills    │
+│                                                          │  Stock     │
+│                                                          │  Customers │
+│                                                          │  Saving    │
+│                                                          │   and      │
+│                                                          │   syncing  │
+│                                                   ~224px │            │
+└──────────────────────────────────────────────────────────┴────────────┘
+```
+
+| Changed | From | To |
+|---|---|---|
+| Side | A persistent **left** sidebar (FR-NAV-002) | The **right** |
+| Items | Billing · Daily Bills · Credit Bills · Stock · **Purchases** · Reports · Settings | Billing · Daily Bills · Credit Bills · Stock · Customers · Saving and syncing |
+| Narrow screens | Collapses to 56 px icons with tooltips | Moves **below** the content as a scrollable row of words — never icon-only, and never the horizontal top row the owner rejected |
+
+The as-built shell before this revision was a horizontal wrap of **nine** buttons, so it matched
+neither §3 nor FR-NAV-002. This is the first time the shell has matched a recorded design.
+
+### Imports, Counters and Purchases are withdrawn, not deleted
+
+The owner does not want these in the everyday shop interface. **Nothing behind them was removed**:
+`ImportsScreen` and `PurchasesScreen` are still in the repository with their tests passing, every
+endpoint is live, every permission still exists, and all purchase and import history is intact.
+What changed is that the `Screen` union in `AppShell.tsx` no longer contains `purchases` or
+`imports`, so a stale link or a later edit cannot reach them by accident — the withdrawal is
+type-enforced rather than a convention.
+
+Two consequences were decided deliberately:
+
+- **Receiving stock has a new everyday path.** `Stock → Add Items` (§4b) is now how goods arriving
+  at the shop get recorded. The supplier-document workflow — enter a bill, then `Receive into
+  stock` (FR-PUR-003) — remains in the code for a shop that later wants it, and
+  `PurchaseService` is still the only writer of `purchase_receipt` movements.
+- **`Counters` reappears on its own when this computer has no counter.** Billing is refused
+  without one, so hiding the only screen that can fix that would make a freshly installed machine
+  unrecoverable from inside the application. It is shown *because* it is needed, to whoever holds
+  `admin.settings.manage`, and disappears once the computer is set up. That is the difference
+  between simplifying a workflow and removing a control.
 
 ---
 
@@ -364,6 +436,118 @@ The most dangerous moment in the system gets the loudest treatment.
 - After `sync.finalization_stale_minutes` (default 60) auto-retry stops:
   *"Please check Daily Bills to see whether this bill was saved."*
 - The counter slip is clearly watermarked and carries no invoice number.
+
+---
+
+## 4a. The billing workspace as built — owner revision, 2026-11-02
+
+**This supersedes the layout and the on-screen column labels in §4, and the tab-label rule in
+§4.1.** After the first demo the owner asked for the billing workspace to look like their own
+Excel bill. The engine did not change; the arrangement did.
+
+```
+┌──────────────────────────────────────────────────────────┬────────────┐
+│ [ AXEL PACKING ×] [ 11L LE MAX ×] [ + New bill ]         │  Billing   │
+├──────────────────────────────────────────────────────────┤  Daily     │
+│              NATIONAL AUTO SPARES                        │   Bills    │
+│          (address and phone, only if configured)         │  Credit    │
+│  Customer Name │ Mechanic Name │ Vehicle Number │ Date   │   Bills    │
+│  ESTIMATE                                                │  Stock     │
+│ ┌─────┬──────────────────┬───────┬─────────┬──────────┐  │  Customers │
+│ │S.No │ Item             │   Qty │   Price │    Total │  │  Saving    │
+│ │  1  │ AXEL PACKING     │     2 │      30 │       60 │  │   and      │
+│ │  2  │ ▏                │       │         │          │  │   syncing  │
+│ │ ... fifteen numbered rows, always ...              │  │            │
+│ │ 15  │                  │       │         │          │  │            │
+│ └─────┴──────────────────┴───────┴─────────┴──────────┘  │            │
+│                              GRAND TOTAL          60     │            │
+│ [Print Bill] [Credit Bill] [Save a Draft] [Clear Draft]  │            │
+└──────────────────────────────────────────────────────────┴────────────┘
+```
+
+| Changed | From | To |
+|---|---|---|
+| On-screen columns | `S.No · Item · Qty · Unit Price · Total · remove` | `S.No · Item · Qty · Price · Total · ×` |
+| Rows | Only the filled lines | **Fifteen always visible**, plus one spare below the last filled row, so row 16 exists the moment row 15 is used |
+| Product search | One box above the table | **In the Item cell itself** |
+| Appearance | A restrained web table | A bordered spreadsheet with a sticky header and a highlighted active row |
+| Tab label | `<number> · <customer name>`, falling back to `<number> · Walk-in` (Q-FE-6, a *documented proposal*) | `New bill` until the first product names the tab, then the product's name, suffixed `(2)` if another open tab already has it |
+| Tabs | A strip of buttons | Browser-like: each has a `×`, and closing one with items on it warns and offers to save it as a draft first |
+
+### What did **not** change
+
+- **One billing engine.** Every cell edits the same `LocalDraft` through the same `draftStore`
+  actions; totals are still derived selectors; money arithmetic still happens only in
+  `lib/money.ts`; finalisation is still one `POST /sales:finalize` (ADR-032, ADR-033).
+- **Four primary actions, no fifth** (OD-14), with their `Ctrl` shortcuts unchanged.
+- **FR-BILL-001** — search focused on load and after every added line. The box became a cell, so
+  "focus the search" is now "focus the next row's Item cell". Same keyboard-only path.
+- **FR-BILL-011** — an empty bill still renders the hint; it sits under the grid, because fifteen
+  blank numbered rows are exactly the "empty table with no guidance" the requirement was written
+  against.
+- **FR-BILL-010** — the header fields stay editable **inline**, never behind a dialog, and are
+  never part of a credit-details form (that design was removed by OD-21/ADR-033 and must not
+  return).
+- **The printed bill**, in every respect. §12 governs it, `print.css` is isolated (ADR-028), and
+  the 15 on-screen rows are **not** propagated to the printed 25.
+- **The business heading is configured, never invented.** It comes from
+  `/sync/bootstrap.business`, which reads the same `businesses` row `print_payload.business`
+  does. An empty address or phone renders as nothing — OD-4 is still a go-live gate and
+  Q-LEGAL-1 still says do not invent (FR-PRINT-016).
+
+### Keyboard (supersedes the arrow-key rows of §11 for this screen)
+
+Context-aware, and **never bound to `window`** — the only window-level listener still returns
+immediately unless `ctrlKey` is held, which is what stops `Tab`, `Enter`, the arrows and `Space`
+from ever reaching `Print Bill` or `Credit Bill`.
+
+| Key | While the product list is open | Otherwise |
+|---|---|---|
+| `↓` `↑` | Move through the matches | Move a row down / up |
+| `Enter` | Add the highlighted product | Move down a row |
+| `Esc` | Close the list, keep what was typed | — |
+| `←` `→` | Move the text caret | Previous / next column, only once the caret is at the end |
+| `Tab` / `Shift+Tab` | Previous / next cell — never trapped | Previous / next cell |
+| `Space` | **A space in the product name** | **A space in the product name** |
+
+`Space` is called out because the owner asked for spreadsheet-style `Space` and the honest answer
+is that it has to stay a character: a part is called `AXEL PACKING`, and a grid that swallowed the
+space to "select a cell" would make half the catalogue untypeable.
+
+---
+
+## 4b. Stock entry — the owner's four-column sheet, 2026-11-02
+
+`Stock → Add Items` opens a sheet with the owner's own four columns **side by side in one row**:
+
+| Item | Price | Min Qty | Stock Qty |
+|---|---:|---:|---:|
+| Axel Packing | 30 | 50 | 200 |
+
+- **`Stock Qty` is an arrival, never a new total.** 20 on the shelf plus a typed 200 is 220. The
+  explainer says so before anything is typed, each row shows `In stock 20 + 200 = 220` live, and
+  the server has no code path that assigns a balance (`StockEntryService`).
+- **`Min Qty` is `products.reorder_level`** — per product, set item by item, never one figure for
+  the whole catalogue (FR-INV-008).
+- **Identity is exact on the normalised name**, so `axel packing` finds `Axel Packing` while
+  `Brake Shoe Set Ace` and `Brake Shoe Set Bolero` stay two parts. Two products sharing a
+  normalised name is `ambiguous` and is **refused**, not guessed; a withdrawn product is refused
+  rather than silently revived.
+- **One sheet is one transaction, all or nothing**, behind a **claimed** `Idempotency-Key`, so a
+  double-tapped Save books one delivery. `stock_movements` can never be deleted, so a second
+  booking could not be tidied away afterwards.
+- **Ledger reasons:** `opening` for a part the shop has never held, `adjustment_increase` for a
+  later arrival, both with `source_type = stock_entry`. **Not `purchase_receipt`** — that reason
+  receives stock only through `PurchaseService` against a real supplier document, and a sheet row
+  has none.
+- **Low stock is `current_stock < min_qty`** — strictly below, matching the owner's wording "goes
+  below the minimum quantity". ⚠️ `LOW_STOCK_AFTER_SALE` deliberately keeps `<=`: it is a
+  published contract documented as firing when stock "fell **to or** below" the level, and it
+  answers a different question. Do not align one to the other.
+- **History is the whole ledger**, oldest first so the running balance reads downwards: opening
+  stock, every arrival, every correction, every sale, and every reversal of a cancelled bill —
+  each with its `balance_after` as recorded at the time, never reconstructed from today's total,
+  and with the invoice reference where the movement has a document to look up.
 
 ---
 

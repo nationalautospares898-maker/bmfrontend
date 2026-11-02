@@ -37,6 +37,10 @@ export const COUNTER = {
 
 /** Every permission the back-office screens gate on. */
 export const OWNER_PERMISSIONS = [
+  // Kept after `Counters` left the navigation entirely: the permission still guards
+  // `GET /admin/counters` and `PUT /admin/devices/{id}/counter` server-side, and an owner
+  // stub that lacked it would no longer represent an owner.
+  'admin.settings.manage',
   'billing.sale.finalize',
   'catalog.read',
   'catalog.write',
