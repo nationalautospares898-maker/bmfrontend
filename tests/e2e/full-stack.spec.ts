@@ -535,9 +535,14 @@ test('Daily Bills shows the bill the server just recorded', async ({ page }) => 
   await signIn(page);
   const { productId } = await createStockedProduct(page);
 
-  await page.evaluate(
-    async ([base, id, counter, token]) => {
-      await fetch(`${base}/sales:finalize`, {
+  // A name unique to this run. `'E2E Reported'` was shared by every run, so a reset
+  // part-way through a session, or a leftover bill from a previous one, made "is it on
+  // the screen?" a question about the wrong bill.
+  const reportedTo = `E2E Reported ${RUN}-${(productSequence += 1)}`;
+
+  const finalised = await page.evaluate(
+    async ([base, id, counter, token, customerName]) => {
+      const response = await fetch(`${base}/sales:finalize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -555,18 +560,24 @@ test('Daily Bills shows the bill the server just recorded', async ({ page }) => 
               price_source: 'catalog',
             },
           ],
-          header: { customer_name: 'E2E Reported' },
+          header: { customer_name: customerName },
           client_computed_total: '1250.00',
           payment: { method: 'cash', amount: '1250.00' },
         }),
       });
+      return { status: response.status, body: (await response.text()).slice(0, 400) };
     },
-    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
+    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken, reportedTo],
   );
+
+  // Asserted, not ignored. This call's status was discarded, so a server refusal
+  // surfaced twenty seconds later as "the bill is not on the Daily Bills screen" — a
+  // true statement that explains nothing. Now the refusal is the failure message.
+  expect(finalised.status, `the sale was not created: ${finalised.body}`).toBe(201);
 
   await page.getByRole('button', { name: 'Daily Bills', exact: true }).click();
   // The customer name travelled client -> server -> report -> client.
-  await expect(page.getByText('E2E Reported').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(reportedTo).first()).toBeVisible({ timeout: 20_000 });
 });
 
 // --- 9. offline behaviour against a real server -------------------------------

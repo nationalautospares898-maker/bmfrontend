@@ -527,7 +527,7 @@ describe('Credit Bills', () => {
 
   it('says it is loading before the first response', () => {
     customers.mockReturnValue(new Promise(() => {}));
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading…');
   });
 
@@ -539,7 +539,7 @@ describe('Credit Bills', () => {
     // deleted — FR-RPT-031 already forbade that — the defect was one default.
     //
     // Credit Bills is a permanent record, so the flag is now `true` on load.
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await waitFor(() => expect(customers).toHaveBeenCalled());
     expect(customers).toHaveBeenCalledWith({ include_settled: true, limit: 200 });
   });
@@ -548,7 +548,7 @@ describe('Credit Bills', () => {
     // The inverse is still available, and is now the thing you opt into rather than the
     // thing you have to opt out of.
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
 
     await user.click(screen.getByLabelText(/Only customers who still owe/));
@@ -559,7 +559,7 @@ describe('Credit Bills', () => {
   });
 
   it('renders the server-computed totals rather than summing the rows', async () => {
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     expect(screen.getByText('Customers owing').nextElementSibling).toHaveTextContent('2');
     expect(screen.getByText('Total outstanding').nextElementSibling).toHaveTextContent(
@@ -572,20 +572,20 @@ describe('Credit Bills', () => {
       items: CREDIT_CUSTOMERS,
       summary: { outstanding: '2500' },
     });
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     expect(screen.getByText('Customers owing').nextElementSibling).toHaveTextContent('2');
   });
 
   it('omits the totals panel when the server sends no summary', async () => {
     customers.mockResolvedValue({ items: CREDIT_CUSTOMERS, summary: null });
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     expect(screen.queryByText('Total outstanding')).not.toBeInTheDocument();
   });
 
   it('shows a phone number when there is one and nothing when there is not', async () => {
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     expect(screen.getByText('9876543210')).toBeInTheDocument();
     const settled = screen.getByText('Suresh Transport').closest('button');
@@ -593,20 +593,20 @@ describe('Credit Bills', () => {
   });
 
   it('flags an overdue customer and leaves the others unflagged', async () => {
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     expect(screen.getByText('12 days overdue')).toBeInTheDocument();
     expect(screen.getAllByText(/days overdue/)).toHaveLength(1);
   });
 
   it('shows open-of-total counts', async () => {
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     expect(await screen.findByText('2 open of 5')).toBeInTheDocument();
   });
 
   it('expands a customer to their credit bills, keyed on the customer id', async () => {
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
 
     await user.click(screen.getByRole('button', { name: /Ramesh Motors/ }));
@@ -626,7 +626,7 @@ describe('Credit Bills', () => {
 
   it('collapses again on a second press without refetching', async () => {
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     const toggle = screen.getByRole('button', { name: /Ramesh Motors/ });
 
@@ -640,7 +640,7 @@ describe('Credit Bills', () => {
 
   it('shows the server-computed ageing buckets, readably', async () => {
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
 
     await user.click(screen.getByRole('button', { name: /Ramesh Motors/ }));
@@ -652,7 +652,7 @@ describe('Credit Bills', () => {
 
   it('lists the expanded customer bills with a due date or an em dash', async () => {
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
 
     await user.click(screen.getByRole('button', { name: /Ramesh Motors/ }));
@@ -663,7 +663,7 @@ describe('Credit Bills', () => {
 
   it('explains a refusal in words', async () => {
     customers.mockRejectedValue(apiError('PERMISSION_DENIED'));
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'You do not have permission to do this.',
     );
@@ -671,19 +671,19 @@ describe('Credit Bills', () => {
 
   it('offers a retry for an unnamed failure', async () => {
     customers.mockRejectedValue(new Error('offline'));
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Retry');
   });
 
   it('renders an empty list without an error', async () => {
     customers.mockResolvedValue({ items: [], summary: null });
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('passes axe', async () => {
-    const { container } = render(<CreditBills />);
+    const { container } = render(<CreditBills policy={POLICY} />);
     await screen.findByText('Ramesh Motors');
     const results = await axe.run(container, {
       rules: { 'color-contrast': { enabled: false } },
@@ -745,11 +745,26 @@ function invoiceDetail(overrides: Record<string, unknown> = {}) {
         returned_quantity: '0.000',
       },
     ],
+    // Completed to match `InvoiceOut`, every field of which the server always sends.
+    // The partial version crashed the full-bill view on `discount_total`, which is a
+    // fixture bug rather than a component one — but it was worth finding, because a
+    // fixture that is missing required fields cannot catch a component that forgets
+    // to render them.
     subtotal: '1980.00',
+    discount_total: '0.00',
+    tax_total: '0.00',
+    rounding_adjustment: '0.00',
     total: '1980.00',
     amount_paid: '0.00',
     outstanding: '1980.00',
     payment_status: 'unpaid',
+    notes: null,
+    version: 1,
+    oversell_override: false,
+    oversell_reason: null,
+    money_policy_version: 1,
+    cancelled_at: null,
+    cancellation_reason: null,
     ...overrides,
   };
 }
@@ -796,7 +811,7 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
 
   it('lists the products, quantities and prices of an individual credit bill', async () => {
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
 
     await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
     await user.click(await screen.findByRole('button', { name: 'C1/2026/0007' }));
@@ -814,7 +829,7 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
     // FR-SALE-012: a product renamed or repriced since must not rewrite what the bill
     // said. The detail endpoint returns snapshots and the screen renders those.
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
     await user.click(await screen.findByRole('button', { name: 'C1/2026/0007' }));
 
@@ -828,7 +843,7 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
     // A customer with forty open bills must not cost forty requests to render a list
     // nobody asked to see in detail; and collapsing and reopening one must cost none.
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
 
     const open = await screen.findByRole('button', { name: 'C1/2026/0007' });
@@ -856,7 +871,7 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
       }),
     );
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
     await user.click(await screen.findByRole('button', { name: 'C1/2026/0007' }));
 
@@ -893,7 +908,7 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
       .mockResolvedValue({ items: [] });
 
     const user = userEvent.setup();
-    render(<CreditBills />);
+    render(<CreditBills policy={POLICY} />);
     await user.click(await screen.findByRole('button', { name: /Ramesh Motors/ }));
     await user.click(await screen.findByRole('button', { name: /Second Customer/ }));
 
@@ -911,13 +926,21 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
 
 // --- correcting a finalised bill -----------------------------------------------
 
-describe('Edit Bill corrects by cancelling and re-billing, never by editing', () => {
+describe('Cancel & Re-bill reverses a sale that should not have happened', () => {
   /**
-   * A finalised invoice is immutable: OD-10 says "There is no edit path, ever",
-   * FR-SALE-010 makes it P0, and migration 0011 revokes UPDATE on `invoices` and
-   * `invoice_items` from the application role so the database refuses it outright. The
-   * sanctioned correction is cancellation (ADR-015), which was implemented on the server
-   * and reachable from no screen at all.
+   * **Updated 2026-11-07.** This block used to be called "Edit Bill corrects by
+   * cancelling and re-billing, never by editing", because OD-10 said "there is no edit
+   * path, ever" and migration 0011 revoked `UPDATE` on `invoices` to enforce it.
+   *
+   * The owner reversed OD-10 (Decision A). Real in-place editing now exists and is
+   * covered by `editBill.test.tsx` and `tests/api/test_invoice_amend.py`.
+   *
+   * Cancellation is **not** gone — Decision C preserves it, and it remains the right
+   * answer when a sale should not have happened at all rather than when a bill needs
+   * correcting. So every assertion below still stands; only the action's **label**
+   * changed, from `Edit Bill` to `Cancel & Re-bill`. Leaving the old label in place put
+   * two buttons reading "Edit Bill" in one Daily Bills row, which a browser test caught
+   * and which was ambiguous for a screen reader too.
    */
   const CASH_UNPAID = {
     id: 'inv-9',
@@ -950,22 +973,34 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
     // A button that is sometimes a 403 is worse than no button.
     render(<DailyBills policy={POLICY} />);
     await screen.findByText('C1');
-    expect(screen.queryByRole('button', { name: 'Edit Bill' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Cancel & Re-bill' }),
+    ).not.toBeInTheDocument();
   });
 
   it('is not offered on a bill that is already cancelled', async () => {
     list.mockResolvedValue({ items: [{ ...CASH_UNPAID, status: 'cancelled' }] });
     render(<DailyBills policy={POLICY} canCancel />);
     await screen.findByText('Cancelled');
-    expect(screen.queryByRole('button', { name: 'Edit Bill' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Cancel & Re-bill' }),
+    ).not.toBeInTheDocument();
   });
 
-  it('says a printed bill cannot be changed, and shows what is on it', async () => {
+  it('says this cancels rather than changes, and shows what is on the bill', async () => {
+    // The wording changed with the action's name. It used to say "a printed bill cannot
+    // be changed", which was true under OD-10 and is not any more — a bill *can* be
+    // changed, via Edit Bill. What this dialog has to make clear now is that it does
+    // something different: it cancels.
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
 
-    expect(await screen.findByText(/cannot be changed/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/cancels the bill rather than changing it/i),
+    ).toBeInTheDocument();
+    // And it points at the other action, so the operator who wanted an edit can find it.
+    expect(await screen.findByText(/use Edit Bill/i)).toBeInTheDocument();
     // The original contents, so the operator can see what they are replacing.
     expect(await screen.findByText('Brake Shoe Set Ace')).toBeInTheDocument();
   });
@@ -973,7 +1008,7 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
   it('refuses to cancel without a reason of real substance', async () => {
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
     await screen.findByText('Brake Shoe Set Ace');
 
     expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
@@ -986,7 +1021,7 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
   it('cancels through the real endpoint, with a reason and an idempotency key', async () => {
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
@@ -1006,7 +1041,7 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
     const rebuild = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel onRebuild={rebuild} />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
@@ -1042,7 +1077,7 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
     const rebuild = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel onRebuild={rebuild} />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
@@ -1072,7 +1107,7 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
     });
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
@@ -1092,7 +1127,7 @@ describe('Edit Bill corrects by cancelling and re-billing, never by editing', ()
     // every one of them is the server's to compute (FR-RPT-030).
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Edit Bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     const callsBefore = dailySales.mock.calls.length;
 

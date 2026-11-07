@@ -1177,6 +1177,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invoices/{invoice_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Invoice Revisions
+         * @description The edit history of one bill, newest first, with each before-state's lines.
+         */
+        get: operations["invoice_revisions_api_v1_invoices__invoice_id__revisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}:amend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Amend Invoice
+         * @description Edit a finalised bill **in place** (owner Decision A, 2026-11-07).
+         *
+         *     Keeps the invoice's id and internal reference, writes the complete before-state to
+         *     `invoice_revisions`, recomputes the money server-side, reconciles stock with new
+         *     append-only movements, and never touches a payment.
+         *
+         *     `Idempotency-Key` is required, so a retried save applies once rather than writing a
+         *     second revision and a second set of stock movements.
+         *
+         *     Refuses, with its own error code each time: a stale `expected_version`
+         *     (`409 INVOICE_VERSION_CONFLICT`), a cancelled bill (`409 INVOICE_NOT_EDITABLE`), and
+         *     a new total below what has already been paid (`409 EDIT_BELOW_PAID_TOTAL` — the
+         *     owner's explicit rule; the correction there is a return or a credit note).
+         */
+        post: operations["amend_invoice_api_v1_invoices__invoice_id__amend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invoices/{invoice_id}:cancel": {
         parameters: {
             query?: never;
@@ -1192,6 +1244,77 @@ export interface paths {
          *     **retains** the internal reference and keeps the record listed.
          */
         post: operations["cancel_invoice_api_v1_invoices__invoice_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mechanics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Mechanics
+         * @description Suggestions for the billing screen.
+         *
+         *     **`query` is optional on purpose.** The field is focused before anything is typed,
+         *     and the recently-used list is the most useful thing to show at that moment.
+         */
+        get: operations["list_mechanics_api_v1_mechanics_get"];
+        put?: never;
+        /**
+         * Ensure Mechanic
+         * @description Get-or-create by normalised name, and mark it used.
+         *
+         *     `200`, not `201`: the common outcome is "this mechanic already existed", and a
+         *     status code that claims a creation every time would be a lie the client then has to
+         *     ignore. `created` in the body carries the truth.
+         */
+        post: operations["ensure_mechanic_api_v1_mechanics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mechanics/{mechanic_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename Mechanic
+         * @description Correct a spelling. Past bills keep their own snapshot and are unaffected.
+         */
+        patch: operations["rename_mechanic_api_v1_mechanics__mechanic_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/mechanics/{mechanic_id}:deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deactivate Mechanic
+         * @description Drop from the suggestions. Deliberately not a delete.
+         */
+        post: operations["deactivate_mechanic_api_v1_mechanics__mechanic_id__deactivate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1976,6 +2099,81 @@ export interface components {
              * @default oldest_first
              */
             strategy: string;
+        };
+        /**
+         * AmendHeaderIn
+         * @description Header fields an edit may change.
+         *
+         *     Every field is optional, and **omitting one leaves it alone** — `model_fields_set` is
+         *     what distinguishes "not supplied" from "clear it", so sending `null` deliberately
+         *     blanks a field while sending nothing keeps it.
+         */
+        AmendHeaderIn: {
+            /** Customer Business Name */
+            customer_business_name?: string | null;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Mechanic Name */
+            mechanic_name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Vehicle Number */
+            vehicle_number?: string | null;
+        };
+        /** AmendLineIn */
+        AmendLineIn: {
+            /** Discount Percent */
+            discount_percent?: number | string | null;
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
+            /** Quantity */
+            quantity: number | string;
+            /** Unit Price */
+            unit_price: number | string;
+        };
+        /**
+         * AmendOut
+         * @description `POST /invoices/{id}:amend`. The invoice's identity is **unchanged** — there is
+         *     deliberately no new invoice id or reference in this response, because an edit does
+         *     not create one.
+         */
+        AmendOut: {
+            /** Amount Paid */
+            amount_paid: string;
+            /**
+             * Invoice Id
+             * Format: uuid
+             */
+            invoice_id: string;
+            /** Outstanding */
+            outstanding: string;
+            /** Payment Status */
+            payment_status: string;
+            /** Revision Number */
+            revision_number: number;
+            /** Total */
+            total: string;
+            /** Version */
+            version: number;
+        };
+        /** AmendRequest */
+        AmendRequest: {
+            /** Expected Version */
+            expected_version: number;
+            header?: components["schemas"]["AmendHeaderIn"] | null;
+            /** Lines */
+            lines: components["schemas"]["AmendLineIn"][];
+            /** Oversell Reason */
+            oversell_reason?: string | null;
+            /** Reason */
+            reason: string;
         };
         /**
          * AssignCounterRequest
@@ -2864,6 +3062,8 @@ export interface components {
             items: components["schemas"]["InvoiceItemOut"][];
             /** Money Policy Version */
             money_policy_version: number;
+            /** Notes */
+            notes: string | null;
             /** Outstanding */
             outstanding: string;
             /** Oversell Override */
@@ -2884,6 +3084,63 @@ export interface components {
             tax_total: string;
             /** Total */
             total: string;
+            /** Version */
+            version: number;
+        };
+        /** InvoiceRevisionItemOut */
+        InvoiceRevisionItemOut: {
+            /** Line No */
+            line_no: number;
+            /** Line Total */
+            line_total: string;
+            /** Product Name */
+            product_name: string;
+            /** Quantity */
+            quantity: string;
+            /** Sku */
+            sku: string | null;
+            /** Unit Code */
+            unit_code: string;
+            /** Unit Price */
+            unit_price: string;
+        };
+        /**
+         * InvoiceRevisionOut
+         * @description One recorded before-state. Immutable: `invoice_revisions` is `SELECT, INSERT`
+         *     only at the privilege level.
+         */
+        InvoiceRevisionOut: {
+            /** Amount Paid */
+            amount_paid: string;
+            /** Created At */
+            created_at: string;
+            /** Customer Name */
+            customer_name: string | null;
+            /** Edited By */
+            edited_by: string | null;
+            /** Items */
+            items: components["schemas"]["InvoiceRevisionItemOut"][];
+            /** Mechanic Name */
+            mechanic_name: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Payment Status */
+            payment_status: string;
+            /** Reason */
+            reason: string;
+            /** Revision Number */
+            revision_number: number;
+            /** Status */
+            status: string;
+            /** Total */
+            total: string;
+            /** Vehicle Number */
+            vehicle_number: string | null;
+        };
+        /** InvoiceRevisionsOut */
+        InvoiceRevisionsOut: {
+            /** Items */
+            items: components["schemas"]["InvoiceRevisionOut"][];
         };
         /** InvoiceSummaryOut */
         InvoiceSummaryOut: {
@@ -2960,6 +3217,65 @@ export interface components {
             /** Tax Mode */
             tax_mode: string;
             user: components["schemas"]["bm__api__v1__auth__UserOut"];
+        };
+        /** MechanicEnsureRequest */
+        MechanicEnsureRequest: {
+            /** Name */
+            name: string;
+            /** Phone */
+            phone?: string | null;
+        };
+        /** MechanicListOut */
+        MechanicListOut: {
+            /** Items */
+            items: components["schemas"]["MechanicSuggestionOut"][];
+            page: components["schemas"]["Page"];
+        };
+        /** MechanicOut */
+        MechanicOut: {
+            /** Created */
+            created: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone: string | null;
+            /** Use Count */
+            use_count: number;
+        };
+        /** MechanicRenameRequest */
+        MechanicRenameRequest: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * MechanicSuggestionOut
+         * @description Reference data, so no monetary field appears here at all.
+         */
+        MechanicSuggestionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone: string | null;
+            /** Use Count */
+            use_count: number;
         };
         /**
          * MoneyPolicyOut
@@ -6099,6 +6415,81 @@ export interface operations {
             };
         };
     };
+    invoice_revisions_api_v1_invoices__invoice_id__revisions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceRevisionsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    amend_invoice_api_v1_invoices__invoice_id__amend_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AmendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmendOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cancel_invoice_api_v1_invoices__invoice_id__cancel_post: {
         parameters: {
             query?: never;
@@ -6127,6 +6518,151 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CancelOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mechanics_api_v1_mechanics_get: {
+        parameters: {
+            query?: {
+                query?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanicListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ensure_mechanic_api_v1_mechanics_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MechanicEnsureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanicOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_mechanic_api_v1_mechanics__mechanic_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                mechanic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MechanicRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanicOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_mechanic_api_v1_mechanics__mechanic_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                mechanic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

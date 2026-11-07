@@ -245,6 +245,54 @@ describe('saving', () => {
     expect(second).toBe(first);
   });
 
+  it('never writes "undefined" into Price when the server omits the current one', async () => {
+    /**
+     * The defect behind three load-dependent flakes in this file.
+     *
+     * `current_price` and `current_min_qty` are **optional** in the contract, so the
+     * server omits them for a `kind: 'new'` row — there is no existing product to quote
+     * a price from. The prefill tested `!== null`, which is true for `undefined`, so it
+     * wrote the string `"undefined"` into the box. Typing a price afterwards produced
+     * `undefined30`, the local price check refused the save, and `onSaved` was never
+     * called.
+     *
+     * Reproduced here deterministically by letting the debounced resolve land **before**
+     * the price is typed, which is what full-suite load did by accident.
+     */
+    const user = userEvent.setup();
+    render(<StockSheet onClose={noop} onSaved={noop} />);
+
+    await user.type(screen.getByLabelText('Item, row 1'), 'Axel Packing');
+    // Let the resolve settle with its prefill, as a slow network would.
+    await waitFor(() => expect(resolveStockEntry).toHaveBeenCalled());
+
+    const price = screen.getByLabelText('Price, row 1');
+    await waitFor(() => expect(price).not.toHaveValue('undefined'));
+    expect(price).toHaveValue('');
+
+    const minQty = screen.getByLabelText('Min Qty, row 1');
+    expect(minQty).not.toHaveValue('undefined');
+  });
+
+  it('still prefills Price when the server does supply one', async () => {
+    // The fix must not throw the prefill away — only stop it inventing a value.
+    resolveStockEntry.mockResolvedValue({
+      kind: 'existing',
+      candidates: [],
+      current_price: '42.0000',
+      current_min_qty: '7.000',
+    });
+    const user = userEvent.setup();
+    render(<StockSheet onClose={noop} onSaved={noop} />);
+
+    await user.type(screen.getByLabelText('Item, row 1'), 'Axel Packing');
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Price, row 1')).toHaveValue('42.0000'),
+    );
+    expect(screen.getByLabelText('Min Qty, row 1')).toHaveValue('7.000');
+  });
+
   it('reports what was saved, separating new items from top-ups', async () => {
     const onSaved = vi.fn();
     const user = userEvent.setup();

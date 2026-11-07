@@ -38,6 +38,25 @@ export interface LocalDraftLine {
   /** Last known stock and when it was read, so the UI can say how stale it is. */
   known_stock: string | null;
   stock_as_of: string | null;
+  /**
+   * The counter hand's own tick: "I have physically brought this part to the counter".
+   *
+   * **Local to this device and nothing else.** It is deliberately absent from
+   * `toUpsertPayload` and from the finalisation payload, both of which enumerate their
+   * fields, so it never reaches the server, never reaches `print_payload`, and has no
+   * effect on the total, on stock, on credit or on payment. It is a note to self while
+   * packing an order — not a stock movement, and not a financial record (invariant 4
+   * still owns every real stock change).
+   *
+   * Optional, so drafts written before this existed read back as `undefined`, which is
+   * falsy and therefore correct without a Dexie version bump.
+   *
+   * It is a property of the **line**, keyed by `id`: changing a quantity or a price
+   * keeps the tick, because the part in your hand is still the part in your hand.
+   * Removing the line removes it; re-adding the same product is a new line and starts
+   * unticked.
+   */
+  collected?: boolean;
 }
 
 export interface LocalDraftHeader {

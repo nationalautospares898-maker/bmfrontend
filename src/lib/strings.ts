@@ -18,6 +18,18 @@ export const ACTIONS = {
   creditBill: 'Credit Bill',
   saveDraft: 'Save a Draft',
   clearDraft: 'Clear Draft',
+
+  // --- the optional advance on a credit bill (owner request, 2026-11-07) ------
+  //
+  // A **field**, not a fifth action: OD-14 settles the four primary actions and says
+  // there is no fifth, and this does not need one.
+  advanceLabel: 'Advance received (optional)',
+  advanceHint: 'Leave blank if nothing was paid now.',
+  advanceMethod: 'Paid by',
+  /** Spelled out so the advance is never read as a discount on the bill. */
+  advancePreview: (total: string, advance: string, outstanding: string) =>
+    `Bill ${total} − advance ${advance} = ${outstanding} outstanding. ` +
+    `The bill total stays ${total}.`,
 } as const;
 
 export const ACTION_SHORTCUTS = {
@@ -126,6 +138,58 @@ export const BILLING = {
   saveAsNewCustomer: 'Save as a new customer',
   duplicateSuspected: 'This may already be a customer',
   creditNeedsCustomer: 'Choose or add a customer before using Credit Bill.',
+
+  // --- the mechanic picker -----------------------------------------------------
+  //
+  // Deliberately the same vocabulary as the customer picker above: the cashier should
+  // not have to learn that one field is a "lookup" and the other a "search".
+  findMechanic: 'Mechanic Name',
+  findMechanicHint: 'Start typing, or pick a recent one.',
+  mechanicRecent: 'Recently used',
+  mechanicNoMatch: 'No saved mechanic matches that. It will be saved when you move on.',
+  mechanicSaveFailed:
+    'That mechanic could not be saved for next time. The name is still on this bill.',
+
+  // --- adding a missing item from the bill (owner request, 2026-11-07) ---------
+  //
+  // Offered **only** when the search found nothing and only to a user holding
+  // `catalog.write`. See `ItemCell`'s docstring for why it is gated that tightly.
+  addMissingItem: 'Add New Item to Stock',
+  addMissingItemNoMatch: (name: string) => `Nothing in stock matches “${name}”.`,
+  addMissingItemTitle: 'Add a new item to stock',
+  /** Creating a catalogue entry never records a delivery or changes inventory. */
+  addMissingItemIntro:
+    'This creates a catalogue product and puts it on this bill. It records no stock. ' +
+    'If stock is short, an owner or manager can choose an audited oversell override.',
+  addMissingItemName: 'Item name',
+  addMissingItemPrice: 'Selling price',
+  addMissingItemMinQty: 'Minimum quantity',
+  addMissingItemMinQtyHint: 'Used for the low-stock warning. 10 unless you change it.',
+  addMissingItemSave: 'Create and add to the bill',
+
+  addMissingItemNeedName: 'Enter a name for the item.',
+  addMissingItemNeedPrice: 'Enter a selling price.',
+  /** Stated plainly, because a created product with no stock will read as oversold. */
+  addMissingItemStockNote:
+    'Stock for this item is zero until a delivery is recorded, so completing this bill ' +
+    'may need an oversell override.',
+  oversellApprovalLabel: 'I approve this sale against insufficient recorded stock',
+  oversellApprovalWarning:
+    'This does not add stock. The sale will be marked as an authorised oversell, the ' +
+    'recorded balance may become negative, and this reason will be audited.',
+  oversellReasonLabel: 'Reason (required)',
+  oversellReasonRequired: 'Enter a reason with at least 10 characters before retrying.',
+  oversellRetryHint: 'Choose Print Bill or Credit Bill again to complete this sale.',
+
+  // --- the physical-collection tick (owner request, 2026-11-07) ----------------
+  //
+  // A note to self for the person packing the order. It is **not** a stock movement,
+  // not a financial field, never printed, and never sent to the server.
+  columnCollected: 'Got it',
+  columnCollectedTitle: 'Tick when the physical item has been brought to the counter',
+  collectedLabel: (name: string) => `${name} has been brought to the counter`,
+  collectedHint:
+    'For your own use while packing. It is not printed and does not change the bill.',
 } as const;
 
 export const CREDIT = {
@@ -453,15 +517,28 @@ export const PURCHASES = {
 // that is in fact still on the record (OD-10, FR-SALE-010, ADR-015).
 
 export const AMEND = {
-  action: 'Edit Bill',
-  title: 'Correct this bill',
-  howItWorksTitle: 'A printed bill cannot be changed',
+  /**
+   * **Renamed from `Edit Bill`** (2026-11-07).
+   *
+   * It was called that because there was no edit path — cancel-and-rebill was the only
+   * correction, so it carried the name the cashier would look for. Real editing now
+   * exists (`EDIT_BILL`), and leaving this label alone put two buttons both reading
+   * "Edit Bill" in the same Daily Bills row: ambiguous to a person, ambiguous to a
+   * screen reader, and found by a browser test that could not tell them apart.
+   *
+   * Cancellation has not gone away (owner Decision C) — it is the right answer when a
+   * sale should not have happened at all. It just has its own honest name now.
+   */
+  action: 'Cancel & Re-bill',
+  title: 'Cancel this bill and re-bill',
+  howItWorksTitle: 'This cancels the bill rather than changing it',
   howItWorks:
-    'Once a bill is printed it stays on the record exactly as it was — that is what ' +
-    'makes the day’s takings add up. To correct one, this bill is cancelled and a new ' +
-    'bill is made in its place. Cancelling puts the stock back and, for a credit bill, ' +
-    'cancels what the customer owes. The old bill keeps its number and stays in the ' +
-    'list, marked cancelled.',
+    'This is for a sale that should not have happened. The bill is cancelled and a new ' +
+    'one is made in its place: cancelling puts the stock back and, for a credit bill, ' +
+    'cancels what the customer owes. The old bill keeps its reference and stays in the ' +
+    'list, marked cancelled. To change what is **on** a bill instead — quantities, ' +
+    'prices, the mechanic — use Edit Bill, which keeps the one bill and records what it ' +
+    'said before.',
   originalBill: 'What is on this bill now',
   billTotal: 'Bill total',
   reason: 'Why is this bill being corrected?',
@@ -507,6 +584,130 @@ export const CREDIT_BILLS = {
     'Every customer who has ever had a credit bill is listed here, including those who ' +
     'have paid in full. Open a customer to see all their bills, and a bill to see what ' +
     'was bought on it.',
+
+  // --- the per-invoice actions (owner request, 2026-11-07) ---------------------
+  viewFullBill: 'View Full Bill',
+  hideFullBill: 'Hide Full Bill',
+  receivePayment: 'Receive Payment',
+  paymentHistory: 'Payment History',
+  reprint: 'Reprint',
+
+  // --- the full bill viewer ----------------------------------------------------
+  fullBillTitle: 'The bill as it was issued',
+  /** Said once, because the figures are historical and that is the whole point. */
+  fullBillHistoricalNote:
+    'Every figure below is the bill’s own saved copy — the prices, names and ' +
+    'quantities as they were when it was issued, not today’s catalogue.',
+  fieldReference: 'Bill reference (internal)',
+  fieldCustomer: 'Customer Name',
+  fieldBusinessName: 'Business',
+  fieldMechanic: 'Mechanic Name',
+  fieldVehicle: 'Vehicle Number',
+  fieldPhone: 'Phone',
+  fieldDate: 'Date',
+  fieldDueDate: 'Due',
+  fieldNotes: 'Notes',
+  colSerial: 'S.No',
+  colItem: 'Item',
+  colCode: 'Code',
+  colQuantity: 'Qty',
+  colPrice: 'Price',
+  colLineTotal: 'Total',
+  subtotal: 'Subtotal',
+  discount: 'Discount',
+  tax: 'Tax',
+  rounding: 'Rounding',
+  grandTotal: 'GRAND TOTAL',
+  creditAmount: 'Credit amount',
+  paidAmount: 'Paid',
+  outstanding: 'Outstanding',
+  paymentStatus: 'Status',
+  cancelled: 'Cancelled',
+
+  // --- receiving a payment against one invoice ---------------------------------
+  receiveTitle: 'Receive a payment on this bill',
+  /**
+   * The distinction from the Customers screen, stated so the two workflows cannot be
+   * confused: that one allocates oldest-first across every open bill, this one pays
+   * exactly the bill in front of you.
+   */
+  receiveHint:
+    'This payment is recorded against this bill only. To let the shop allocate a ' +
+    'payment across a customer’s oldest unpaid bills instead, use the Customers screen.',
+  receiveAmount: 'Amount received',
+  receiveMethod: 'Method',
+  receiveReference: 'Reference (optional)',
+  receiveSubmit: 'Record the payment',
+  receiveNeedsAmount: 'Enter an amount greater than zero.',
+  receiveOverpay: (outstanding: string) =>
+    `That is more than the ${outstanding} still outstanding on this bill.`,
+  receiveDone: 'Payment recorded.',
+  settled: 'This bill is settled in full.',
+
+  // --- payment history ---------------------------------------------------------
+  historyTitle: 'Payments on this bill',
+  historyEmpty: 'No payments have been recorded against this bill yet.',
+  historyWhen: 'When',
+  historyAmount: 'Amount',
+  historyMethod: 'Method',
+  historyReference: 'Reference',
+} as const;
+
+/**
+ * Editing a finalised bill (F7–F10; owner Decision A, 2026-11-07).
+ *
+ * The old `AMEND` strings explained that "Edit Bill" would cancel the bill and start a
+ * replacement. They are kept, because cancellation is still a real and separate action
+ * (Decision C) — these are the words for the thing that actually edits.
+ */
+export const EDIT_BILL = {
+  action: 'Edit Bill',
+  title: 'Edit this bill',
+  /** What the operator needs to trust the action, instead of a warning about losing it. */
+  whatIsKept:
+    'This changes the bill itself — it keeps the same bill reference, stays in the same ' +
+    'list, and keeps every payment already recorded against it. The previous version is ' +
+    'saved and can be viewed afterwards.',
+  mechanic: 'Mechanic Name',
+  vehicle: 'Vehicle Number',
+  notes: 'Notes',
+  itemsCaption: 'The items on this bill',
+  colItem: 'Item',
+  colQuantity: 'Qty',
+  colPrice: 'Price',
+  colRemove: 'Remove',
+  quantityLabel: (name: string) => `Quantity for ${name}`,
+  priceLabel: (name: string) => `Price for ${name}`,
+  removeLabel: (name: string) => `Remove ${name} from this bill`,
+  addItem: 'Add an item to this bill',
+  /** Labelled a preview: the server recomputes and its figure is the one that lands. */
+  previewTotal: 'New total (preview)',
+  alreadyPaid: 'Already paid',
+  paidRule: (paid: string) =>
+    `This bill has ${paid} paid against it. The new total cannot be lower than that — ` +
+    'to refund, use a return or a credit note instead.',
+  reason: 'Why is this bill being changed?',
+  reasonHint: 'Recorded with the previous version. At least 5 characters.',
+  needReason: 'Say why this bill is being changed (at least 5 characters).',
+  needLines:
+    'A bill needs at least one item. To void the whole bill, use the cancel action instead.',
+  badQuantity: (name: string) => `Enter a quantity greater than zero for ${name}.`,
+  badPrice: (name: string) => `Enter a valid price for ${name}.`,
+  save: 'Save the changes',
+  discard: 'Discard the changes',
+  savedTitle: 'The bill has been updated',
+  savedBody:
+    'The bill keeps its original reference and its payments. The previous version is ' +
+    'saved in its history.',
+
+  // --- the revision history ----------------------------------------------------
+  historyTitle: 'Previous versions of this bill',
+  historyNote:
+    'Every edit saves the bill exactly as it was. These records cannot be changed or removed.',
+  historyEmpty: 'This bill has not been edited.',
+  revisionLabel: (n: number) => `Version ${n}`,
+  wasTotal: 'Total was',
+  wasPaid: 'Paid was',
 } as const;
 
 export const CUSTOMERS = {

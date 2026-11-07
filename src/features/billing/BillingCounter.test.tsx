@@ -18,8 +18,10 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '@/api/errors';
 import { db } from '@/db/schema';
 import type { MoneyPolicy } from '@/lib/money';
+import { BILLING } from '@/lib/strings';
 import { useBillingStore } from './draftStore';
 import { BillingCounter } from './BillingCounter';
 
@@ -51,6 +53,8 @@ const mocks = vi.hoisted(() => ({
   draftUpsert: vi.fn(),
   customerSearch: vi.fn(),
   customerUpsert: vi.fn(),
+  mechanicSearch: vi.fn(),
+  mechanicEnsure: vi.fn(),
 }));
 
 vi.mock('@/api/endpoints', () => ({
@@ -60,12 +64,23 @@ vi.mock('@/api/endpoints', () => ({
   sync: { catalogDelta: vi.fn() },
   drafts: { upsert: mocks.draftUpsert },
   customers: { search: mocks.customerSearch, upsert: mocks.customerUpsert },
+  mechanics: { search: mocks.mechanicSearch, ensure: mocks.mechanicEnsure },
 }));
 
 beforeEach(async () => {
   mocks.search.mockResolvedValue({ items: [], page: {} });
   mocks.draftUpsert.mockResolvedValue({ version: 1 });
   mocks.customerSearch.mockResolvedValue({ items: [], page: {} });
+  mocks.mechanicSearch.mockResolvedValue({ items: [], page: {} });
+  mocks.mechanicEnsure.mockResolvedValue({
+    id: 'm1',
+    name: 'Ramesh',
+    phone: null,
+    is_active: true,
+    use_count: 1,
+    last_used_at: null,
+    created: true,
+  });
   mocks.customerUpsert.mockResolvedValue({
     customer: { id: 'c1' },
     created: true,
@@ -197,6 +212,87 @@ describe('permissions', () => {
     expect(await screen.findByLabelText('Price, row 1')).toBeDisabled();
     // The quantity is still editable — only the price is permissioned.
     expect(screen.getByLabelText('Quantity, row 1')).toBeEnabled();
+  });
+
+  it('offers audited oversell only after a stock refusal and sends the reason on retry', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    mocks.finalize.mockRejectedValueOnce(
+      new ApiError(409, {
+        error: {
+          code: 'INSUFFICIENT_STOCK',
+          message: 'There is not enough stock.',
+          details: {
+            shortfalls: [
+              {
+                product_id: 'p1',
+                product_name: 'AXEL PACKING',
+                requested: '1',
+                available: '0',
+              },
+            ],
+          },
+          request_id: 'test-request',
+          retryable: false,
+        },
+      }),
+    );
+    mocks.finalize.mockRejectedValueOnce(new Error('stop after the retry request'));
+    render(
+      <BillingCounter
+        policy={POLICY}
+        online
+        canBill
+        canOverridePrice
+        canOverrideOversell
+      />,
+    );
+    await addFirstProduct(user);
+
+    expect(
+      screen.queryByRole('checkbox', { name: BILLING.oversellApprovalLabel }),
+    ).toBeNull();
+    await user.click(screen.getByRole('button', { name: /Print Bill/ }));
+
+    const approval = await screen.findByRole('checkbox', {
+      name: BILLING.oversellApprovalLabel,
+    });
+    await user.click(approval);
+    const reason = screen.getByLabelText(BILLING.oversellReasonLabel);
+    await user.type(reason, 'Verified physically and approved by manager');
+    await user.click(screen.getByRole('button', { name: /Print Bill/ }));
+
+    await waitFor(() => expect(mocks.finalize).toHaveBeenCalledTimes(2));
+    const body = mocks.finalize.mock.calls[1]?.[0] as {
+      oversell_override?: { reason?: string };
+    };
+    expect(body.oversell_override?.reason).toBe(
+      'Verified physically and approved by manager',
+    );
+  });
+
+  it('does not offer the oversell approval to a user without that permission', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    mocks.finalize.mockRejectedValueOnce(
+      new ApiError(409, {
+        error: {
+          code: 'INSUFFICIENT_STOCK',
+          message: 'There is not enough stock.',
+          details: { shortfalls: [] },
+          request_id: 'test-request',
+          retryable: false,
+        },
+      }),
+    );
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    await addFirstProduct(user);
+    await user.click(screen.getByRole('button', { name: /Print Bill/ }));
+
+    await screen.findByText(/There is not enough stock/);
+    expect(
+      screen.queryByRole('checkbox', { name: BILLING.oversellApprovalLabel }),
+    ).toBeNull();
   });
 });
 
@@ -920,6 +1016,145 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     expect(body.customer?.customer_id).toBe('cust-1');
   });
 
+  it('the packing tick actually sticks, through the real draft store', async () => {
+    /**
+     * A **real-wiring** test, not a mocked one.
+     *
+     * `counterAdditions.test.tsx` asserts that `BillGrid` calls `onChangeLine` — which
+     * it does, and which told us nothing about whether the tick survives the round trip
+     * through the Zustand store and Dexie. A real browser found that it did not: the
+     * controlled checkbox snapped straight back to unchecked. This suite drives the real
+     * store, so it is the right place to pin it.
+     */
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    await addLine();
+
+    const tick = await screen.findByRole('checkbox', { name: /has been brought/ });
+    expect(tick).not.toBeChecked();
+
+    await user.click(tick);
+
+    await waitFor(() => expect(tick).toBeChecked());
+    // And it is on the persisted draft, not only in the DOM.
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.lines[0]?.collected).toBe(true),
+    );
+  });
+
+  // --- the optional advance on a credit bill (owner request, 2026-11-07) -------
+
+  /**
+   * An advance is a **real payment against the new invoice**, taken in the same
+   * transaction as the sale. The assertions that matter are that it does not become a
+   * discount, and that leaving it blank changes nothing about the existing request.
+   */
+  async function creditWithCustomer(
+    user: ReturnType<typeof userEvent.setup>,
+  ): Promise<void> {
+    mocks.customerSearch.mockResolvedValue({ items: [SAVED], page: {} });
+    mocks.draftUpsert.mockResolvedValue({ version: 1 });
+    mocks.finalize.mockRejectedValue(new Error('stop after the request'));
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    await addLine();
+    await user.type(screen.getByLabelText(/Customer Name/), 'rakesh');
+    await user.click(
+      await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
+    );
+    await screen.findByText('Rakesh Motors');
+  }
+
+  it('sends no payment at all when no advance is entered', async () => {
+    // Zero advance must behave exactly like the credit bill always did.
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
+
+    await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
+    const body = mocks.finalize.mock.calls[0]?.[0] as { payment?: unknown };
+    expect(body.payment ?? null).toBeNull();
+  });
+
+  it('sends the advance as a payment, and leaves the bill total alone', async () => {
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    await user.type(screen.getByLabelText(/Advance received/), '40');
+    await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
+
+    await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
+    const body = mocks.finalize.mock.calls[0]?.[0] as {
+      payment?: { method: string; amount: string };
+      lines?: { quantity: string; unit_price: string }[];
+      invoice_discount?: unknown;
+    };
+    expect(body.payment).toEqual({ method: 'cash', amount: '40.00' });
+    // Emphatically **not** a discount: the lines are untouched and no invoice discount
+    // is sent, so the server's total is unchanged and the advance only moves
+    // `amount_paid`.
+    expect(body.invoice_discount ?? null).toBeNull();
+    // The catalogue price the line was added at, unchanged by the advance.
+    expect(body.lines?.[0]?.unit_price).toBe('880.0000');
+  });
+
+  it('treats a zero or blank advance as no advance', async () => {
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    await user.type(screen.getByLabelText(/Advance received/), '0');
+    await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
+
+    await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
+    const body = mocks.finalize.mock.calls[0]?.[0] as { payment?: unknown };
+    // `{amount: "0"}` would be refused by the server ("must be greater than zero"), so
+    // the key is omitted entirely rather than sent as a zero.
+    expect(body.payment ?? null).toBeNull();
+  });
+
+  it('carries the chosen advance method', async () => {
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    await user.type(screen.getByLabelText(/Advance received/), '40');
+    await user.selectOptions(screen.getByLabelText('Paid by'), 'upi');
+    await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
+
+    await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
+    const body = mocks.finalize.mock.calls[0]?.[0] as { payment?: { method: string } };
+    expect(body.payment?.method).toBe('upi');
+  });
+
+  it('spells out the arithmetic so the advance is not read as a discount', async () => {
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    await user.type(screen.getByLabelText(/Advance received/), '40');
+
+    expect(await screen.findByText(/The bill total stays/)).toBeInTheDocument();
+  });
+
+  it('does not offer a payment method until there is an advance', async () => {
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    expect(screen.queryByLabelText('Paid by')).not.toBeInTheDocument();
+  });
+
+  it('leaves an over-the-total advance for the server to refuse', async () => {
+    // Clamping it client-side would hide a typo. The server owns the rule and says
+    // "That is more than the bill total".
+    const user = userEvent.setup();
+    await creditWithCustomer(user);
+
+    await user.type(screen.getByLabelText(/Advance received/), '99999');
+    await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
+
+    await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
+    const body = mocks.finalize.mock.calls[0]?.[0] as { payment?: { amount: string } };
+    expect(body.payment?.amount).toBe('99999.00');
+  });
+
   it('offers "save as a new customer" even when something matched (two people share a name)', async () => {
     // The action used to appear only on an empty result set. So a near-match blocked it
     // outright: a shop that already has a "Rakesh Motors" could not add a second,
@@ -1026,6 +1261,22 @@ describe('keyboard: the customer box (the reported defect)', () => {
     await user.click(field);
     await user.keyboard('rakesh');
     await screen.findByRole('listbox', {}, WAIT);
+
+    // Wait until the search for the **whole** term has landed.
+    //
+    // The box debounces ~250 ms and resets the highlight to 0 on every result set. Under
+    // full-suite load the six keystrokes take longer than that, so a search for an early
+    // prefix (`rak`) opens the list, a test moves the highlight, and *then* the search
+    // for `rakesh` lands and resets it — after which `Enter` or `Tab` picks the wrong
+    // match. It failed about one run in four, always on the match's name, while the
+    // behaviour was correct every time.
+    //
+    // Timers are cancelled on each keystroke, so once a search for the full term has
+    // been issued no later one can arrive. Waiting for that makes the highlight stable.
+    await waitFor(
+      () => expect(mocks.customerSearch).toHaveBeenLastCalledWith('rakesh'),
+      WAIT,
+    );
     return field;
   }
 
@@ -1119,6 +1370,13 @@ describe('keyboard: the customer box (the reported defect)', () => {
      * With ten matches open, `Tab` used to walk through ten buttons before reaching
      * Mechanic Name — and each one did nothing when pressed. Focus belongs in the box;
      * the arrows walk the list.
+     *
+     * `Tab` now **picks** the highlighted match as well (the owner asked for Enter, Tab
+     * and mouse), so the list is gone by the time focus settles. That is a stronger
+     * version of the original guarantee rather than a weaker one: there is no option
+     * left to focus at all. The assertion below therefore checks that nothing in the
+     * document is one of those option buttons, which holds whether the list closed or
+     * merely stayed unfocused.
      */
     const user = userEvent.setup();
     const field = await openList(user);
@@ -1126,10 +1384,74 @@ describe('keyboard: the customer box (the reported defect)', () => {
 
     await user.tab();
 
-    const options = screen.getAllByRole('option');
-    for (const option of options) {
+    for (const option of screen.queryAllByRole('option')) {
       expect(option.querySelector('button')).not.toBe(document.activeElement);
     }
+    // Focus left the search box rather than landing on the list container, which is the
+    // Chromium scrollable-container trap the `tabIndex={-1}` above exists to avoid.
+    expect(document.activeElement).not.toBe(screen.queryByRole('listbox'));
+  });
+
+  it('picks the highlighted match on Tab, and moves on', async () => {
+    // The owner asked for Enter, Tab and the mouse to all select a suggestion.
+    const user = userEvent.setup();
+    await openList(user);
+
+    await user.keyboard('{ArrowDown}');
+    // Waited for rather than assumed. Pressing Tab immediately after ArrowDown raced a
+    // re-render under full-suite load and picked whichever match the highlight happened
+    // to be on, which made this test fail about one run in five while the behaviour was
+    // correct every time.
+    await waitFor(() =>
+      expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true'),
+    );
+
+    await user.tab();
+
+    // Waited for the **committed** state, not for the name to appear.
+    //
+    // Attaching a customer replaces the search box with a name plus a `Change` button,
+    // and that swap is the only reliable signal that `attach` actually ran. Querying for
+    // the name alone also matches it while it is still only text in the search input, so
+    // under full-suite load this timed out at 4s against a component that was mid-swap.
+    expect(
+      await screen.findByRole('button', { name: BILLING.changeCustomer }, WAIT),
+    ).toBeInTheDocument();
+
+    // `MATCHES[1]` was highlighted, so it is the one that got attached.
+    expect(screen.getByText(MATCHES[1]!.name)).toBeInTheDocument();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('does not overwrite the picked customer\u2019s name with the typed text', async () => {
+    /**
+     * The defect behind a one-in-four "flake" on the Tab test.
+     *
+     * `Tab` picks the suggestion **and** moves focus, which fires the search box's
+     * `blur` \u2014 and `blur` persists the typed text as the bill's customer name. So the
+     * bill ended up with the right `customer_id` and the wrong name: `rakesh` instead of
+     * `Rakesh Transport`. `Enter` never showed it (it calls `preventDefault`, so no blur)
+     * and the mouse never showed it (`onMouseDown` is cancelled).
+     *
+     * Asserted on the **store**, not the DOM, because the store is what a credit bill
+     * and the printed snapshot are built from.
+     */
+    const user = userEvent.setup();
+    await openList(user);
+
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() =>
+      expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true'),
+    );
+    await user.tab();
+
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.header.customer_id).toBe('c-2'),
+    );
+    // The customer's own name, not the fragment that was typed to find them.
+    expect(useBillingStore.getState().drafts[0]?.header.customer_name).toBe(
+      'Rakesh Transport',
+    );
   });
 
   it('lets the keyboard reach and press "save as a new customer"', async () => {

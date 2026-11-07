@@ -25,10 +25,16 @@ import type {
 import { asText, humanizeKey } from '@/lib/format';
 import { formatForScreen, parseMoney } from '@/lib/money';
 import { getBusinessToday } from '@/api/session';
-import { AMEND, COMMON, CREDIT_BILLS } from '@/lib/strings';
+import { AMEND, COMMON, CREDIT_BILLS, EDIT_BILL } from '@/lib/strings';
 import { Busy, Button, Panel } from '@/components/primitives';
 import { PrintRoot } from '@/features/print/PrintRoot';
 import { AmendBill, type RebuildLine } from './AmendBill';
+import { EditBill, RevisionHistory } from './EditBill';
+import {
+  FullBillView,
+  InvoicePaymentHistory,
+  ReceiveInvoicePayment,
+} from './CreditInvoiceDetail';
 import type { MoneyPolicy } from '@/lib/money';
 
 function money(value: string | number): string {
@@ -59,6 +65,14 @@ function openingDay(): string {
 export interface DailyBillsProps {
   policy: MoneyPolicy;
   /**
+   * `billing.sale.edit`. Without it the Edit Bill action is not offered, because the
+   * server would refuse — the same rule the cancellation action follows.
+   *
+   * Deliberately independent of whether the bill was printed (F11): printing is an
+   * output operation, not a criterion for whether a bill may be corrected.
+   */
+  canEdit?: boolean | undefined;
+  /**
    * `billing.sale.cancel`. Without it the correction action is not offered, because
    * cancellation is the only mechanism behind it and the server would refuse.
    */
@@ -67,7 +81,12 @@ export interface DailyBillsProps {
   onRebuild?: ((lines: RebuildLine[]) => Promise<void>) | undefined;
 }
 
-export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsProps) {
+export function DailyBills({
+  policy,
+  canCancel = false,
+  canEdit = false,
+  onRebuild,
+}: DailyBillsProps) {
   const [day, setDay] = useState(openingDay);
   const [rows, setRows] = useState<InvoiceSummary[]>([]);
   const [summary, setSummary] = useState<DailySales | null>(null);
@@ -79,6 +98,8 @@ export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsP
   } | null>(null);
   /** The bill whose correction dialog is open. */
   const [amending, setAmending] = useState<InvoiceSummary | null>(null);
+  /** The bill open in the in-place editor (F7: straight in, no interstitial). */
+  const [editing, setEditing] = useState<InvoiceSummary | null>(null);
   /** Bumped after a cancellation, to refetch the list and the day's totals. */
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -226,6 +247,14 @@ export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsP
                   <Button variant="quiet" onClick={() => void reprint(row.id)}>
                     Reprint
                   </Button>
+                  {/* F7/F10/F11: one editor, reached from here and from Credit Bills,
+                      offered on persisted status and permission — never on whether the
+                      bill happens to have been printed. */}
+                  {canEdit && row.status !== 'cancelled' ? (
+                    <Button variant="quiet" onClick={() => setEditing(row)}>
+                      {EDIT_BILL.action}
+                    </Button>
+                  ) : null}
                   {/* Offered only where it can actually work: a cancelled bill cannot be
                       cancelled again, and without `billing.sale.cancel` the server would
                       refuse. A button that is sometimes a 403 is worse than no button. */}
@@ -247,6 +276,16 @@ export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsP
           onClose={() => setAmending(null)}
           onCancelled={() => setReloadToken((token) => token + 1)}
           onRebuild={onRebuild}
+        />
+      ) : null}
+
+      {editing ? (
+        <EditBill
+          summary={editing}
+          onClose={() => setEditing(null)}
+          // The row's total, status and the day's figures all change, and every one of
+          // them is the server's to compute.
+          onSaved={() => setReloadToken((token) => token + 1)}
         />
       ) : null}
 
@@ -292,7 +331,23 @@ export function DailyBills({ policy, canCancel = false, onRebuild }: DailyBillsP
  * `GET /invoices/{id}` already carried the items. The defect was one default on one
  * screen.
  */
-export function CreditBills() {
+export interface CreditBillsProps {
+  /** Needed by `PrintRoot` for a reprint. */
+  policy: MoneyPolicy;
+  /**
+   * `credit.payment.record`. Without it the Receive Payment action is not offered,
+   * because the server would refuse — the same rule the correction action follows.
+   */
+  canRecordPayment?: boolean | undefined;
+  /** `billing.sale.edit`. Gates the Edit Bill action inside the customer folder. */
+  canEdit?: boolean | undefined;
+}
+
+export function CreditBills({
+  policy,
+  canRecordPayment = false,
+  canEdit = false,
+}: CreditBillsProps) {
   const [customers, setCustomers] = useState<CreditCustomer[]>([]);
   const [overall, setOverall] = useState<Record<string, unknown> | null>(null);
   const [includeSettled, setIncludeSettled] = useState(true);
@@ -322,6 +377,25 @@ export function CreditBills() {
   // shared array with no guard, so opening customer B while A's request was in flight
   // could render A's bills under B's name. That is a wrong answer, not a slow one.
   const latestExpand = useRef(0);
+
+  /**
+   * Which panel is showing under the open invoice.
+   *
+   * One at a time, and `null` for none. A row that opened every panel at once would
+   * push the next bill off the screen on a laptop, which is what the counter runs.
+   */
+  const [panel, setPanel] = useState<'bill' | 'payment' | 'history' | 'versions' | null>(
+    null,
+  );
+  /** The bill open in the in-place editor, reached from inside the folder (F10). */
+  const [editing, setEditing] = useState<InvoiceSummary | null>(null);
+  /** Bumped after a payment, so the row, the folder totals and the history all refetch. */
+  const [paymentsToken, setPaymentsToken] = useState(0);
+  /** The bill being reprinted, and its payload. */
+  const [printing, setPrinting] = useState<{
+    payload: PrintPayload;
+    invoiceId: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -393,10 +467,15 @@ export function CreditBills() {
     if (openInvoiceRef.current === invoiceId) {
       openInvoiceRef.current = null;
       setOpenInvoice(null);
+      setPanel(null);
       return;
     }
     openInvoiceRef.current = invoiceId;
     setOpenInvoice(invoiceId);
+    // Opening a bill shows the bill. The owner's complaint was that opening an invoice
+    // gave a summary, so the full bill is the default panel rather than something to
+    // go and ask for.
+    setPanel('bill');
     setItemsError(null);
     if (fetchedItems.current.has(invoiceId)) return;
     fetchedItems.current.add(invoiceId);
@@ -417,6 +496,48 @@ export function CreditBills() {
       );
     } finally {
       setItemsBusy((current) => (current === invoiceId ? null : current));
+    }
+  }
+
+  /**
+   * Reprint an existing bill. **Creates nothing** — no sale, no number, no movement
+   * (FR-PRINT-004). Identical to Daily Bills' own reprint, deliberately: one bill has
+   * one printed form wherever it is reached from.
+   */
+  async function reprint(invoiceId: string): Promise<void> {
+    const payload = await invoices.printPayload(invoiceId, true);
+    setPrinting({ payload, invoiceId });
+  }
+
+  /** Refetch everything a payment changes: the folder aggregates and this bill's row. */
+  function afterPayment(customerId: string): void {
+    setPaymentsToken((token) => token + 1);
+    void refreshCustomerInvoices(customerId);
+  }
+
+  async function refreshCustomerInvoices(customerId: string): Promise<void> {
+    try {
+      const list = await invoices.list({
+        customer_id: customerId,
+        is_credit: true,
+        limit: 200,
+      });
+      setCustomerInvoices(list.items);
+      // The bill's own detail is now stale — `amount_paid` and `payment_status` moved.
+      // Dropped from the cache so reopening refetches rather than showing the old
+      // figures, which is how a screen comes to disagree with the ledger.
+      fetchedItems.current.clear();
+      setItemsByInvoice({});
+      const refreshed = await credit.customers({
+        include_settled: includeSettled,
+        limit: 200,
+      });
+      setCustomers(refreshed.items);
+      setOverall(refreshed.summary);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
     }
   }
 
@@ -572,79 +693,104 @@ export function CreditBills() {
                           {isOpen ? (
                             <tr>
                               <td colSpan={7} className="bg-white px-2 pb-3">
+                                {/*
+                                  The per-invoice actions (owner request, 2026-11-07).
+                                  Every one of them acts on **this** invoice id, and each
+                                  is offered only where it can actually work — Receive
+                                  Payment needs `credit.payment.record` and something
+                                  still outstanding, or the server would refuse.
+                                */}
+                                <div className="flex flex-wrap gap-2 py-2">
+                                  <Button
+                                    variant={panel === 'bill' ? 'primary' : 'quiet'}
+                                    onClick={() =>
+                                      setPanel(panel === 'bill' ? null : 'bill')
+                                    }
+                                  >
+                                    {panel === 'bill'
+                                      ? CREDIT_BILLS.hideFullBill
+                                      : CREDIT_BILLS.viewFullBill}
+                                  </Button>
+                                  {canRecordPayment &&
+                                  parseMoney(invoice.outstanding).greaterThan(0) &&
+                                  invoice.status !== 'cancelled' ? (
+                                    <Button
+                                      variant={panel === 'payment' ? 'primary' : 'quiet'}
+                                      onClick={() =>
+                                        setPanel(panel === 'payment' ? null : 'payment')
+                                      }
+                                    >
+                                      {CREDIT_BILLS.receivePayment}
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    variant={panel === 'history' ? 'primary' : 'quiet'}
+                                    onClick={() =>
+                                      setPanel(panel === 'history' ? null : 'history')
+                                    }
+                                  >
+                                    {CREDIT_BILLS.paymentHistory}
+                                  </Button>
+                                  <Button
+                                    variant={panel === 'versions' ? 'primary' : 'quiet'}
+                                    onClick={() =>
+                                      setPanel(panel === 'versions' ? null : 'versions')
+                                    }
+                                  >
+                                    {EDIT_BILL.historyTitle}
+                                  </Button>
+                                  {/* F10: the same editor Daily Bills opens. One
+                                      implementation, two entry points. */}
+                                  {canEdit && invoice.status !== 'cancelled' ? (
+                                    <Button
+                                      variant="quiet"
+                                      onClick={() => setEditing(invoice)}
+                                    >
+                                      {EDIT_BILL.action}
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    variant="quiet"
+                                    onClick={() => void reprint(invoice.id)}
+                                  >
+                                    {CREDIT_BILLS.reprint}
+                                  </Button>
+                                </div>
+
                                 {itemsBusy === invoice.id ? (
                                   <Busy label={COMMON.loading} />
                                 ) : null}
                                 {itemsError && !detail ? (
                                   <Panel tone="danger">{itemsError}</Panel>
                                 ) : null}
-                                {detail ? (
-                                  <table className="w-full border-collapse text-sm">
-                                    <caption className="px-2 py-1 text-left text-xs text-slate-500">
-                                      {CREDIT_BILLS.whatWasBought}
-                                    </caption>
-                                    <thead>
-                                      <tr className="border-b border-slate-200 text-left">
-                                        <th scope="col" className="px-2 py-1">
-                                          Item
-                                        </th>
-                                        <th scope="col" className="px-2 py-1">
-                                          Code
-                                        </th>
-                                        <th scope="col" className="px-2 py-1 text-right">
-                                          Qty
-                                        </th>
-                                        <th scope="col" className="px-2 py-1 text-right">
-                                          Unit price
-                                        </th>
-                                        <th scope="col" className="px-2 py-1 text-right">
-                                          Line total
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {detail.items.map((item) => (
-                                        <tr
-                                          key={item.id}
-                                          className="border-b border-slate-100"
-                                        >
-                                          {/* The snapshots, not the catalogue: this is
-                                              what the bill said when it was issued, and a
-                                              product renamed since must not rewrite
-                                              history (FR-SALE-012). */}
-                                          <td className="px-2 py-1">
-                                            {item.product_name_snapshot}
-                                          </td>
-                                          <td className="px-2 py-1 text-slate-600">
-                                            {item.sku_snapshot ?? '—'}
-                                          </td>
-                                          <td className="px-2 py-1 text-right">
-                                            {item.quantity}
-                                            <span className="ml-1 text-xs text-slate-500">
-                                              {item.unit_code_snapshot}
-                                            </span>
-                                          </td>
-                                          <td className="px-2 py-1 text-right">
-                                            {money(item.unit_price)}
-                                          </td>
-                                          <td className="px-2 py-1 text-right">
-                                            {money(item.line_total)}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                      <tr>
-                                        <td
-                                          colSpan={4}
-                                          className="px-2 py-1 text-right font-medium"
-                                        >
-                                          {CREDIT_BILLS.billTotal}
-                                        </td>
-                                        <td className="px-2 py-1 text-right font-semibold">
-                                          {money(detail.total)}
-                                        </td>
-                                      </tr>
-                                    </tbody>
-                                  </table>
+
+                                {/* The whole bill as issued, not a summary of it — which
+                                    was the owner's complaint about this screen. */}
+                                {panel === 'bill' && detail ? (
+                                  <FullBillView invoice={detail} />
+                                ) : null}
+
+                                {panel === 'payment' ? (
+                                  <ReceiveInvoicePayment
+                                    invoiceId={invoice.id}
+                                    customerId={entry.customer.id}
+                                    outstanding={invoice.outstanding}
+                                    onRecorded={() => afterPayment(entry.customer.id)}
+                                  />
+                                ) : null}
+
+                                {panel === 'history' ? (
+                                  <InvoicePaymentHistory
+                                    invoiceId={invoice.id}
+                                    reloadToken={paymentsToken}
+                                  />
+                                ) : null}
+
+                                {panel === 'versions' ? (
+                                  <RevisionHistory
+                                    invoiceId={invoice.id}
+                                    reloadToken={paymentsToken}
+                                  />
                                 ) : null}
                               </td>
                             </tr>
@@ -659,6 +805,28 @@ export function CreditBills() {
           </li>
         ))}
       </ul>
+
+      {editing ? (
+        <EditBill
+          summary={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            // The folder's aggregates, the row's total and the bill's own detail all
+            // change — and all of them are the server's to recompute.
+            setPaymentsToken((token) => token + 1);
+            void refreshCustomerInvoices(expanded ?? '');
+          }}
+        />
+      ) : null}
+
+      {/* The same print root Daily Bills uses, so one bill has one printed form
+          wherever it is reached from. A reprint creates nothing (FR-PRINT-004). */}
+      <PrintRoot
+        payload={printing?.payload ?? null}
+        policy={policy}
+        invoiceId={printing?.invoiceId ?? null}
+        onAfterPrint={() => setPrinting(null)}
+      />
     </section>
   );
 }

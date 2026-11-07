@@ -167,6 +167,10 @@ export async function finalizeSale(args: FinalizeArgs): Promise<FinalizeOutcome>
       discount_percent: line.discount_percent,
     })),
     payment_amount: args.payment?.amount ?? null,
+    // The reason changes the authority and stock outcome of a finalisation. It must be
+    // part of the persisted intent fingerprint so an unknown retry cannot silently
+    // replay a different approval.
+    oversell_reason: args.oversellReason?.trim() || null,
   });
   const claim = await pending.claim(draft.id, hash);
 

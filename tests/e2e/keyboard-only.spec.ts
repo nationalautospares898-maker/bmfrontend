@@ -32,6 +32,14 @@ const PROXIED = Boolean(process.env.BM_DEV_API_PROXY);
 const USERNAME = process.env.BM_E2E_USERNAME ?? 'e2e-owner';
 const PASSWORD = process.env.BM_E2E_PASSWORD ?? 'e2e-only-not-a-real-password-01';
 
+function uniqueCustomerName(): string {
+  // Keep no shared trigrams with earlier fixture customers, so fuzzy search cannot
+  // silently select a customer left by another browser test run.
+  return Array.from({ length: 14 }, () =>
+    String.fromCharCode(97 + Math.floor(Math.random() * 26)),
+  ).join('');
+}
+
 test.skip(
   !API_URL && !PROXIED,
   'Needs a real backend: set BM_DEV_API_PROXY (preferred — works with an isolated ' +
@@ -280,6 +288,8 @@ test.describe('the billing workflow, keyboard only', () => {
     await page.keyboard.press('Shift+Tab');
     expect((await focused(page)).label).toMatch(/^Remove/);
     await page.keyboard.press('Shift+Tab');
+    await expect(page.getByLabel(/has been brought to the counter/)).toBeFocused(); // the packing tick sits after Price in the tab order
+    await page.keyboard.press('Shift+Tab');
     await expect(page.getByLabel('Price, row 1', { exact: true })).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(page.getByLabel('Quantity, row 1', { exact: true })).toBeFocused();
@@ -445,7 +455,7 @@ test.describe('the billing workflow, keyboard only', () => {
     page,
   }) => {
     await signIn(page);
-    const name = `Fresh ${Date.now().toString(36)}`;
+    const name = uniqueCustomerName();
 
     await tabUntil(page, /Customer Name/);
     await page.keyboard.type(name);
@@ -563,25 +573,37 @@ test.describe('actions and dialogs, keyboard only', () => {
     await expect(page.getByLabel('Item, row 1', { exact: true })).toBeVisible();
 
     await tabUntil(page, /Customer Name/);
-    // A name no saved customer can match, so no suggestion list opens and `Enter` means
-    // "next field". With a list open `Enter` would pick a customer instead — correct
-    // behaviour, and the reason this name is stamped rather than a friendly constant.
-    const walkIn = `Printed ${Date.now().toString(36)}`;
+    // A unique customer name prevents autocomplete from picking somebody else's record.
+    // Moving on from the field commits the typed name into the bill header.
+    const walkIn = uniqueCustomerName();
     await page.keyboard.type(walkIn);
-    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: /Save as a new customer/ }),
+    ).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press('Tab');
+    await expect(
+      page.getByRole('button', { name: /Save as a new customer/ }),
+    ).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByLabel(/Mechanic Name/)).toBeFocused();
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Enter'); // through Vehicle Number to the grid
+    // Mechanic autocomplete has recently used suggestions, so Tab through it rather than
+    // Enter (which correctly selects a suggestion when the list is open).
+    await tabUntil(page, /Item, row 1/);
 
     await expect(page.getByLabel('Item, row 1', { exact: true })).toBeFocused();
     await page.keyboard.type(parts[0]!);
     await expect(page.getByRole('listbox')).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowUp'); // item selection hands focus to the next row
+    await page.keyboard.press('Tab'); // Item → Quantity for the selected part
+    await page.keyboard.press('Control+a');
     await page.keyboard.type('2');
 
     await tabUntil(page, /Print Bill/, 60);
     await page.keyboard.press('Enter');
+    await expect(page.getByText('Bill completed')).toBeVisible({
+      timeout: 30_000,
+    });
 
     await page.waitForFunction(
       () => ((window as unknown as { __printed?: string[] }).__printed ?? []).length > 0,

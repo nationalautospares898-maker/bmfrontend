@@ -428,6 +428,8 @@ visibly disabled with the reason stated.
 | Idempotency, retries, errors, sync | `docs/API-INTEGRATION.md` |
 | Test layers and structural rules | `docs/TESTING-STRATEGY.md` |
 | Why a choice was made | `docs/DECISIONS.md` |
+| **★ Vercel variables, project settings, `vercel.json`** | `docs/VERCEL-ENVIRONMENT-VARIABLES.md` |
+| **Deploying the whole system (Neon + Railway + Vercel)** | `../bmbackend/docs/PRODUCTION-DEPLOYMENT-GUIDE.md` |
 | **Business rules** | `../bmbackend/docs/PRD.md` *(authoritative)* |
 | **Unresolved business decisions** | `../bmbackend/docs/OWNER-DECISIONS.md` *(authoritative)* |
 | **The API contract** | `../bmbackend/docs/API-SPECIFICATION.md` *(authoritative)* |

@@ -478,3 +478,11 @@ is newly open ([OD-26](../../bmbackend/docs/OWNER-DECISIONS.md#od-26)).
 `docs/API-INTEGRATION.md` · `docs/TESTING-STRATEGY.md` ·
 **`../../bmbackend/docs/DECISIONS.md`** *(ADR-001…022, and the shared conventions for this file)* ·
 `../../bmbackend/docs/TRACEABILITY.md` *(the single traceability matrix)*
+
+### Shared workflow implementation note — 2026-11-07
+
+The add-from-bill dialog creates only a catalogue product; it never claims that stock was received.
+The ordinary finalisation is attempted first. If the server returns `INSUFFICIENT_STOCK`, an actor
+with the server-granted override permission can explicitly approve a retry and provide the audited
+reason. Permission is checked again by the API, and the workflow cannot finalize offline. See
+`../../bmbackend/docs/DECISIONS.md` and `FR-SALE-008` / `FR-INV-005` for the shared contract.

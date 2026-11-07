@@ -31,9 +31,8 @@ export const DEFAULT_STALE_MINUTES = 60;
 /**
  * A stable fingerprint of what is being billed.
  *
- * Covers only what makes the sale *different*: the lines, the sale type, the customer
- * and the payment. A label change or a note is not a new intent, so it must not mint a
- * new key and risk a second invoice for the same goods.
+ * Covers the lines, sale type, customer, payment and any oversell authorisation. A label
+ * change or a note is not a new intent, while a different stock exception reason is.
  *
  * This is a **local** change-detector, not the server's canonical fingerprint — the
  * server computes its own from the request body (`§5.2.3`) and is the authority on
@@ -49,11 +48,13 @@ export function payloadHash(input: {
     discount_percent: string;
   }>;
   payment_amount: string | null;
+  oversell_reason?: string | null;
 }): string {
   const canonical = [
     input.sale_type,
     input.customer_id ?? '',
     input.payment_amount ?? '',
+    input.oversell_reason?.trim() ?? '',
     ...input.lines
       .map((line) =>
         [line.product_id, line.quantity, line.unit_price, line.discount_percent].join(

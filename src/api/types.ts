@@ -71,6 +71,35 @@ export type PaymentHistoryList = Schemas['PaymentHistoryListOut'];
 export type PaymentHistoryEntry = Schemas['PaymentHistoryOut'];
 export type CreditCustomer = CreditCustomersResponse['items'][number];
 
+// --- editing a finalised invoice (owner Decision A, 2026-11-07) ---------------
+
+export type AmendRequest = Schemas['AmendRequest'];
+/**
+ * `POST /invoices/{id}:amend`.
+ *
+ * Carries **no new invoice id or reference**, because an ordinary edit does not create
+ * one — that is the whole point of F9. `version` is the editor's next
+ * optimistic-concurrency token.
+ */
+export type AmendResponse = Schemas['AmendOut'];
+export type InvoiceRevisionsResponse = Schemas['InvoiceRevisionsOut'];
+export type InvoiceRevision = Schemas['InvoiceRevisionOut'];
+
+// --- mechanics ----------------------------------------------------------------
+
+/**
+ * A mechanic suggestion.
+ *
+ * Reference data, not a financial record: the bill's own `mechanic_name` snapshot stays
+ * authoritative for what a *past* bill says, so nothing here can rewrite one. See the
+ * backend's `models/mechanics.py` for why that separation is what makes this list safe
+ * to correct at all.
+ */
+export type Mechanic = Schemas['MechanicSuggestionOut'];
+export type MechanicListResponse = Schemas['MechanicListOut'];
+/** `POST /mechanics` — carries `created`, which is `false` when the name already existed. */
+export type MechanicEnsureResponse = Schemas['MechanicOut'];
+
 // --- customers ----------------------------------------------------------------
 
 export type CustomerUpsertRequest = Schemas['CustomerUpsertRequest'];

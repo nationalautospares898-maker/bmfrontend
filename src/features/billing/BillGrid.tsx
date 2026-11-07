@@ -81,6 +81,9 @@ export interface BillGridProps {
   online: boolean;
   /** `billing.price.override`. Without it the Price cell is read-only, not hidden. */
   canOverridePrice: boolean;
+  /** `catalog.write`. Gates the Item cell's "Add New Item to Stock" affordance. */
+  canCreateProduct: boolean;
+  /** `catalog.write` + `inventory.adjust`. Lets a new item declare its opening stock. */
   onAddProduct: (hit: SearchHit, rowIndex: number) => void;
   onChangeLine: (lineId: string, patch: Partial<LocalDraftLine>) => void;
   onRemoveLine: (lineId: string) => void;
@@ -91,6 +94,7 @@ export function BillGrid({
   readOnly,
   online,
   canOverridePrice,
+  canCreateProduct,
   onAddProduct,
   onChangeLine,
   onRemoveLine,
@@ -260,6 +264,16 @@ export function BillGrid({
               >
                 {BILLING.columnTotal}
               </th>
+              {/* The packing tick. Placed after Total so the three typed columns —
+                  Item, Qty, Price — stay contiguous and the type-flow picks up nothing
+                  new between them. */}
+              <th
+                scope="col"
+                title={BILLING.columnCollectedTitle}
+                className="border border-nas-navy px-1 py-2 text-center font-semibold"
+              >
+                {BILLING.columnCollected}
+              </th>
               <th scope="col" className="border border-nas-navy px-1 py-2">
                 <span className="sr-only">{BILLING.columnRemove}</span>
               </th>
@@ -284,6 +298,7 @@ export function BillGrid({
                       line={line}
                       online={online}
                       readOnly={readOnly}
+                      canCreateProduct={canCreateProduct}
                       onPick={(hit) => onAddProduct(hit, row)}
                       onFocusCell={() => setFocus({ row, column: 'item' })}
                       onMove={(direction) =>
@@ -361,6 +376,21 @@ export function BillGrid({
                   </td>
 
                   <td className="border border-nas-navy p-0 text-center">
+                    {line ? (
+                      <input
+                        type="checkbox"
+                        checked={line.collected === true}
+                        disabled={readOnly}
+                        aria-label={BILLING.collectedLabel(line.product_name)}
+                        className="h-4 w-4 align-middle"
+                        onChange={(event) =>
+                          onChangeLine(line.id, { collected: event.target.checked })
+                        }
+                      />
+                    ) : null}
+                  </td>
+
+                  <td className="border border-nas-navy p-0 text-center">
                     {line && !readOnly ? (
                       <button
                         type="button"
@@ -384,6 +414,10 @@ export function BillGrid({
           "empty table with no guidance" it was written against. */}
       {lines.length === 0 ? (
         <p className="mt-2 text-sm text-slate-600">{BILLING.emptyHint}</p>
+      ) : null}
+      {/* Said once, under the grid: the tick is for the packer, not for the bill. */}
+      {lines.length > 0 ? (
+        <p className="mt-1 text-xs text-slate-500">{BILLING.collectedHint}</p>
       ) : null}
       {Object.values(quantityErrors).map((message) => (
         <p key={message} role="alert" className="mt-1 text-xs font-medium text-red-700">

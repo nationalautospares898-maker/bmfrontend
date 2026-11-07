@@ -20,10 +20,26 @@
  * * **No retry while someone is typing** (§7) — a stale result three keystrokes later is
  *   worse than a Retry they can press.
  *
- * A cell **never creates a product**. An unknown name simply finds nothing: the catalogue
- * is the catalogue, and a cashier inventing a part mid-bill is how a shop ends up with
- * four spellings of one clutch plate. Stock is added on the Stock screen, by someone
- * holding `catalog.write`.
+ * ## Creating a missing part from the cell
+ *
+ * This cell used to refuse, on the grounds that "a cashier inventing a part mid-bill is
+ * how a shop ends up with four spellings of one clutch plate". The owner asked for it
+ * anyway (2026-11-07): when a part is not in the catalogue, the counter should not have
+ * to abandon a half-written bill to go and add it.
+ *
+ * The original concern was real, so it is **mitigated rather than dismissed**:
+ *
+ * * The affordance appears **only when the search returned nothing**. The catalogue
+ *   search has a trigram tier, so "nothing" already means no exact, prefix, alias or
+ *   fuzzy match — the near-duplicate case cannot reach it.
+ * * It appears **only with `catalog.write`**, the permission that already governs
+ *   creating a product. A cashier without it sees no dead button, following the same
+ *   rule the cancel action does: a control that is sometimes a 403 is worse than none.
+ * * It creates a **catalogue entry only**. No stock movement is written, because none
+ *   happened — see `NewItemDialog`.
+ *
+ * Physical arrivals are still recorded on the Stock screen, which remains the only place
+ * that writes a receipt movement.
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
@@ -34,6 +50,7 @@ import * as catalogCache from '@/db/catalogCache';
 import type { Product } from '@/api/types';
 import type { LocalDraftLine } from '@/db/schema';
 import { BILLING } from '@/lib/strings';
+import { NewItemDialog } from './NewItemDialog';
 
 const DEBOUNCE_MS = 120;
 
@@ -72,6 +89,15 @@ export interface ItemCellProps {
   line: LocalDraftLine | undefined;
   online: boolean;
   readOnly: boolean;
+  /**
+   * `catalog.write`. Without it the "Add New Item to Stock" affordance is not offered,
+   * because the server would refuse the creation.
+   */
+  canCreateProduct: boolean;
+  /**
+   * `catalog.write` + `inventory.adjust`. Lets the create dialog also ask how many are
+   * on the shelf, so the part can be sold immediately — see `NewItemDialog`.
+   */
   onPick: (hit: SearchHit) => void;
   onFocusCell: () => void;
   onMove: (direction: 'next' | 'previous' | 'up' | 'down') => void;
@@ -82,6 +108,7 @@ export function ItemCell({
   line,
   online,
   readOnly,
+  canCreateProduct,
   onPick,
   onFocusCell,
   onMove,
@@ -92,6 +119,16 @@ export function ItemCell({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usedCache, setUsedCache] = useState(false);
+  /** Open when the cashier has asked to create the part they just failed to find. */
+  const [creating, setCreating] = useState(false);
+  /**
+   * A search has **completed** and returned nothing.
+   *
+   * Distinct from `hits.length === 0`, which is also true before the first search and
+   * while one is in flight — offering "Add New Item to Stock" in either of those states
+   * would dangle it under the cell while results were still on their way.
+   */
+  const [searchedEmpty, setSearchedEmpty] = useState(false);
 
   const inFlight = useRef<AbortController | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,6 +141,7 @@ export function ItemCell({
         setHits([]);
         setOpen(false);
         setUsedCache(false);
+        setSearchedEmpty(false);
         return;
       }
 
@@ -127,6 +165,10 @@ export function ItemCell({
         setOpen(true);
         setUsedCache(true);
         setError(null);
+        // Never offered from the cache: "not in the copy saved on this computer" is not
+        // evidence that the catalogue lacks the part, and creating a duplicate of
+        // something that exists on the server is exactly the wrong outcome.
+        setSearchedEmpty(false);
         return;
       }
 
@@ -139,6 +181,7 @@ export function ItemCell({
         setOpen(true);
         setUsedCache(false);
         setError(null);
+        setSearchedEmpty(result.items.length === 0);
       } catch (caught) {
         if (controller.signal.aborted) return;
         setError(
@@ -146,6 +189,9 @@ export function ItemCell({
             ? describeError(caught.code).message
             : 'Search is unavailable. Keep typing or try again.',
         );
+        // A failed search is not an empty catalogue. Offering to create here would
+        // invite a duplicate of a part the server knows about perfectly well.
+        setSearchedEmpty(false);
       }
     },
     [online],
@@ -170,6 +216,16 @@ export function ItemCell({
       // the component tests run in) does not implement `scrollIntoView` at all.
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [highlighted, listId]);
+
+  /**
+   * Whether "Add New Item to Stock" should be on offer right now.
+   *
+   * Every condition is load-bearing: a completed search (not one in flight), that found
+   * nothing, from the **server** (not the offline cache), by someone who may create a
+   * product, for a name they have actually typed.
+   */
+  const offerCreate =
+    canCreateProduct && online && searchedEmpty && !usedCache && query.trim() !== '';
 
   function pick(hit: SearchHit): void {
     onPick(hit);
@@ -210,6 +266,15 @@ export function ItemCell({
         setOpen(false);
         return;
       }
+    }
+
+    // Nothing was found and this user may create it, so `Enter` means "create the part
+    // I just typed" rather than "move down a row". That keeps the keyboard-only path
+    // whole: type the name, press Enter, fill two fields, carry on billing.
+    if (event.key === 'Enter' && offerCreate) {
+      event.preventDefault();
+      setCreating(true);
+      return;
     }
 
     // Grid movement. `Space` is absent on purpose: a part is called `AXEL PACKING`, and a
@@ -378,6 +443,29 @@ export function ItemCell({
         </ul>
       ) : null}
 
+      {open && offerCreate ? (
+        <div className="absolute left-0 top-full z-30 w-[26rem] max-w-[90vw] rounded border border-nas-navy bg-white p-2 shadow-lg">
+          <p className="px-1 pb-2 text-xs text-slate-600">
+            {BILLING.addMissingItemNoMatch(query.trim())}
+          </p>
+          <button
+            type="button"
+            /**
+             * **Not a tab stop**, for the same reason the result options are not: focus
+             * belongs in the cell, and `Enter` already reaches this (see `onKeyDown`).
+             * A stop here would sit between the cell and `Quantity` on every bill where
+             * a search came back empty.
+             */
+            tabIndex={-1}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setCreating(true)}
+            className="w-full rounded bg-nas-navy px-3 py-2 text-left text-sm font-medium text-white"
+          >
+            {BILLING.addMissingItem}
+          </button>
+        </div>
+      ) : null}
+
       {error ? (
         <p
           role="alert"
@@ -385,6 +473,26 @@ export function ItemCell({
         >
           {error}
         </p>
+      ) : null}
+
+      {creating ? (
+        <NewItemDialog
+          initialName={query.trim()}
+          onCancel={() => {
+            setCreating(false);
+            // Focus back where it was, or the next `Tab` restarts from the top of the
+            // document — the same hazard `CustomerPicker` documents.
+            document.querySelector<HTMLElement>(`[data-cell="${row}-item"]`)?.focus();
+          }}
+          onCreated={(product) => {
+            setCreating(false);
+            // Straight onto the current row, so the bill continues rather than
+            // restarting. `pick` clears the cell and the caller advances focus to
+            // Quantity, exactly as choosing an existing part does — there is
+            // deliberately no second "now find it again" step.
+            pick(fromProduct(product));
+          }}
+        />
       ) : null}
     </div>
   );

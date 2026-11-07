@@ -1,9 +1,20 @@
 # --- Secrets and environment -------------------------------------------------
 # Anything VITE_* is compiled into a publicly readable bundle. Never put a
-# secret here. Only .env.example, with placeholders, is committed.
+# secret here. Only the `*.example` templates, with placeholders, are committed.
+#
+# `.env.production` is NOT used by the Vercel deployment — Vercel supplies
+# `VITE_API_BASE_URL` from its own project settings at build time, and an inline
+# `VITE_`-prefixed variable takes precedence over any `.env*` file. The template exists
+# so the value is recorded somewhere reviewable, and a local
+# `vite build --mode production` reproduces the Vercel bundle exactly.
+#
+# Negations are per-file: git cannot re-include through a `!.env.*.example` glob
+# reliably, and `.env.production.example` was silently ignored by the bare `.env.*` rule
+# until `git check-ignore -v` was run against it.
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 *.p12

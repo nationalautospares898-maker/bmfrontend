@@ -55,7 +55,12 @@ import type {
 import type { LocalDraft, LocalDraftLine } from '@/db/schema';
 import { asText } from '@/lib/format';
 import { uuidv7 } from '@/lib/ids';
-import { formatForScreen, parseMoney, type MoneyPolicy } from '@/lib/money';
+import {
+  formatForScreen,
+  parseMoney,
+  tryParseMoney,
+  type MoneyPolicy,
+} from '@/lib/money';
 import {
   ACTIONS,
   ACTION_SHORTCUTS,
@@ -80,6 +85,7 @@ import {
 } from './finalize';
 import { canFinalize, draftTotal, useBillingStore } from './draftStore';
 import { BillGrid } from './BillGrid';
+import { MechanicPicker } from './MechanicPicker';
 import type { SearchHit } from './ItemCell';
 
 export interface BillingCounterProps {
@@ -89,6 +95,23 @@ export interface BillingCounterProps {
   canBill: boolean;
   /** `billing.price.override`. Without it the Price cell is read-only, never hidden. */
   canOverridePrice: boolean;
+  /** `inventory.oversell.override`. Cashiers do not receive it by default. */
+  canOverrideOversell?: boolean | undefined;
+  /**
+   * `catalog.write`. Gates "Add New Item to Stock" in the Item cell.
+   *
+   * Offered rather than hidden-and-failing: the server refuses `POST /products` without
+   * it, and a button that is sometimes a 403 is worse than no button — the same rule the
+   * correction action follows in Daily Bills.
+   */
+  canCreateProduct?: boolean | undefined;
+  /**
+   * `catalog.write` **and** `inventory.adjust` — the pair the Stock screen needs.
+   *
+   * With them, "Add New Item to Stock" can also record how many are on the shelf, which
+   * is what lets a newly added part be sold on the same bill. Without them the dialog
+   * creates the catalogue entry only and says who to ask.
+   */
   /**
    * The shop's own heading, **as configured**.
    *
@@ -122,6 +145,8 @@ export function BillingCounter({
   online,
   canBill,
   canOverridePrice,
+  canOverrideOversell = false,
+  canCreateProduct = false,
   business,
   businessDate,
   onSynced,
@@ -131,14 +156,51 @@ export function BillingCounter({
   const active = store.drafts.find((draft) => draft.id === store.activeDraftId);
 
   const [busy, setBusy] = useState(false);
+  const [oversellApproved, setOversellApproved] = useState(false);
+  const [oversellReason, setOversellReason] = useState('');
   const [conflict, setConflict] = useState<Conflict>(null);
   const [completed, setCompleted] = useState<FinalizeResponse | null>(null);
   const [printPayload, setPrintPayload] = useState<PrintPayload | null>(null);
   const [slip, setSlip] = useState<CounterSlipData | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  // An exception approval belongs to one bill only. Never carry it across bill tabs.
+  useEffect(() => {
+    setOversellApproved(false);
+    setOversellReason('');
+  }, [active?.id]);
+  /**
+   * The optional advance taken when a credit bill is created (owner request,
+   * 2026-11-07).
+   *
+   * A **string**, like every amount in this application (ADR-013), and empty by
+   * default — an empty or zero advance makes `Credit Bill` behave exactly as it did
+   * before, with no `payment` in the request at all.
+   *
+   * It does **not** reduce the bill. The total comes from the lines; this becomes a real
+   * payment against the invoice the same transaction creates, so the outstanding figure
+   * the server derives is total minus advance (FR-PAY-003's allocation, ADR-022's
+   * derivation). ₹10,000 with ₹2,000 advance is a ₹10,000 bill showing ₹8,000 due, not
+   * an ₹8,000 bill.
+   */
+  const [advance, setAdvance] = useState('');
+  const [advanceMethod, setAdvanceMethod] = useState('cash');
   const [closing, setClosing] = useState<LocalDraft | null>(null);
 
   const total = draftTotal(active);
+  /**
+   * The advance as a number, or `null` when there is none to send.
+   *
+   * `null` for empty, unparseable, zero or negative — all of which mean "no advance"
+   * rather than "an advance of nothing", and the request must then omit `payment`
+   * entirely. An advance **above** the total is left non-null on purpose so the server
+   * refuses it with its own message ("That is more than the bill total"), which is the
+   * authoritative check; a client that silently clamped it would hide a typo.
+   */
+  const advanceAmount = (() => {
+    const parsed = tryParseMoney(advance);
+    if (parsed === null || !parsed.greaterThan(0)) return null;
+    return parsed;
+  })();
   const ready = canFinalize(active) && canBill;
 
   /**
@@ -219,6 +281,8 @@ export function BillingCounter({
   const runFinalize = useCallback(
     async (saleType: 'cash' | 'credit') => {
       if (!active || busy) return;
+      if (oversellApproved && (!canOverrideOversell || oversellReason.trim().length < 10))
+        return;
       setConflict(null);
 
       // Credit needs a persisted customer, not a typed name (FR-CREDIT-009). Checked
@@ -234,6 +298,9 @@ export function BillingCounter({
         return;
       }
 
+      // An authorised oversell is a deliberate, reasoned exception. The checkbox is
+      // offered only after the server has returned a stock shortfall; it cannot turn a
+      // stale catalogue figure into an automatic approval.
       setBusy(true);
       let outcome: FinalizeOutcome;
       try {
@@ -247,9 +314,29 @@ export function BillingCounter({
           saleType,
           policy,
           online,
+          ...(canOverrideOversell && oversellApproved
+            ? { oversellReason: oversellReason.trim() }
+            : {}),
+          // Cash must cover the total. Credit takes the **optional** advance, and only
+          // when one was actually entered — `payment: null` is what the server expects
+          // for a credit bill with nothing paid up front, and sending
+          // `{amount: "0"}` would be refused ("must be greater than zero").
+          //
+          // One request, one transaction, one idempotency key: the sale and the advance
+          // are committed together by `record_sale_payment`, which participates in the
+          // finalisation transaction and never commits on its own. So a retry cannot
+          // produce a sale without its advance, an advance without its sale, or two of
+          // either.
           ...(saleType === 'cash'
             ? { payment: { method: 'cash', amount: total.toFixed(policy.amount_scale) } }
-            : {}),
+            : advanceAmount !== null
+              ? {
+                  payment: {
+                    method: advanceMethod,
+                    amount: advanceAmount.toFixed(policy.amount_scale),
+                  },
+                }
+              : {}),
         });
       } catch (error) {
         setBusy(false);
@@ -312,7 +399,20 @@ export function BillingCounter({
           return;
       }
     },
-    [active, busy, online, policy, store, total, onSynced],
+    [
+      active,
+      busy,
+      online,
+      policy,
+      store,
+      total,
+      onSynced,
+      advanceAmount,
+      advanceMethod,
+      canOverrideOversell,
+      oversellApproved,
+      oversellReason,
+    ],
   );
 
   const saveDraft = useCallback(async () => {
@@ -429,6 +529,7 @@ export function BillingCounter({
               readOnly={active.status === 'finalized' || busy}
               online={online}
               canOverridePrice={canOverridePrice}
+              canCreateProduct={canCreateProduct}
               onAddProduct={(hit, row) => void addProduct(hit, row)}
               onChangeLine={(lineId, patch) =>
                 void store.updateLine(active.id, lineId, patch)
@@ -462,10 +563,67 @@ export function BillingCounter({
               draft={active}
               policy={policy}
               online={online}
+              canOverrideOversell={canOverrideOversell}
+              oversellApproved={oversellApproved}
+              oversellReason={oversellReason}
+              onOversellApprovedChange={(approved) => {
+                setOversellApproved(approved);
+                if (!approved) setOversellReason('');
+              }}
+              onOversellReasonChange={setOversellReason}
               onPrintSlip={setSlip}
               onOpenDailyBills={onOpenDailyBills}
             />
           ) : null}
+
+          {/*
+            The optional advance on a credit bill (owner request, 2026-11-07).
+            Placed above the actions, because it has to be filled *before* pressing
+            `Credit Bill` — the sale and the advance are one transaction and there is
+            deliberately no "add the advance afterwards" step here. Afterwards is what
+            Receive Payment in Credit Bills is for.
+
+            Not a fifth action, and not a dialog: OD-14 settles the four primary actions
+            and says there is no fifth. This is a field.
+          */}
+          <div className="flex flex-wrap items-end gap-3 rounded border border-slate-300 p-3">
+            <Field
+              label={ACTIONS.advanceLabel}
+              hint={ACTIONS.advanceHint}
+              inputMode="decimal"
+              value={advance}
+              data-bill-field="advance"
+              onChange={(event) => setAdvance(event.target.value)}
+            />
+            {/* Shown only once there is an advance to attribute to a method. */}
+            {advanceAmount !== null ? (
+              <label className="flex flex-col gap-1 text-sm">
+                {ACTIONS.advanceMethod}
+                <select
+                  value={advanceMethod}
+                  onChange={(event) => setAdvanceMethod(event.target.value)}
+                  className="min-h-11 rounded border border-slate-300 px-2"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                  <option value="card">Card</option>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="cheque">Cheque</option>
+                </select>
+              </label>
+            ) : null}
+            {/* The arithmetic spelled out, so nobody reads the advance as a discount.
+                Advisory only — the server derives the real outstanding (ADR-022). */}
+            {advanceAmount !== null ? (
+              <p className="text-xs text-slate-600">
+                {ACTIONS.advancePreview(
+                  formatForScreen(total),
+                  formatForScreen(advanceAmount),
+                  formatForScreen(total.minus(advanceAmount)),
+                )}
+              </p>
+            ) : null}
+          </div>
 
           {/* The four actions. In this order, with their shortcuts shown. */}
           <div className="flex flex-wrap gap-3">
@@ -712,17 +870,17 @@ function BillHeader({
    *
    * The last field hands over to the first free Item cell, so the whole header can be
    * filled and the first part typed without reaching for the mouse.
+   *
+   * Only Vehicle Number uses this now. Customer and Mechanic are comboboxes that own
+   * `Enter` while their suggestion list is open, so each handles its own hand-off — see
+   * `CustomerPicker.onSearchKeyDown` and `MechanicPicker.onKeyDown`.
    */
-  function headerKeys(next: 'vehicle' | 'item') {
+  function headerKeys() {
     return (event: React.KeyboardEvent<HTMLInputElement>): void => {
       if (event.key !== 'Enter') return;
       event.preventDefault();
       // Moving focus fires `onBlur`, which is what persists the field (§4.1 rule 4).
-      focusOnNextFrame(
-        next === 'vehicle'
-          ? '[data-bill-field="vehicle"]'
-          : `[data-cell="${draft.lines.length}-item"]`,
-      );
+      focusOnNextFrame(`[data-cell="${draft.lines.length}-item"]`);
     };
   }
 
@@ -756,15 +914,15 @@ function BillHeader({
 
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <CustomerPicker draft={draft} onChange={onChange} />
-        <Field
-          label={BILLING.headerMechanic}
-          key={`mech-${draft.id}-${draft.header.mechanic_name}`}
-          defaultValue={draft.header.mechanic_name}
-          // The hand-off target when a customer is chosen. Choosing one unmounts the
-          // search box, so focus has to be placed deliberately or it falls to `<body>`.
-          data-bill-field="mechanic"
-          onBlur={(event) => onChange({ mechanic_name: event.target.value })}
-          onKeyDown={headerKeys('vehicle')}
+        {/* Free text with suggestions from the saved list. The bill still stores a
+            **name**, not an id — `mechanic_name_snapshot` is free text and nothing
+            downstream needs a mechanic record, which is what keeps correcting the
+            suggestion list from ever rewriting a past bill. See `MechanicPicker`. */}
+        <MechanicPicker
+          value={draft.header.mechanic_name}
+          onChange={(mechanic_name) => onChange({ mechanic_name })}
+          onDone={() => focusOnNextFrame('[data-bill-field="vehicle"]')}
+          resetKey={draft.id}
         />
         <Field
           label={BILLING.headerVehicle}
@@ -772,7 +930,7 @@ function BillHeader({
           defaultValue={draft.header.vehicle_number}
           data-bill-field="vehicle"
           onBlur={(event) => onChange({ vehicle_number: event.target.value })}
-          onKeyDown={headerKeys('item')}
+          onKeyDown={headerKeys()}
         />
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium text-slate-700">{BILLING.headerDate}</span>
@@ -805,6 +963,11 @@ function ConflictPanel({
   draft,
   policy,
   online,
+  canOverrideOversell,
+  oversellApproved,
+  oversellReason,
+  onOversellApprovedChange,
+  onOversellReasonChange,
   onPrintSlip,
   onOpenDailyBills,
 }: {
@@ -812,6 +975,11 @@ function ConflictPanel({
   draft: LocalDraft;
   policy: MoneyPolicy;
   online: boolean;
+  canOverrideOversell: boolean;
+  oversellApproved: boolean;
+  oversellReason: string;
+  onOversellApprovedChange: (approved: boolean) => void;
+  onOversellReasonChange: (reason: string) => void;
   onPrintSlip: (data: CounterSlipData) => void;
   onOpenDailyBills?: (() => void) | undefined;
 }) {
@@ -901,6 +1069,41 @@ function ConflictPanel({
             ),
           )}
         </ul>
+      ) : null}
+      {conflict.code === 'INSUFFICIENT_STOCK' && canOverrideOversell ? (
+        <div className="mt-3 rounded border border-amber-400 bg-amber-50 p-3">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={oversellApproved}
+              onChange={(event) => onOversellApprovedChange(event.target.checked)}
+              className="mt-1"
+            />
+            <span>{BILLING.oversellApprovalLabel}</span>
+          </label>
+          {oversellApproved ? (
+            <div className="mt-3 flex flex-col gap-2">
+              <p className="text-sm">{BILLING.oversellApprovalWarning}</p>
+              <label className="flex flex-col gap-1 text-sm">
+                {BILLING.oversellReasonLabel}
+                <textarea
+                  value={oversellReason}
+                  onChange={(event) => onOversellReasonChange(event.target.value)}
+                  minLength={10}
+                  maxLength={500}
+                  rows={2}
+                  aria-describedby="oversell-reason-hint"
+                  className="min-h-20 rounded border border-slate-300 p-2"
+                />
+              </label>
+              <p id="oversell-reason-hint" className="text-xs text-slate-700">
+                {oversellReason.trim().length < 10
+                  ? BILLING.oversellReasonRequired
+                  : BILLING.oversellRetryHint}
+              </p>
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {Array.isArray(conflict.details.price_changes) ? (
         <ul className="list-inside list-disc">
@@ -1093,6 +1296,21 @@ function CustomerPicker({
   /** The search box, so the hand-off needs no lookup when it comes back. */
   const searchBox = useRef<HTMLInputElement | null>(null);
 
+  /**
+   * Set by `attach`, read and cleared by the box's `onBlur`.
+   *
+   * **Why this exists.** Picking a suggestion with `Tab` moves focus, which fires the
+   * search box's `blur` — and `blur` persists *the typed text* as the bill's customer
+   * name. So `Tab` attached customer `c-2` and then immediately overwrote their name
+   * with `rakesh`: the right customer id against the wrong name, on a real bill.
+   * `Enter` never showed it because it calls `preventDefault`, so focus does not move
+   * and no blur happens. The mouse never showed it because `onMouseDown` is cancelled.
+   *
+   * Found by a test that failed roughly one run in four looking for the attached
+   * customer's name — a genuine defect wearing a flake's clothes.
+   */
+  const justAttached = useRef(false);
+
   // Debounced, and late replies are discarded: typing fires a search per keystroke and
   // without the guard the slowest reply wins, showing matches for a prefix the box no
   // longer holds.
@@ -1139,6 +1357,9 @@ function CustomerPicker({
     // Mechanic Name is the next field in the header's own reading order, so continuing
     // there is the sequence the screen already implies rather than a new workflow.
     handOff.current = 'mechanic';
+    // The blur that `Tab` is about to fire must not write the typed text over the name
+    // just set from the chosen customer.
+    justAttached.current = true;
   }
 
   /**
@@ -1167,10 +1388,16 @@ function CustomerPicker({
         setHighlighted((current) => Math.max(current - 1, 0));
         return;
       }
-      if (event.key === 'Enter') {
-        event.preventDefault();
+      if (event.key === 'Enter' || event.key === 'Tab') {
         const chosen = matches[highlighted];
-        if (chosen) attach(chosen);
+        if (!chosen) return;
+        // `Tab` picks as well as `Enter` — the owner asked for both, and `MechanicPicker`
+        // does the same so the two header comboboxes behave alike. `Tab` keeps its
+        // native "move on" afterwards, which is why it is not prevented: the highlight
+        // is taken *and* focus advances, which is what Tab on a highlighted option
+        // should feel like. `attach` then redirects the hand-off to Mechanic Name.
+        if (event.key === 'Enter') event.preventDefault();
+        attach(chosen);
         return;
       }
       if (event.key === 'Escape') {
@@ -1299,7 +1526,16 @@ function CustomerPicker({
         // ~300 ms; only add/remove-line is immediate) and it made this component
         // genuinely flaky: each write re-read and re-published the draft, racing the
         // debounced customer search and intermittently discarding its results.
-        onBlur={(event) => onChange({ customer_name: event.target.value })}
+        onBlur={(event) => {
+          // A suggestion was just taken, so the authoritative name is the customer's
+          // and has already been written. Persisting the typed fragment here would
+          // replace `Rakesh Transport` with `rakesh`.
+          if (justAttached.current) {
+            justAttached.current = false;
+            return;
+          }
+          onChange({ customer_name: event.target.value });
+        }}
       />
       {problem ? (
         <p role="alert" className="text-xs text-red-700">
@@ -1356,6 +1592,19 @@ function CustomerPicker({
                     // arrangement was reachable by mouse alone.
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => attach(customer)}
+                    /**
+                     * `Space` selects **here**, on a focused option, and nowhere else.
+                     *
+                     * The owner asked for Space to select. It must never do so from the
+                     * search box: a customer is called `Kumar Transports`, and a field
+                     * that ate the space would make most names untypeable — the same
+                     * reasoning `ItemCell` records for `AXEL PACKING`. A `<button>`
+                     * already activates on Space natively, so this only stops the page
+                     * scrolling underneath.
+                     */
+                    onKeyDown={(event) => {
+                      if (event.key === ' ') event.preventDefault();
+                    }}
                     className={`w-full px-2 py-1 text-left text-sm hover:bg-slate-100 ${
                       index === highlighted ? 'bg-slate-100' : ''
                     }`}

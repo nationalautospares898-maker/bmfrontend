@@ -55,6 +55,10 @@ export type ErrorCode =
   | 'INVOICE_ALREADY_CANCELLED'
   | 'CANCEL_WINDOW_EXPIRED'
   | 'INVOICE_CANCELLED'
+  // Editing a finalised bill (owner Decision A, 2026-11-07).
+  | 'INVOICE_VERSION_CONFLICT'
+  | 'INVOICE_NOT_EDITABLE'
+  | 'EDIT_BELOW_PAID_TOTAL'
   // payments and returns
   | 'OVER_ALLOCATION'
   | 'PAYMENT_ALREADY_REVERSED'
@@ -428,6 +432,38 @@ export function describeError(code: ErrorCode): ErrorPresentation {
         surface: 'inline',
         retryable: false,
         needsResolution: false,
+      };
+    case 'INVOICE_VERSION_CONFLICT':
+      return {
+        // `needsResolution` because the operator has to do something specific — reload
+        // and redo the edit — rather than simply press Save again. A silent retry would
+        // either fail identically or, worse, apply over somebody else's change.
+        message:
+          'Someone else changed this bill while it was open. Reload it and make the ' +
+          'change again.',
+        surface: 'inline',
+        retryable: false,
+        needsResolution: true,
+      };
+    case 'INVOICE_NOT_EDITABLE':
+      return {
+        message: 'A cancelled bill cannot be edited.',
+        surface: 'inline',
+        retryable: false,
+        needsResolution: false,
+      };
+    case 'EDIT_BELOW_PAID_TOTAL':
+      return {
+        // The owner's explicit rule (Decision A). The way out is named, because the
+        // operator cannot act on "that is not allowed": there is no refund mechanism in
+        // this system, and a return or a credit note is the sanctioned correction
+        // (ADR-015, Decision C).
+        message:
+          'This bill has already been paid more than the new total. Record a return or ' +
+          'a credit note instead — an edit cannot reduce a bill below what was paid.',
+        surface: 'inline',
+        retryable: false,
+        needsResolution: true,
       };
     case 'OVER_ALLOCATION':
       return {

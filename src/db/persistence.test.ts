@@ -252,6 +252,27 @@ describe('the idempotency key — one intent, one key (§5)', () => {
     expect(pending.payloadHash(base)).not.toBe(pending.payloadHash(changed));
   });
 
+  it('hashes differently when an oversell approval reason changes', () => {
+    const base = {
+      sale_type: 'cash',
+      customer_id: null,
+      payment_amount: '10.00',
+      oversell_reason: 'Customer waiting, stock verified',
+      lines: [
+        {
+          product_id: 'p1',
+          quantity: '1.000',
+          unit_price: '10.0000',
+          discount_percent: '0',
+        },
+      ],
+    };
+
+    expect(
+      pending.payloadHash({ ...base, oversell_reason: 'Manager approved backorder' }),
+    ).not.toBe(pending.payloadHash(base));
+  });
+
   it('stops retrying past the stale window', async () => {
     // Ages the entry past the real 60-minute window rather than passing a zero-minute
     // one. A zero window makes `cutoff` exactly `now`, and the rule is

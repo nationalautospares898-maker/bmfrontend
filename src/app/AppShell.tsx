@@ -288,10 +288,42 @@ export function AppShell() {
   // Price cells on the bill are read-only without it, never hidden — the figure still
   // has to be visible, and the server re-checks the override regardless (§5 rule 12).
   const canOverridePrice = session.permissions.has('billing.price.override');
+  const canOverrideOversell = session.permissions.has('inventory.oversell.override');
+  /**
+   * `catalog.create`, or the broader `catalog.write`.
+   *
+   * The owner approved letting a cashier add a part that is missing at the counter and
+   * **not** giving them the catalogue generally (Decision B, 2026-11-07), so
+   * `catalog.create` is its own create-only permission and the cashier role now holds
+   * it. `catalog.write` is accepted too, because a custom role granted only the broad
+   * permission must not lose the ability to create — which is the same rule
+   * `POST /products` applies server-side.
+   */
+  const canCreateProduct =
+    session.permissions.has('catalog.create') || session.permissions.has('catalog.write');
+  /**
+   * `catalog.write` **and** `inventory.adjust` — exactly what `POST
+   * /inventory/stock-entries` requires (the route declares the first, the service
+   * re-asserts the second).
+   *
+   * This is what lets the billing counter's new-item dialog record how many are on the
+   * shelf, so a part added mid-bill can be sold on that bill. Owner, manager and stock
+   * keeper hold both; a cashier holds neither, and gets the catalogue-only path.
+   */
   const canEditCustomers = session.permissions.has('customer.manage');
   // Its own authority: editing a customer's details and taking money off what they owe
   // are different permissions server-side, so they are different props here too.
   const canRecordPayment = session.permissions.has('credit.payment.record');
+  /**
+   * `billing.sale.edit` — editing a finalised bill (owner Decision A, 2026-11-07).
+   *
+   * Sits with `billing.sale.cancel`: both change a finalised financial record, so the
+   * seeded owner and manager roles hold it and the cashier does not. Gated here as well
+   * as server-side so a cashier sees no action that would 403.
+   *
+   * Deliberately **not** conditioned on whether the bill was printed (F11).
+   */
+  const canEditBill = session.permissions.has('billing.sale.edit');
 
   /**
    * The six everyday sections the owner asked for. Nothing else belongs here.
@@ -408,6 +440,8 @@ export function AppShell() {
                   online={online}
                   canBill={canBill}
                   canOverridePrice={canOverridePrice}
+                  canOverrideOversell={canOverrideOversell}
+                  canCreateProduct={canCreateProduct}
                   // The shop's own heading, read from the server's `businesses` row — the
                   // same source the printed bill's payload uses — so the screen and the
                   // paper cannot disagree, and neither invents a value the owner has not
@@ -424,10 +458,17 @@ export function AppShell() {
                 <DailyBills
                   policy={policy}
                   canCancel={canCancelSales}
+                  canEdit={canEditBill}
                   onRebuild={canBill ? rebuildFromCancelled : undefined}
                 />
               ) : null}
-              {screen === 'credit-bills' && canReadCredit ? <CreditBills /> : null}
+              {screen === 'credit-bills' && canReadCredit ? (
+                <CreditBills
+                  policy={policy}
+                  canRecordPayment={canRecordPayment}
+                  canEdit={canEditBill}
+                />
+              ) : null}
               {screen === 'stock' && canReadCatalog ? (
                 <StockScreen
                   canAdjust={canAdjustStock}

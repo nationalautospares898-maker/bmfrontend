@@ -170,12 +170,26 @@ export function StockSheet({ onClose, onSaved }: StockSheetProps) {
                 if (row.id !== rowId) return row;
                 // Pre-fill from the existing product, but never overwrite a figure the
                 // user has already typed — they may be changing the price on purpose.
+                //
+                // `!= null` — loose on purpose, and the only loose comparison here.
+                // `current_price` and `current_min_qty` are **optional** in the
+                // contract (`current_price?: string | null`), so the server omits them
+                // for a `kind: 'new'` row where no existing product exists. A strict
+                // `!== null` was therefore true for `undefined`, and the prefill wrote
+                // the literal string `"undefined"` into the Price box.
+                //
+                // In the shop that is a slow lookup on a new item leaving `undefined`
+                // in a price field. In the test suite it was a load-dependent flake:
+                // the debounced resolve landed *while* the row was being typed, so the
+                // box ended up holding `undefined30`, the local price check refused the
+                // save, and `onSaved` was never called — which is why these three tests
+                // failed together under full-suite load and passed in isolation.
                 const price =
-                  row.price.trim() === '' && match.current_price !== null
+                  row.price.trim() === '' && match.current_price != null
                     ? String(match.current_price)
                     : row.price;
                 const minQty =
-                  row.min_qty.trim() === '' && match.current_min_qty !== null
+                  row.min_qty.trim() === '' && match.current_min_qty != null
                     ? String(match.current_min_qty)
                     : row.min_qty;
                 return { ...row, match, price, min_qty: minQty };

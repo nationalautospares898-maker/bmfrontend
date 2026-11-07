@@ -29,7 +29,12 @@ import type {
   ImportUpload,
   Invoice,
   InvoiceListResponse,
+  AmendRequest,
+  AmendResponse,
+  InvoiceRevisionsResponse,
   LoginRequest,
+  MechanicEnsureResponse,
+  MechanicListResponse,
   MeResponse,
   Named,
   PaymentHistoryList,
@@ -222,6 +227,51 @@ export const customers = {
   },
 };
 
+// --- mechanics ----------------------------------------------------------------
+
+export const mechanics = {
+  /**
+   * Suggestions for the billing header's Mechanic field.
+   *
+   * **`query` is optional**, and omitting it is a real use: the field is focused before
+   * anything has been typed, and the server answers with the recently-used list — which
+   * is the most useful thing to show at that moment and is why `mechanics.last_used_at`
+   * exists.
+   *
+   * `retry: 'never'`, matching `catalog.search` and `customers.search`: the user is
+   * typing, and a stale retry landing after three more keystrokes is worse than a quick
+   * retry affordance (§7).
+   */
+  search(
+    query?: string,
+    options: { limit?: number | undefined; signal?: AbortSignal | undefined } = {},
+  ): Promise<MechanicListResponse> {
+    return data(
+      api.get<MechanicListResponse>('/mechanics', {
+        params: { query, limit: options.limit },
+        retry: 'never',
+        signal: options.signal,
+      }),
+    );
+  },
+  /**
+   * Get-or-create by normalised name.
+   *
+   * Sending a name that already exists is the **common** case and is not an error — the
+   * server matches on the normalised name and returns the existing mechanic with
+   * `created: false`. So this needs no `Idempotency-Key` (it moves neither money nor
+   * stock) and a double press, a retry or two counters racing all converge on one row.
+   */
+  ensure(name: string, phone?: string | null): Promise<MechanicEnsureResponse> {
+    return data(
+      api.post<MechanicEnsureResponse>('/mechanics', {
+        name,
+        ...(phone ? { phone } : {}),
+      }),
+    );
+  },
+};
+
 // --- drafts -------------------------------------------------------------------
 
 export const drafts = {
@@ -286,6 +336,36 @@ export const sales = {
 // --- invoices -----------------------------------------------------------------
 
 export const invoices = {
+  /**
+   * Edit a finalised bill **in place** (owner Decision A, 2026-11-07).
+   *
+   * Keeps the invoice's identity; the server writes the complete before-state to
+   * `invoice_revisions` first, recomputes the money, reconciles stock with new
+   * append-only movements and never touches a payment.
+   *
+   * `idempotencyKey` is **required** and must be reused across retries of the *same*
+   * save: without it a retried edit writes a second revision and a second set of stock
+   * movements, and stock movements can never be deleted.
+   *
+   * `retry: 'never'` — this is a financial mutation, and the caller decides whether to
+   * resend after showing the operator what happened.
+   */
+  amend(
+    invoiceId: string,
+    body: AmendRequest,
+    idempotencyKey: string,
+  ): Promise<AmendResponse> {
+    return data(
+      api.post<AmendResponse>(`/invoices/${invoiceId}:amend`, body, {
+        idempotencyKey,
+        retry: 'never',
+      }),
+    );
+  },
+  /** The edit history of one bill, newest first. */
+  revisions(invoiceId: string): Promise<InvoiceRevisionsResponse> {
+    return data(api.get<InvoiceRevisionsResponse>(`/invoices/${invoiceId}/revisions`));
+  },
   list(filters: {
     from?: string;
     to?: string;
