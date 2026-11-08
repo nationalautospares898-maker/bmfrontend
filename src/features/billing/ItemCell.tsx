@@ -85,6 +85,15 @@ function fromProduct(product: Product): SearchHit {
 
 export interface ItemCellProps {
   row: number;
+  /**
+   * The bill this cell belongs to.
+   *
+   * Only ever used to build a DOM `id`. Three bills are on screen at once and each has
+   * its own row 1, so `item-0` was three different elements sharing one identifier —
+   * which makes `<label for>` point at whichever the browser found first, and sends a
+   * screen reader (and every test that asks for "Item, row 1") to the wrong bill.
+   */
+  billId: string;
   /** `undefined` for one of the empty rows below the last item. */
   line: LocalDraftLine | undefined;
   online: boolean;
@@ -105,6 +114,7 @@ export interface ItemCellProps {
 
 export function ItemCell({
   row,
+  billId,
   line,
   online,
   readOnly,
@@ -133,6 +143,15 @@ export function ItemCell({
   const inFlight = useRef<AbortController | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listId = useId();
+  /**
+   * This cell's own input.
+   *
+   * Held rather than looked up: the dialog used to come back to
+   * `document.querySelector('[data-cell="0-item"]')`, and with three bills on screen
+   * that is three elements — so cancelling the dialog on the middle bill put the caret
+   * in the left one. A ref cannot point at the wrong bill.
+   */
+  const input = useRef<HTMLInputElement | null>(null);
 
   const run = useCallback(
     async (text: string) => {
@@ -311,7 +330,12 @@ export function ItemCell({
         role="textbox"
         aria-readonly="true"
         aria-label={BILLING.cellItemLabel(row + 1)}
-        className="flex w-full items-baseline gap-2 px-2 py-1 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-nas-navy"
+        // `min-w-0` + `truncate` on the name: the Item column is about 100px wide with
+        // three bills across a counter monitor, and a long part name used to widen the
+        // cell until `Got it` fell off the panel. Truncated **on screen only** — the
+        // printed bill wraps names in full (§9), and the full text is in `title`.
+        className="flex w-full min-w-0 items-baseline gap-1 overflow-hidden whitespace-nowrap px-2 py-1 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-nas-navy"
+        title={line.product_name}
         onFocus={onFocusCell}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === 'ArrowDown') {
@@ -329,32 +353,48 @@ export function ItemCell({
           }
         }}
       >
-        <span className="font-medium">{line.product_name}</span>
-        {line.sku ? <span className="text-xs text-slate-500">{line.sku}</span> : null}
-        {/* The stock the client last knew, with its age. Advisory — the server decides at
-            finalisation (ADR-006). */}
-        {line.known_stock !== null && line.stock_as_of ? (
-          <span className="text-xs text-slate-500">
-            {BILLING.stockAnnotation(
-              line.known_stock,
-              new Date(line.stock_as_of).toLocaleTimeString(),
-            )}
-          </span>
-        ) : null}
-        {line.price_source === 'manual_override' ? (
-          <span className="text-xs text-amber-700">changed</span>
-        ) : null}
+        {/*
+          **One line, and the name wins it.**
+
+          The annotations used to sit beside the name as ordinary inline text, which was
+          right on a full-width screen and wrong on a third of one: `In stock: 4.000 (as
+          of 3:30:00 PM)` wrapped over six lines and a single item filled half the grid.
+          So the name is `shrink-0` — it takes the width it needs and truncates only
+          when it alone is too long — and everything after it shares what is left and
+          truncates first. Nothing is dropped: the cell's `title` carries the product
+          name in full, and the stock figure is advisory here in any case, because the
+          server decides at finalisation (ADR-006).
+        */}
+        <span className="max-w-full shrink-0 truncate font-medium">
+          {line.product_name}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-xs text-slate-500">
+          {line.sku ? <span>{line.sku}</span> : null}
+          {/* The stock the client last knew, with its age. */}
+          {line.known_stock !== null && line.stock_as_of ? (
+            <span className="ml-1">
+              {BILLING.stockAnnotation(
+                line.known_stock,
+                new Date(line.stock_as_of).toLocaleTimeString(),
+              )}
+            </span>
+          ) : null}
+          {line.price_source === 'manual_override' ? (
+            <span className="ml-1 text-amber-700">changed</span>
+          ) : null}
+        </span>
       </div>
     );
   }
 
   return (
     <div className="relative">
-      <label className="sr-only" htmlFor={`item-${row}`}>
+      <label className="sr-only" htmlFor={`item-${billId}-${row}`}>
         {BILLING.cellItemLabel(row + 1)}
       </label>
       <input
-        id={`item-${row}`}
+        id={`item-${billId}-${row}`}
+        ref={input}
         data-cell={`${row}-item`}
         value={query}
         disabled={readOnly}
@@ -482,7 +522,7 @@ export function ItemCell({
             setCreating(false);
             // Focus back where it was, or the next `Tab` restarts from the top of the
             // document — the same hazard `CustomerPicker` documents.
-            document.querySelector<HTMLElement>(`[data-cell="${row}-item"]`)?.focus();
+            input.current?.focus();
           }}
           onCreated={(product) => {
             setCreating(false);

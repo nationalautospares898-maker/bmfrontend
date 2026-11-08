@@ -71,6 +71,7 @@ function renderCell(overrides: Partial<React.ComponentProps<typeof ItemCell>> = 
   render(
     <ItemCell
       row={0}
+      billId="draft-1"
       line={undefined}
       online
       readOnly={false}
@@ -375,6 +376,7 @@ describe('the packing tick', () => {
     const onChangeLine = vi.fn();
     render(
       <BillGrid
+        billId="draft-1"
         lines={[line]}
         readOnly={false}
         online

@@ -23,7 +23,24 @@ export const ACTIONS = {
   //
   // A **field**, not a fifth action: OD-14 settles the four primary actions and says
   // there is no fifth, and this does not need one.
-  advanceLabel: 'Advance received (optional)',
+  /**
+   * Shown where the shop's name used to sit, at the top of each bill column.
+   *
+   * The owner asked for it there when the workspace became three bills wide: the shop
+   * name is already the application's own heading and repeating it over every column
+   * spent the one row this field needed. Still optional, still not a fifth action.
+   */
+  advanceLabel: 'Advance Received',
+  /**
+   * No longer rendered under the field.
+   *
+   * The field moved into the bill's own header, where a column is a third of the screen
+   * wide and a second line of help under it pushed a row off the grid. What it says is
+   * said better by the field being empty and by `advancePreview` appearing the moment
+   * an amount is typed — and the word *optional* is in `advanceLabel`'s own docstring
+   * rather than in the label, which the owner wanted short. Kept because the owner
+   * reviews this file and a string that was approved should not vanish without a note.
+   */
   advanceHint: 'Leave blank if nothing was paid now.',
   advanceMethod: 'Paid by',
   /** Spelled out so the advance is never read as a discount on the bill. */
@@ -109,6 +126,20 @@ export const BILLING = {
   lowStockAnnotation: (quantity: string) => `Only ${quantity} left`,
   outOfStockAnnotation: 'Not in stock — the server will check when you complete the bill',
   inactiveProduct: 'This item is no longer stocked',
+  // --- the three-bill workspace (owner request, 2026-11-08) --------------------
+  //
+  // Three bills are on screen at once and the tab strip is how the other twelve are
+  // reached. Each of these names a *position*, never an invoice: a bill's number here is
+  // where it sits in the open tabs and changes when one is closed. There is still no
+  // invoice number anywhere in this application (OD-3).
+  /** The accessible name of one bill column, so three identical grids are tellable apart. */
+  panelLabel: (position: number, name: string) => `Bill ${position}: ${name}`,
+  /** The tab's accessible name: its position, then whoever the bill is for. */
+  tabLabel: (position: number, name: string) => `Bill ${position}: ${name}`,
+  /** Said once under the three columns rather than three times over. */
+  workspaceHint:
+    'Three bills are shown at a time. Choose any bill from the tabs above and it opens ' +
+    'on the left, with the next two beside it.',
   newTab: 'New bill',
   /**
    * The accessible name of the **action**, distinct from a tab that happens to be
@@ -313,6 +344,23 @@ export const PRINT = {
   paid: 'Paid',
   balance: 'Balance',
   due: 'Due',
+} as const;
+
+/**
+ * The application's own name, as this build is packaged.
+ *
+ * **Not a business fact, and not a substitute for one.** The shop's identity comes from
+ * `/sync/bootstrap` and is what the shell shows whenever it is there; this is the
+ * fallback for the two places that cannot have it — the sign-in screen, which has no
+ * session yet, and the moment before a profile loads. It matches `index.html`'s
+ * `<title>` and the web manifest's `name`, which already carry it, so the heading and
+ * the browser tab say the same thing rather than one of them going blank.
+ *
+ * Nothing is ever *printed* from here: the bill's heading block comes from the server's
+ * own payload, verbatim (FR-PRINT-016, ADR-028).
+ */
+export const APP = {
+  name: 'National Auto Spares',
 } as const;
 
 export const COMMON = {

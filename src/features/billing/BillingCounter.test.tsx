@@ -130,13 +130,70 @@ async function addFirstProduct(
   user: ReturnType<typeof userEvent.setup>,
   row = 1,
   text = 'axel',
+  column = 0,
 ): Promise<void> {
-  await user.type(screen.getByLabelText(`Item, row ${row}`), text);
+  // Scoped to one column: three bills are on screen at once and each of them has a row
+  // 1. `column` is which of them to type into, left to right.
+  await user.type(bill(column).getByLabelText(`Item, row ${row}`), text);
   // Selected with `Enter`, not a click, because that is the path a cashier actually
   // uses and the one the owner asked to keep working: type, Enter, type the quantity,
   // Enter. Clicking is also available and has its own assertion.
   await screen.findByRole('listbox');
   await user.keyboard('{Enter}');
+  /**
+   * Wait for the line to actually be **on** the bill before returning.
+   *
+   * `Enter` starts `addLine`, which writes to Dexie and only then republishes the
+   * store. Returning on the keystroke left every caller racing that write, and the
+   * race had a silent loser: until the line lands, `canFinalize` is false, `Print
+   * Bill` is disabled, and `user.click` on a disabled button does nothing at all. The
+   * test then waited for a panel that no request had been made for.
+   *
+   * It failed roughly one run in four under a full-suite load and nowhere near a
+   * single-file run, which is what made it look like slowness — the first two attempts
+   * at it raised the timeout, which could not have helped, because nothing was ever
+   * in flight to wait for. The same race is reachable on the original single-bill
+   * screen; the three-bill workspace only made it more likely by adding a render.
+   */
+  await waitFor(() => {
+    const state = useBillingStore.getState();
+    const draft = state.drafts.find((candidate) => candidate.id === state.activeDraftId);
+    expect(draft?.lines.length ?? 0).toBeGreaterThan(0);
+  });
+}
+
+/**
+ * Queries scoped to one bill column.
+ *
+ * The workspace now shows up to three bills at once and the tab strip carries the
+ * customer's name, so a bare `screen.getByText('Rakesh Motors')` legitimately matches
+ * two things: the tab and the bill it names. That is the feature working, not a defect
+ * — a cashier with fifteen bills open finds the third one by the name on its tab.
+ *
+ * Each column is a `<section aria-label="Bill 1: ...">`, which is an ARIA `region`, so
+ * scoping is the same tool the tab strip already uses (`within(getByRole('navigation'))`)
+ * pointed the other way.
+ */
+function bill(index = 0) {
+  const columns = screen.getAllByRole('region');
+  return within(columns[index]!);
+}
+
+/**
+ * Start a new bill and wait for its column to exist.
+ *
+ * `Start a new bill` writes to Dexie before the store publishes, so the click resolves
+ * a tick before the new column is mounted. Typing into "the second bill" in that gap
+ * found no second bill — which is why this waits for the column rather than for the
+ * click. It was invisible while the screen showed one bill at a time, because the new
+ * draft simply replaced what was already rendered.
+ */
+async function newBill(
+  user: ReturnType<typeof userEvent.setup>,
+  expected: number,
+): Promise<void> {
+  await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
+  await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(expected));
 }
 
 describe('exactly four primary actions, and no fifth (OD-14)', () => {
@@ -254,9 +311,13 @@ describe('permissions', () => {
     ).toBeNull();
     await user.click(screen.getByRole('button', { name: /Print Bill/ }));
 
-    const approval = await screen.findByRole('checkbox', {
-      name: BILLING.oversellApprovalLabel,
-    });
+    const approval = await screen.findByRole(
+      'checkbox',
+      { name: BILLING.oversellApprovalLabel },
+      // Pressing `Print Bill` pushes the draft to the server, finalises and reloads the
+      // store before this panel can render — four awaits, not one render.
+      { timeout: 4000 },
+    );
     await user.click(approval);
     const reason = screen.getByLabelText(BILLING.oversellReasonLabel);
     await user.type(reason, 'Verified physically and approved by manager');
@@ -289,7 +350,11 @@ describe('permissions', () => {
     await addFirstProduct(user);
     await user.click(screen.getByRole('button', { name: /Print Bill/ }));
 
-    await screen.findByText(/There is not enough stock/);
+    // The default one-second patience is not enough under a full-suite run: pressing
+    // `Print Bill` writes the draft to Dexie, pushes it to the server, finalises, and
+    // reloads the store before the panel can render — and those are four awaits, not
+    // one render. The sibling suites below already use the same 4s for the same reason.
+    await screen.findByText(/There is not enough stock/, {}, { timeout: 4000 });
     expect(
       screen.queryByRole('checkbox', { name: BILLING.oversellApprovalLabel }),
     ).toBeNull();
@@ -490,27 +555,254 @@ describe('the Excel-style invoice grid', () => {
     expect(screen.getByText('ESTIMATE')).toBeInTheDocument();
   });
 
-  it('shows the configured shop heading and nothing where a field is unset', () => {
-    // OD-4 is a go-live gate: the owner has supplied only the trading name. An empty
-    // address must render as nothing, never as a placeholder and never as the address
-    // printed in the reference workbook (FR-PRINT-016).
-    render(
-      <BillingCounter
-        policy={POLICY}
-        online
-        canBill
-        canOverridePrice
-        business={{
-          display_name: 'NATIONAL AUTO SPARES',
-          address_lines: [],
-          phone_numbers: [],
-        }}
-      />,
-    );
-    expect(
-      screen.getByRole('heading', { name: 'NATIONAL AUTO SPARES' }),
-    ).toBeInTheDocument();
+  it('draws no shop heading of its own — the shell owns the one name', () => {
+    // The workspace used to draw the configured name above its columns, and the shell
+    // draws it at the top left: two `NATIONAL AUTO SPARES` on one screen, which the
+    // owner reported on sight. The rule that heading exists for — **configured, never
+    // invented** (OD-4, FR-PRINT-016) — did not move, only the heading did; `AppShell`
+    // reads it from `/sync/bootstrap` and this screen reads nothing.
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    // And nothing stands in for a business field the owner has not supplied.
     expect(screen.queryByText(/Address line/i)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The three-bill workspace (owner request, 2026-11-08).
+ *
+ * The owner described the rolling window by example rather than by rule, so these are
+ * their examples: open three and see `1 2 3`; start a fourth and see `2 3 4`; choose a
+ * bill from the tabs and it opens on the left with the next two beside it.
+ *
+ * Asserted through each column's accessible name, which carries both the position and
+ * whoever the bill is for — the same thing a cashier reads off the tab.
+ */
+describe('three bills at a time, rolling (owner request, 2026-11-08)', () => {
+  /** The positions of the bills currently on screen, left to right. */
+  function columns(): number[] {
+    return screen.getAllByRole('region').map((panel) => {
+      const match = /^Bill (\d+):/.exec(panel.getAttribute('aria-label') ?? '');
+      return Number(match?.[1]);
+    });
+  }
+
+  /**
+   * Open `count` bills.
+   *
+   * Waits on the **store**, not on the number of columns: past the third bill the
+   * column count stops changing — that is the whole point of the window — so waiting
+   * for it would return before the new draft existed and the next click would race it.
+   */
+  async function open(user: ReturnType<typeof userEvent.setup>, count: number) {
+    useBillingStore.setState({ maxOpenDrafts: 8 });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    for (let n = 2; n <= count; n += 1) {
+      await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
+      await waitFor(() => expect(useBillingStore.getState().drafts).toHaveLength(n));
+    }
+    await waitFor(() =>
+      expect(screen.getAllByRole('region')).toHaveLength(Math.min(count, 3)),
+    );
+  }
+
+  it('shows the first three as 1 · 2 · 3', async () => {
+    const user = userEvent.setup();
+    await open(user, 3);
+    expect(columns()).toEqual([1, 2, 3]);
+  });
+
+  it('rolls to 2 · 3 · 4 when a fourth is started, keeping the new one on the right', async () => {
+    // The two beside it are the bills the cashier was already working on. Pushing those
+    // off-screen to make room for the new one would lose their place.
+    const user = userEvent.setup();
+    await open(user, 4);
+    expect(columns()).toEqual([2, 3, 4]);
+  });
+
+  it('keeps rolling: a fifth shows 3 · 4 · 5', async () => {
+    const user = userEvent.setup();
+    await open(user, 5);
+    expect(columns()).toEqual([3, 4, 5]);
+  });
+
+  it('opens a bill chosen from the tabs on the LEFT, with the next two beside it', async () => {
+    const user = userEvent.setup();
+    await open(user, 5); // showing 3 · 4 · 5
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+
+    await user.click(tabs.getAllByRole('button', { name: /^New bill/ })[1]!); // bill 2
+
+    await waitFor(() => expect(columns()).toEqual([2, 3, 4]));
+  });
+
+  it('stops at the end of the list rather than scrolling past it', async () => {
+    // Bill 5 of 5 cannot have two more to its right. The window stops, and the chosen
+    // bill is simply the last column instead of the first — visible either way, which
+    // is the promise the tab strip makes.
+    const user = userEvent.setup();
+    await open(user, 5);
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    await user.click(tabs.getAllByRole('button', { name: /^New bill/ })[0]!); // bill 1
+    await waitFor(() => expect(columns()).toEqual([1, 2, 3]));
+
+    await user.click(tabs.getAllByRole('button', { name: /^New bill/ })[4]!); // bill 5
+
+    await waitFor(() => expect(columns()).toEqual([3, 4, 5]));
+  });
+
+  it('shows one bill full width rather than two empty columns', () => {
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    expect(screen.getAllByRole('region')).toHaveLength(1);
+  });
+
+  it('gives every bill its own four actions', async () => {
+    const user = userEvent.setup();
+    await open(user, 3);
+    // Three columns, three sets. Each acts on its own bill — which is the whole point
+    // of the split, and is why they are not a single set above the columns.
+    expect(screen.getAllByRole('button', { name: /Print Bill/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /Credit Bill/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /Save a Draft/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /Clear Draft/ })).toHaveLength(3);
+  });
+
+  it('puts the advance where the shop name used to be, once per bill', async () => {
+    const user = userEvent.setup();
+    await open(user, 3);
+    expect(screen.getAllByLabelText(/Advance Received/)).toHaveLength(3);
+    // And the shop's heading is drawn once, above the columns — not three times.
+    expect(bill(0).queryByRole('heading')).not.toBeInTheDocument();
+  });
+
+  it('names each tab by its position and whoever the bill is for', async () => {
+    // "like while I create I will keep the customer name with bill number on the area".
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    await user.type(bill(0).getByLabelText(/Customer Name/), 'Anas');
+    // Persisted on blur, which is also when the cashier moves on from the field.
+    await user.tab();
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    await waitFor(() => {
+      expect(tabs.getByRole('button', { name: 'Anas' })).toBeInTheDocument();
+    });
+    // The number is beside it, as decoration rather than part of the name: two tabs
+    // differing only by a digit read badly, and the name is what anyone says out loud.
+    expect(tabs.getByText('1')).toBeInTheDocument();
+  });
+});
+
+/**
+ * What a bill keeps while it is off screen (reported 2026-11-08).
+ *
+ * Only three bills are rendered at a time, so the other twelve are **unmounted** — and
+ * anything held as component state inside a column went with it. The cashier's report
+ * was "I update a bill, make a few more, come back and it has reset".
+ *
+ * Nothing was ever lost from the bill itself: every field persists to Dexie on blur and
+ * `drafts` still held it. What was lost was what the screen *showed* and the screen's
+ * own working state, which is worse than it sounds — a cashier who sees an empty
+ * Customer Name believes the bill is empty and types it again.
+ */
+describe('a bill keeps what is on it while it is off screen', () => {
+  async function fiveBills(user: ReturnType<typeof userEvent.setup>) {
+    useBillingStore.setState({ maxOpenDrafts: 8 });
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+    for (let n = 2; n <= 5; n += 1) {
+      await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
+      await waitFor(() => expect(useBillingStore.getState().drafts).toHaveLength(n));
+    }
+  }
+
+  function tab(position: number) {
+    const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
+    return tabs.getAllByRole('button', { name: /^(New bill|Anas|Rakesh)/ })[
+      position - 1
+    ]!;
+  }
+
+  it('shows the customer name again after the bill scrolls out and back', async () => {
+    const user = userEvent.setup();
+    await fiveBills(user); // showing 3 · 4 · 5; bills 1 and 2 are unmounted
+
+    // Go to bill 1, type a customer, and move on so it is committed.
+    await user.click(tab(1));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+    await user.type(bill(0).getByLabelText(/Customer Name/), 'Anas');
+    await user.tab();
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.header.customer_name).toBe('Anas'),
+    );
+
+    // Scroll it off screen, then come back to it.
+    await user.click(tab(3));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+    await user.click(tab(1));
+
+    await waitFor(() =>
+      expect(bill(0).getByLabelText(/Customer Name/)).toHaveValue('Anas'),
+    );
+  });
+
+  it('keeps the vehicle and the mechanic too', async () => {
+    const user = userEvent.setup();
+    await fiveBills(user);
+    await user.click(tab(1));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+
+    await user.type(bill(0).getByLabelText('Vehicle Number'), 'KA01AB1234');
+    await user.type(bill(0).getByLabelText('Mechanic Name'), 'Ramesh');
+    await user.tab();
+    await waitFor(() =>
+      expect(useBillingStore.getState().drafts[0]?.header.vehicle_number).toBe(
+        'KA01AB1234',
+      ),
+    );
+
+    await user.click(tab(4));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+    await user.click(tab(1));
+
+    await waitFor(() =>
+      expect(bill(0).getByLabelText('Vehicle Number')).toHaveValue('KA01AB1234'),
+    );
+    expect(bill(0).getByLabelText('Mechanic Name')).toHaveValue('Ramesh');
+  });
+
+  it('keeps the advance typed on a bill that scrolls away', async () => {
+    // An advance is not part of the draft — it is taken at finalisation — so it lives
+    // on the screen. It still belongs to **one** bill, and it has to be there when the
+    // cashier comes back to press Credit Bill.
+    const user = userEvent.setup();
+    await fiveBills(user);
+    await user.click(tab(1));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+
+    await user.type(bill(0).getByLabelText(/Advance Received/), '500');
+
+    await user.click(tab(3));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+    await user.click(tab(1));
+
+    await waitFor(() =>
+      expect(bill(0).getByLabelText(/Advance Received/)).toHaveValue('500'),
+    );
+  });
+
+  it('never carries one bill’s advance onto another', async () => {
+    // The other half of the same rule, and the one that would cost money: an advance
+    // belongs to the bill it was taken on and to no other.
+    const user = userEvent.setup();
+    await fiveBills(user);
+    await user.click(tab(1));
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(3));
+
+    await user.type(bill(0).getByLabelText(/Advance Received/), '500');
+
+    expect(bill(1).getByLabelText(/Advance Received/)).toHaveValue('');
+    expect(bill(2).getByLabelText(/Advance Received/)).toHaveValue('');
   });
 });
 
@@ -541,8 +833,9 @@ describe('bill tabs behave like browser tabs', () => {
     render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
     await addFirstProduct(user);
-    await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
-    await addFirstProduct(user);
+    await newBill(user, 2);
+    // The second bill opens as the second column, so that is where the next part goes.
+    await addFirstProduct(user, 1, 'axel', 1);
 
     const tabs = within(screen.getByRole('navigation', { name: 'Open bills' }));
     await waitFor(() => {
@@ -564,10 +857,10 @@ describe('bill tabs behave like browser tabs', () => {
     useBillingStore.setState({ maxOpenDrafts: 4 });
     render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
 
-    async function pick(name: string): Promise<void> {
-      await user.type(screen.getByLabelText('Item, row 1'), 'a');
+    async function pick(name: string, column = 0): Promise<void> {
+      await user.type(bill(column).getByLabelText('Item, row 1'), 'a');
       await screen.findByRole('listbox');
-      await user.click(screen.getByRole('button', { name: new RegExp(name) }));
+      await user.click(bill(column).getByRole('button', { name: new RegExp(name) }));
     }
 
     await pick('AXEL PACKING');
@@ -578,8 +871,8 @@ describe('bill tabs behave like browser tabs', () => {
       ).toHaveLength(1);
     });
 
-    await user.click(screen.getByRole('button', { name: 'Start a new bill' }));
-    await pick('11L LE MAX');
+    await newBill(user, 2);
+    await pick('11L LE MAX', 1);
     const second = useBillingStore.getState().activeDraftId;
     await waitFor(() => {
       expect(
@@ -900,7 +1193,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     // And it says who the bill is for, rather than leaving the cashier to infer it.
     // In the spreadsheet header that is the name shown under the `Customer Name` label,
     // where the search box was.
-    expect(await screen.findByText('Rakesh Motors')).toBeInTheDocument();
+    expect(await bill().findByText('Rakesh Motors')).toBeInTheDocument();
   });
 
   it('lets the customer be changed again, keeping the typed snapshot', async () => {
@@ -911,7 +1204,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     await user.click(
       await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
     );
-    await screen.findByText('Rakesh Motors');
+    await bill().findByText('Rakesh Motors');
 
     await user.click(screen.getByRole('button', { name: 'Change' }));
 
@@ -1002,7 +1295,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     await user.click(
       await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
     );
-    await screen.findByText('Rakesh Motors');
+    await bill().findByText('Rakesh Motors');
 
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
 
@@ -1061,7 +1354,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     await user.click(
       await screen.findByRole('button', { name: /Rakesh Motors/ }, AFTER_DEBOUNCE),
     );
-    await screen.findByText('Rakesh Motors');
+    await bill().findByText('Rakesh Motors');
   }
 
   it('sends no payment at all when no advance is entered', async () => {
@@ -1080,7 +1373,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     const user = userEvent.setup();
     await creditWithCustomer(user);
 
-    await user.type(screen.getByLabelText(/Advance received/), '40');
+    await user.type(screen.getByLabelText(/Advance Received/), '40');
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
 
     await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
@@ -1102,7 +1395,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     const user = userEvent.setup();
     await creditWithCustomer(user);
 
-    await user.type(screen.getByLabelText(/Advance received/), '0');
+    await user.type(screen.getByLabelText(/Advance Received/), '0');
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
 
     await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
@@ -1116,7 +1409,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     const user = userEvent.setup();
     await creditWithCustomer(user);
 
-    await user.type(screen.getByLabelText(/Advance received/), '40');
+    await user.type(screen.getByLabelText(/Advance Received/), '40');
     await user.selectOptions(screen.getByLabelText('Paid by'), 'upi');
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
 
@@ -1129,7 +1422,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     const user = userEvent.setup();
     await creditWithCustomer(user);
 
-    await user.type(screen.getByLabelText(/Advance received/), '40');
+    await user.type(screen.getByLabelText(/Advance Received/), '40');
 
     expect(await screen.findByText(/The bill total stays/)).toBeInTheDocument();
   });
@@ -1147,7 +1440,7 @@ describe('the customer picker (FR-CREDIT-009)', () => {
     const user = userEvent.setup();
     await creditWithCustomer(user);
 
-    await user.type(screen.getByLabelText(/Advance received/), '99999');
+    await user.type(screen.getByLabelText(/Advance Received/), '99999');
     await user.click(screen.getByRole('button', { name: /Credit Bill/ }));
 
     await waitFor(() => expect(mocks.finalize).toHaveBeenCalled());
@@ -1310,7 +1603,7 @@ describe('keyboard: the customer box (the reported defect)', () => {
     await waitFor(() =>
       expect(useBillingStore.getState().drafts[0]?.header.customer_id).toBe('c-2'),
     );
-    expect(screen.getByText('Rakesh Transport')).toBeInTheDocument();
+    expect(bill().getByText('Rakesh Transport')).toBeInTheDocument();
   });
 
   it('moves focus to Mechanic Name once a customer is chosen', async () => {
@@ -1419,7 +1712,7 @@ describe('keyboard: the customer box (the reported defect)', () => {
     ).toBeInTheDocument();
 
     // `MATCHES[1]` was highlighted, so it is the one that got attached.
-    expect(screen.getByText(MATCHES[1]!.name)).toBeInTheDocument();
+    expect(bill().getByText(MATCHES[1]!.name)).toBeInTheDocument();
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
@@ -1489,7 +1782,7 @@ describe('keyboard: the customer box (the reported defect)', () => {
     const user = userEvent.setup();
     await openList(user);
     await user.keyboard('{Enter}');
-    await screen.findByText('Rakesh Motors');
+    await bill().findByText('Rakesh Motors');
 
     const change = screen.getByRole('button', { name: /Change/ });
     change.focus();

@@ -90,7 +90,12 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
   const errorId = `${inputId}-error`;
 
   return (
-    <div className="flex flex-col gap-1">
+    // `min-w-0` so the field can shrink inside a grid or flex column. Without it an
+    // input keeps its intrinsic width — the browser's default `min-width: auto` — and
+    // three bills side by side pushed Vehicle Number and the date clean off the right
+    // edge of their column. Nothing changes where there is room, which is every other
+    // screen.
+    <div className="flex min-w-0 flex-col gap-1">
       {/* Always a real label. A placeholder is not a label — it disappears exactly
           when someone needs it. */}
       <label htmlFor={inputId} className="text-sm font-medium text-slate-700">
@@ -102,7 +107,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
         aria-invalid={error ? true : undefined}
         aria-describedby={classes(hint && hintId, error && errorId) || undefined}
         className={classes(
-          'min-h-11 rounded border px-3 text-base',
+          'min-h-11 w-full min-w-0 rounded border px-3 text-base',
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#232852]',
           error ? 'border-red-600' : 'border-slate-300',
           className,

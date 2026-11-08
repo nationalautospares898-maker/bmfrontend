@@ -254,7 +254,18 @@ test.describe('the billing workflow, keyboard only', () => {
     await page.keyboard.press('Enter');
 
     // The chosen customer is on the bill...
-    await expect(page.getByText('Keyboard Motors')).toBeVisible();
+    //
+    // Scoped to the bill's own column, because the name is deliberately in two places
+    // now: the workspace shows three bills at a time and each tab carries the customer
+    // it is for, which is how a cashier finds the third of fifteen open bills. Both
+    // are asserted — the duplication is the feature, not an accident.
+    const bill = page.getByRole('region').first();
+    await expect(bill.getByText('Keyboard Motors')).toBeVisible();
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Open bills' })
+        .getByRole('button', { name: 'Keyboard Motors', exact: true }),
+    ).toBeVisible();
     // ...and focus has moved on by itself. This is the heart of the complaint.
     await expect(page.getByLabel(/Mechanic Name/)).toBeFocused();
 
@@ -399,10 +410,19 @@ test.describe('the billing workflow, keyboard only', () => {
 
     // Backwards through the header, one field per press, in the reverse of the order a
     // cashier fills them.
+    //
+    // `Advance Received` is in that order now. It moved into the header when the
+    // workspace became three bills wide — it sits where the shop's name used to, which
+    // the owner asked for — so it is between Mechanic Name and Customer Name both
+    // visually and in the tab order. Those two agreeing is the thing worth asserting:
+    // a keyboard order that disagrees with the reading order is how a cashier ends up
+    // typing a registration number into an amount.
     await page.keyboard.press('Shift+Tab');
     expect((await focused(page)).label).toMatch(/Vehicle Number/);
     await page.keyboard.press('Shift+Tab');
     expect((await focused(page)).label).toMatch(/Mechanic Name/);
+    await page.keyboard.press('Shift+Tab');
+    expect((await focused(page)).label).toMatch(/Advance Received/);
     await page.keyboard.press('Shift+Tab');
     expect((await focused(page)).label).toMatch(/Customer Name/);
   });
@@ -443,7 +463,11 @@ test.describe('the billing workflow, keyboard only', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByLabel(/Mechanic Name/)).toBeFocused();
 
-    // Reach `Change` backwards and press it with the keyboard.
+    // Reach `Change` backwards and press it with the keyboard. Two presses, because
+    // `Advance Received` is between Mechanic Name and the customer block in the
+    // header's order — see the Shift+Tab test above.
+    await page.keyboard.press('Shift+Tab');
+    expect((await focused(page)).label).toMatch(/Advance Received/);
     await page.keyboard.press('Shift+Tab');
     expect((await focused(page)).label).toMatch(/Change/);
     await page.keyboard.press('Enter');

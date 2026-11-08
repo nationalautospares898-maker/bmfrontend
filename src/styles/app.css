@@ -51,3 +51,289 @@ body {
 #print-root {
   display: none;
 }
+
+/* --- the three-bill workspace ------------------------------------------------
+ *
+ * Three bills side by side have a third of the width each, and the counter monitor is
+ * 1366x768 — so the same controls that are comfortable on a full-width screen no longer
+ * fit. The owner reported it as "I can only see the bill properly at 75–80% zoom": the
+ * browser was being used as a density control because the application had none.
+ *
+ * This is that density control. It is deliberately a **class on the workspace**, not a
+ * change to the primitives: every other screen — Stock, Customers, Daily Bills — keeps
+ * the large, standing-at-a-counter sizing that NFR-FE-UX-007 asks for, and only the
+ * billing columns are compressed to fit three across at 100% zoom.
+ *
+ * Nothing here is below the readability floor in §10. `--bill-font` is 13.5px against a
+ * 13px minimum for secondary text, the grid keeps 15px figures where money is read, and
+ * every control stays at least 34px tall — comfortably over the 24px WCAG 2.5.8 target
+ * and well clear of a mouse at a counter.
+ *
+ * Unlayered on purpose: Tailwind's utilities live in `@layer utilities`, and an
+ * unlayered rule beats a layered one whatever its specificity. That is what lets this
+ * relax `min-h-11` without editing `min-h-11` out of components that are also used
+ * full-width elsewhere.
+ */
+.bill-dense {
+  --bill-font: 0.84375rem; /* 13.5px */
+  --bill-control: 2.125rem; /* 34px */
+  font-size: var(--bill-font);
+}
+
+.bill-dense input:not([type='checkbox']),
+.bill-dense select,
+.bill-dense button {
+  min-height: var(--bill-control);
+  font-size: var(--bill-font);
+}
+
+/* The four actions stay a comfortable press: they end a sale, and they are the one
+   place where a mis-click costs money. */
+.bill-dense .bill-action {
+  min-height: 2.625rem; /* 42px */
+  font-size: 0.875rem;
+}
+
+/* The money columns stay at full reading size — the figures are what the customer is
+   being told, and shrinking those to gain a few pixels is the wrong trade. */
+.bill-dense .bill-amount {
+  font-size: 0.9375rem; /* 15px */
+}
+
+/* Labels above the header fields. Small, because the field below them is the content. */
+.bill-dense label {
+  font-size: 0.75rem; /* 12px */
+}
+
+/*
+ * A cell's own height is what decides how many rows fit, and rows on screen is the
+ * thing the owner asked for: a third of a counter monitor showed four.
+ *
+ * ~29px a row puts six on screen with a seventh peeking, which is what their sheet
+ * looks like. It is **below** the 40px target size in §10 and that is deliberate and
+ * bounded: a spreadsheet row is not a button, every cell here is reached by `Tab` and
+ * the arrows as the primary path (§10's real requirement — keyboard-only billing), and
+ * the four controls that end a sale keep their own comfortable 42px through
+ * `.bill-action`. It clears WCAG 2.5.8's 24px minimum with room to spare.
+ */
+.bill-dense .bill-grid td,
+.bill-dense .bill-grid th {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+
+.bill-dense .bill-grid input,
+.bill-dense .bill-grid [data-cell] {
+  min-height: 1.5rem; /* 24px — a grid row, not a form control */
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* The row's remove control. Without this the 34px floor set for form controls above
+   applies to it too and *it* becomes what decides the row height — the rows stayed tall
+   no matter what the cells did, because the tallest thing in the row was the `×`. */
+.bill-dense .bill-grid button {
+  min-height: 1.5rem;
+}
+
+/* --- the four actions in a narrow column --------------------------------------
+ *
+ * `Clear Draft Ctrl+Shift+Backspace` is wider than a third of a counter monitor, so
+ * side by side the label wrapped onto two lines and the shortcut chip hung outside the
+ * button. Stacking the two puts the words on their own line and the shortcut beneath
+ * them, which is also how the owner drew it.
+ *
+ * **The shortcut is still never the only affordance** (§10, OD-14): the label is first,
+ * full size, and the chip is an addition underneath it. Nothing about the button's
+ * markup or its accessible name changes — this is the same `<span>` and `<kbd>` the
+ * primitive has always rendered, laid out differently.
+ */
+.bill-dense .bill-action {
+  flex-direction: column;
+  gap: 0;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  line-height: 1.2;
+}
+
+.bill-dense .bill-action > span {
+  white-space: nowrap;
+}
+
+.bill-dense .bill-action kbd {
+  background: transparent;
+  padding: 0;
+  font-size: 0.625rem; /* 10px — a reminder, not a label */
+  opacity: 0.85;
+}
+
+/* --- the bill grid's scrollbar ------------------------------------------------
+ *
+ * Hidden, and **only** hidden: the region still scrolls with the wheel, with a
+ * trackpad, with the arrow keys and by focus. Nothing about `overflow: auto` changes —
+ * this removes the bar's painted width, which on a counter monitor is a strip of
+ * roughly fifteen pixels taken out of the Item column of all three bills at once, and
+ * the owner asked for that space back.
+ *
+ * Scoped to the grid, deliberately. Every other scrolling region in the application —
+ * Stock, Customers, Daily Bills, the suggestion lists — keeps its bar, because those
+ * are lists whose length is not otherwise visible and the bar is the only thing saying
+ * how much more there is. The grid is different: its rows are numbered, so `12` at the
+ * bottom of the screen already says what a scrollbar would, and the cashier gets there
+ * with `Enter` rather than by dragging.
+ */
+.bill-grid-scroll {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
+}
+
+.bill-grid-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* --- the names above the header fields ----------------------------------------
+ *
+ * One weight, one size, for every one of them.
+ *
+ * They were not. `Customer Name`, `Mechanic Name`, `Vehicle Number` and `Advance
+ * Received` are rendered by `Field`, which draws a `<label>`; `Date`, and `Customer
+ * Name` once a saved customer is attached, have no form control to point at and are
+ * drawn as a `<span>`. The density rule above matched the element rather than the role,
+ * so the `<span>`s stayed a size larger than the labels beside them and the row read as
+ * though two of its headings mattered more than the others.
+ *
+ * Bold, because the owner asked: these are the headings of the bill, and on their own
+ * sheet they are the bold words above each blank.
+ */
+.bill-dense .bill-header label,
+.bill-dense .bill-header .bill-label {
+  font-size: 0.75rem; /* 12px */
+  font-weight: 700;
+  line-height: 1.3;
+  color: #232852;
+}
+
+/* --- the bill header is a FIXED height, whatever is on the bill ----------------
+ *
+ * This is the rule, and it is here because breaking it caused the same visible defect
+ * four separate times: one bill's `ESTIMATE` and grid sitting higher or lower than the
+ * two columns beside it. Three bills are side by side, so **anything in the header that
+ * appears for one bill and not another moves that bill's grid out of line with its
+ * neighbours.**
+ *
+ * There were five such things — a hint shown only before a customer is chosen, a
+ * duplicate-customer warning, a failed-save message for the customer, another for the
+ * mechanic, and a chosen-customer block six pixels shorter than the box it replaced.
+ * Each was individually reasonable and collectively they made the header a different
+ * height on almost every bill.
+ *
+ * Two mechanisms keep it fixed, and any new header content must use one of them:
+ *
+ * * `.bill-static-field` — something that *replaces* a control keeps the control's
+ *   height.
+ * * `.bill-floating-note` — something that only sometimes has anything to say is taken
+ *   out of the flow and floated under its field, the way the suggestion lists already
+ *   are. It is opaque and above the content, so it is read rather than merged into it.
+ *
+ * Neither hides anything. Every message still appears, in the same place, for the same
+ * reasons; none of them moves the bill underneath it.
+ */
+.bill-dense .bill-static-field {
+  min-height: var(--bill-control);
+}
+
+/*
+ * A control *inside* a static field must not be what decides its height.
+ *
+ * `Change` is a button, so the 34px floor every form control gets above applied to it
+ * too — and a 34px button inside a bordered box makes the box 36px, two pixels taller
+ * than the input it stands in for. Two pixels is all it took: the bill with a customer
+ * chosen sat two pixels out of line with the two beside it.
+ */
+.bill-dense .bill-static-field button {
+  min-height: 1.5rem;
+}
+
+.bill-dense .bill-floating-note {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  width: 100%;
+  margin-top: 0.125rem;
+  border-radius: 0.25rem;
+  border: 1px solid currentColor;
+  background: #fff;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.6875rem; /* 11px */
+  line-height: 1.3;
+}
+
+/* --- the grid's columns scale with the bill ------------------------------------
+ *
+ * Two sets of widths, chosen by how wide **this bill's column** is — a container
+ * query, not a viewport one, because the answer depends on whether three bills are
+ * sharing the screen and not on how big the screen is.
+ *
+ * Fixed pixels alone were right for three bills across a counter monitor and wrong for
+ * one bill across the whole of it: `Qty`, `Price`, `Total` and the remove control
+ * stayed pinned at their narrow sizes and huddled against the right edge while `Item`
+ * swallowed every spare pixel — the owner's "keep some gap in the right side columns".
+ * Percentages alone fail at the other end, where 7% of a 320px column is 22px and a
+ * quantity does not fit in it.
+ *
+ * So: lengths below the threshold, shares above it. `Item` is the column with no width
+ * of its own in both cases, so it absorbs the remainder — a part name is the only
+ * thing here that is ever long.
+ *
+ * **Plain lengths and percentages only.** The obvious one-liner, `width: max(2.75rem,
+ * 4%)`, parses and is then ignored: a fixed-layout table reads a column's specified
+ * width and Chromium does not resolve the `max()` family there. Every column came out
+ * the same width and the rule looked as though it had never been written. Measured, not
+ * assumed — see the widths asserted in the e2e check.
+ */
+.bill-grid col.bill-col-serial {
+  width: 2.75rem;
+}
+.bill-grid col.bill-col-qty {
+  width: 2.5rem;
+}
+.bill-grid col.bill-col-price {
+  width: 3.5rem;
+}
+.bill-grid col.bill-col-total {
+  width: 4rem;
+}
+.bill-grid col.bill-col-tick {
+  width: 1.75rem;
+}
+.bill-grid col.bill-col-remove {
+  width: 1.5rem;
+}
+
+/*
+ * Roomy enough that the figures should breathe: one bill across the screen, or two.
+ * 44rem is comfortably above a third of a 1600px monitor (~33rem) and below a half of
+ * one (~50rem), so three bills keep the tight widths and one or two do not.
+ */
+@container bill (min-width: 44rem) {
+  .bill-grid col.bill-col-serial {
+    width: 5%;
+  }
+  .bill-grid col.bill-col-qty {
+    width: 7%;
+  }
+  .bill-grid col.bill-col-price {
+    width: 10%;
+  }
+  .bill-grid col.bill-col-total {
+    width: 11%;
+  }
+  .bill-grid col.bill-col-tick {
+    width: 5%;
+  }
+  .bill-grid col.bill-col-remove {
+    width: 4%;
+  }
+}

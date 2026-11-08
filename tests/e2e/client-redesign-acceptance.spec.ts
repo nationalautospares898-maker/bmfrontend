@@ -213,18 +213,27 @@ async function addStock(
 }
 
 /** Put a product on the active bill through the Item cell, as a cashier would. */
-async function addToBill(page: Page, name: string, row = 1): Promise<void> {
-  const cell = page.getByLabel(`Item, row ${row}`, { exact: true });
+/**
+ * Put a product on one bill.
+ *
+ * `column` says **which** bill. The workspace shows three at a time and every one of
+ * them has a row 1, so an unscoped `Item, row 1` is ambiguous the moment a second bill
+ * is open -- and ambiguous in the worst way, because it would quietly resolve to
+ * whichever column happened to be leftmost. Each column is a labelled `region`.
+ */
+async function addToBill(page: Page, name: string, row = 1, column = 0): Promise<void> {
+  const bill = page.getByRole('region').nth(column);
+  const cell = bill.getByLabel(`Item, row ${row}`, { exact: true });
   await cell.click();
   await cell.fill(name.slice(0, 12));
-  await expect(page.getByRole('listbox')).toBeVisible({ timeout: 15_000 });
-  await page
+  await expect(bill.getByRole('listbox')).toBeVisible({ timeout: 15_000 });
+  await bill
     .getByRole('option', {
       name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
     })
     .first()
     .click();
-  await expect(page.getByLabel(`Quantity, row ${row}`, { exact: true })).toBeVisible({
+  await expect(bill.getByLabel(`Quantity, row ${row}`, { exact: true })).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -426,18 +435,26 @@ test.describe('the client redesign, end to end', () => {
 
     // A second bill, which must not navigate away from the workspace.
     await page.getByRole('button', { name: 'Start a new bill' }).click();
-    await expect(page.getByRole('table', { name: /Bill items/i })).toBeVisible();
-    await addToBill(page, second);
+    // Both bills are on screen at once now, so the second product goes on the second
+    // column rather than on whatever replaced the first.
+    await expect(page.getByRole('region')).toHaveCount(2);
+    await addToBill(page, second, 1, 1);
     await expect(tabs.getByRole('button', { name: second, exact: true })).toBeVisible({
       timeout: 15_000,
     });
 
-    // Switch back: the first bill still holds its own item, not the second's.
+    // Each bill holds its own item and not the other's -- which no longer needs a tab
+    // switch to see, so it is asserted on both columns side by side.
+    const firstBill = page.getByRole('region').nth(0);
+    const secondBill = page.getByRole('region').nth(1);
+    await expect(firstBill.getByText(first).first()).toBeVisible();
+    await expect(firstBill.getByText(second)).toHaveCount(0);
+    await expect(secondBill.getByText(second).first()).toBeVisible();
+    await expect(secondBill.getByText(first)).toHaveCount(0);
+
+    // And choosing a bill from the tabs brings it to the leftmost column.
     await tabs.getByRole('button', { name: first, exact: true }).click();
-    await expect(page.getByText(first).first()).toBeVisible();
-    await expect(
-      page.getByRole('table', { name: /Bill items/i }).getByText(second),
-    ).toHaveCount(0);
+    await expect(page.getByRole('region').nth(0).getByText(first).first()).toBeVisible();
 
     // Closing a tab with items on it warns rather than discarding.
     await tabs.getByRole('button', { name: `Close ${first}` }).click();

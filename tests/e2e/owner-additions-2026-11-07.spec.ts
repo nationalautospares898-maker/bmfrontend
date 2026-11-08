@@ -356,7 +356,11 @@ async function sellNewZeroStockProduct(
     customer = unique();
     await page.getByLabel(/Customer Name/).fill(customer);
     await page.getByRole('button', { name: /Save as a new customer/ }).click();
-    await expect(page.getByText(customer)).toBeVisible({ timeout: 15_000 });
+    // Scoped to the bill's own column: the tab carries the customer's name too, which
+    // is how a cashier picks one bill out of fifteen. Two matches is the feature.
+    await expect(page.getByRole('region').first().getByText(customer)).toBeVisible({
+      timeout: 15_000,
+    });
   }
 
   const actionButton =
@@ -527,10 +531,13 @@ test('an advance on a credit bill leaves the total alone and reduces the outstan
   const customer = unique();
   await page.getByLabel(/Customer Name/).fill(customer);
   await page.getByRole('button', { name: /Save as a new customer/ }).click();
-  await expect(page.getByText(customer)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('region').first().getByText(customer)).toBeVisible({
+    timeout: 15_000,
+  });
 
-  // The advance.
-  await page.getByLabel(/Advance received/).fill('200');
+  // The advance. Capitalised as the owner asked for it when the field moved into the
+  // bill's header, where the shop's name used to be.
+  await page.getByLabel(/Advance Received/).fill('200');
   await expect(page.getByText(/The bill total stays/)).toBeVisible();
 
   await page

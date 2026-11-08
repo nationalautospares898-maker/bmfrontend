@@ -656,7 +656,22 @@ test.describe('I. the application is the shop, not a demo', () => {
     const shopName = bootstrap.body.business.display_name;
     expect(shopName, 'the server has no shop name at all').toBeTruthy();
 
-    const heading = page.locator('h2', { hasText: shopName }).first();
+    /**
+     * **One heading, and it is the shell's.**
+     *
+     * The billing workspace used to draw the shop's name again above its own columns,
+     * as an `h2`. With three bills on screen that was a second `NATIONAL AUTO SPARES`
+     * on the same page as the shell's, and the owner asked for the inner one to go
+     * (2026-11-08). So this now asserts what the rule was always for — the name is
+     * configured, comes from one source, and reaches both surfaces — plus the thing
+     * the owner actually complained about: that there is exactly **one** of it.
+     */
+    const headings = page.getByRole('heading', { name: shopName, exact: true });
+    await expect(
+      headings,
+      'the shop heading should appear exactly once on the billing screen',
+    ).toHaveCount(1);
+    const heading = headings.first();
     await expect(heading, 'the shop heading is not on the billing screen').toBeVisible();
     expect((await heading.innerText()).trim()).toBe(shopName);
 

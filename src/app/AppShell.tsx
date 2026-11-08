@@ -70,7 +70,7 @@ import type { Bootstrap } from '@/api/types';
 import type { MoneyPolicy } from '@/lib/money';
 import { Busy, Button, Field, Panel, StatusDot } from '@/components/primitives';
 import { navigateWithArrows } from '@/lib/keyboard';
-import { AUTH, COMMON, ERRORS, NAV, OFFLINE } from '@/lib/strings';
+import { APP, AUTH, COMMON, ERRORS, NAV, OFFLINE } from '@/lib/strings';
 import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
 import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
@@ -373,12 +373,39 @@ export function AppShell() {
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-slate-300 px-4 py-2">
         <div>
-          <h1 className="text-lg font-semibold text-[#232852]">National Auto Spares</h1>
-          {/* Who is signed in, and nothing else. The counter name used to be appended
-              here; on a one-computer shop "Counter 1" told the owner nothing they did
-              not know and was the last place the withdrawn feature still showed. */}
+          {/*
+            The shop's name, **as configured**, and the only place it appears.
+
+            It is read from `/sync/bootstrap` — the same `businesses` row the printed
+            bill's payload comes from — so the screen and the paper cannot disagree and
+            neither invents a value the owner has not supplied (OD-4, FR-PRINT-016).
+
+            The billing screen briefly drew it a second time above its three columns.
+            The owner saw two of them and asked for the inner one to go; it has. This is
+            the outer one.
+
+            The build's own title is the fallback and nothing else is: it is what
+            `index.html` and the web manifest already say, so a profile that has not
+            loaded yet shows the name the browser tab is already showing rather than a
+            blank heading — and `page-has-heading-one` needs a heading with text in it.
+          */}
+          <h1 className="text-lg font-semibold text-[#232852]">
+            {bootstrap?.business?.display_name || APP.name}
+          </h1>
+          {/*
+            Who is signed in.
+
+            The role is appended **only when it says something the name does not**. The
+            owner's account is called `Owner` and holds the role `owner`, so this read
+            `Owner · owner` — a line that repeats itself and tells nobody anything. A
+            cashier called Ravi still reads `Ravi · cashier`, which is the case the line
+            was put here for.
+          */}
           <p className="text-xs text-slate-500">
-            {session.fullName} · {session.role}
+            {session.fullName}
+            {session.role.toLowerCase() === session.fullName.trim().toLowerCase()
+              ? ''
+              : ` · ${session.role}`}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -466,11 +493,6 @@ export function AppShell() {
                   canOverridePrice={canOverridePrice}
                   canOverrideOversell={canOverrideOversell}
                   canCreateProduct={canCreateProduct}
-                  // The shop's own heading, read from the server's `businesses` row — the
-                  // same source the printed bill's payload uses — so the screen and the
-                  // paper cannot disagree, and neither invents a value the owner has not
-                  // supplied (OD-4).
-                  business={bootstrap.business}
                   businessDate={bootstrap.business_date}
                   onSynced={() => scheduler.notifyMutation()}
                   onOpenDailyBills={
@@ -578,7 +600,9 @@ function LoginScreen({
 
   return (
     <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
-      <h1 className="text-xl font-semibold text-[#232852]">National Auto Spares</h1>
+      {/* No session yet, so there is no configured profile to read: this is the
+          build's own name, the same one in `index.html` and the manifest. */}
+      <h1 className="text-xl font-semibold text-[#232852]">{APP.name}</h1>
 
       <UpdateBanner />
 

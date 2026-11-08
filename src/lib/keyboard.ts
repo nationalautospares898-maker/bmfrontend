@@ -79,14 +79,22 @@ function isTypingContext(target: EventTarget | null): boolean {
  * runs *after* the commit, so the element is guaranteed to be there and nothing has to
  * be guessed. `CustomerPicker` does exactly that.
  *
+ * **`root` scopes the lookup to one bill.** The workspace shows three bills side by
+ * side, and every one of them has a `[data-bill-field="vehicle"]` and a
+ * `[data-cell="0-item"]`. A document-wide `querySelector` returns the *first* of them,
+ * which is whichever bill happens to be leftmost — so a cashier filling the middle bill
+ * had the caret thrown into the left one. Passing the panel element keeps a hand-off
+ * inside the bill that asked for it; omitting it is still correct wherever only one of
+ * something exists.
+ *
  * This is deliberately a *hand-off* and takes focus unconditionally — it only ever runs
  * as the direct result of a keystroke or click the user made, which is exactly when
  * moving focus is wanted. The other direction, where code wants focus for its own reasons
  * and must not take it from someone mid-word, is `isUserTyping` below.
  */
-export function focusOnNextFrame(selector: string): void {
+export function focusOnNextFrame(selector: string, root?: ParentNode | null): void {
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(selector)?.focus();
+    (root ?? document).querySelector<HTMLElement>(selector)?.focus();
   });
 }
 

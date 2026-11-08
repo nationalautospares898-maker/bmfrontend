@@ -206,7 +206,7 @@ export function MechanicPicker({
   }
 
   return (
-    <div className="relative flex flex-col gap-1">
+    <div className="relative flex min-w-0 flex-col gap-1">
       <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
         {BILLING.headerMechanic}
       </label>
@@ -225,7 +225,7 @@ export function MechanicPicker({
         // The hand-off target `CustomerPicker` focuses after a customer is chosen.
         // Choosing one unmounts its search box, so focus has to be placed deliberately.
         data-bill-field="mechanic"
-        className="min-h-11 rounded border border-slate-300 px-3"
+        className="min-h-11 w-full min-w-0 rounded border border-slate-300 px-3"
         onChange={(event) => {
           setTerm(event.target.value);
           setOpen(true);
@@ -296,7 +296,7 @@ export function MechanicPicker({
       {saveFailed ? (
         // Quiet and non-blocking: the name is on the bill regardless, and this only
         // reports that the convenience of a suggestion next time was lost.
-        <p className="text-xs text-amber-700">{BILLING.mechanicSaveFailed}</p>
+        <p className="bill-floating-note text-amber-700">{BILLING.mechanicSaveFailed}</p>
       ) : null}
     </div>
   );
