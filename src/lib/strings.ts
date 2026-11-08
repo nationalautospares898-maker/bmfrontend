@@ -187,6 +187,18 @@ export const BILLING = {
   // `catalog.write`. See `ItemCell`'s docstring for why it is gated that tightly.
   addMissingItem: 'Add New Item to Stock',
   addMissingItemNoMatch: (name: string) => `Nothing in stock matches “${name}”.`,
+  /**
+   * Shown when the search **did** return something, but nothing that is actually the
+   * part the cashier typed.
+   *
+   * This is the `Damage Filter` / `Diesel Filter` case the owner reported: the two share
+   * enough trigrams for a fuzzy match, so the list is not empty, and the old copy
+   * ("Nothing in stock matches") would have been a lie while the only offer on screen
+   * was the wrong part. Naming what was typed is the whole point — the cashier has to be
+   * able to see that the suggestion below is **not** it.
+   */
+  addMissingItemNotListed: (name: string) =>
+    `None of these is “${name}” — the matches above are only suggestions.`,
   addMissingItemTitle: 'Add a new item to stock',
   /** Creating a catalogue entry never records a delivery or changes inventory. */
   addMissingItemIntro:
@@ -595,24 +607,40 @@ export const AMEND = {
    *
    * Cancellation has not gone away (owner Decision C) — it is the right answer when a
    * sale should not have happened at all. It just has its own honest name now.
+   *
+   * **Renamed again to `Delete Bill`** (2026-11-08), because the owner asked for "a
+   * delete bill option in Daily Bills" and this *is* that option — they could not find
+   * it under `Cancel & Re-bill`, which reads like a promise that a replacement bill is
+   * compulsory (it is not: `cancelOnly` has always been there).
+   *
+   * **Nothing about the operation changed.** There is no hard delete, no new endpoint
+   * and no second cancellation path: this is still the one `POST /invoices/{id}:cancel`
+   * behind `CancellationService`, which reverses the stock, cancels what a credit
+   * customer owes, and leaves the invoice in the list marked cancelled. `invoices` has
+   * no `DELETE` grant and `stock_movements` is append-only, so a financial record cannot
+   * be erased even deliberately — which is why the word *delete* is paired everywhere
+   * below with what actually happens. A button the owner can find, in front of the safe
+   * operation, beats a correctly-named button they never press.
    */
-  action: 'Cancel & Re-bill',
-  title: 'Cancel this bill and re-bill',
-  howItWorksTitle: 'This cancels the bill rather than changing it',
+  action: 'Delete Bill',
+  title: 'Delete this bill',
+  howItWorksTitle: 'The bill is cancelled and kept in the record — never erased',
   howItWorks:
-    'This is for a sale that should not have happened. The bill is cancelled and a new ' +
-    'one is made in its place: cancelling puts the stock back and, for a credit bill, ' +
-    'cancels what the customer owes. The old bill keeps its reference and stays in the ' +
-    'list, marked cancelled. To change what is **on** a bill instead — quantities, ' +
+    'This is for a sale that should not have happened. Deleting the bill puts the stock ' +
+    'back and, for a credit bill, cancels what the customer owes. The bill itself stays ' +
+    'in the list marked cancelled, because a bill that was once issued is a permanent ' +
+    'record and this system cannot erase one — you can start a replacement bill at the ' +
+    'same time if you need to. To change what is **on** a bill instead — quantities, ' +
     'prices, the mechanic — use Edit Bill, which keeps the one bill and records what it ' +
     'said before.',
   originalBill: 'What is on this bill now',
   billTotal: 'Bill total',
-  reason: 'Why is this bill being corrected?',
+  reason: 'Why is this bill being deleted?',
   reasonHint: 'Kept as a permanent record. At least a few words.',
-  cancelAndRebuild: 'Cancel it and start the new bill',
-  cancelOnly: 'Just cancel it',
-  cancelledTitle: 'Bill cancelled',
+  cancelAndRebuild: 'Delete it and start a replacement bill',
+  /** The owner's "just get rid of it" path. It was always here; now it is findable. */
+  cancelOnly: 'Just delete it',
+  cancelledTitle: 'Bill deleted',
   cancelledBody:
     'The stock has been put back and the bill is marked cancelled. It keeps its number ' +
     'and stays in the list.',

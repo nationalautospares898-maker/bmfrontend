@@ -926,7 +926,7 @@ describe('Credit Bills shows what was actually bought on each bill', () => {
 
 // --- correcting a finalised bill -----------------------------------------------
 
-describe('Cancel & Re-bill reverses a sale that should not have happened', () => {
+describe('Delete Bill reverses a sale that should not have happened', () => {
   /**
    * **Updated 2026-11-07.** This block used to be called "Edit Bill corrects by
    * cancelling and re-billing, never by editing", because OD-10 said "there is no edit
@@ -974,7 +974,7 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     render(<DailyBills policy={POLICY} />);
     await screen.findByText('C1');
     expect(
-      screen.queryByRole('button', { name: 'Cancel & Re-bill' }),
+      screen.queryByRole('button', { name: 'Delete Bill' }),
     ).not.toBeInTheDocument();
   });
 
@@ -983,22 +983,23 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     render(<DailyBills policy={POLICY} canCancel />);
     await screen.findByText('Cancelled');
     expect(
-      screen.queryByRole('button', { name: 'Cancel & Re-bill' }),
+      screen.queryByRole('button', { name: 'Delete Bill' }),
     ).not.toBeInTheDocument();
   });
 
-  it('says this cancels rather than changes, and shows what is on the bill', async () => {
-    // The wording changed with the action's name. It used to say "a printed bill cannot
-    // be changed", which was true under OD-10 and is not any more — a bill *can* be
-    // changed, via Edit Bill. What this dialog has to make clear now is that it does
-    // something different: it cancels.
+  it('says the bill is kept as cancelled rather than erased, and shows what is on it', async () => {
+    // The wording changed with the action's name, twice. It used to say "a printed bill
+    // cannot be changed", which was true under OD-10 and is not any more — a bill *can*
+    // be changed, via Edit Bill. Now the button says `Delete Bill`, which is the word the
+    // owner asked for, so the one thing this dialog must not let them believe is that a
+    // financial record was destroyed: it was cancelled, and it stays in the list.
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
 
-    expect(
-      await screen.findByText(/cancels the bill rather than changing it/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/kept in the record — never erased/i)).toBeInTheDocument();
+    // Said in full in the body too: stock back, credit cleared, bill still listed.
+    expect(await screen.findByText(/stays in the list marked cancelled/i)).toBeInTheDocument();
     // And it points at the other action, so the operator who wanted an edit can find it.
     expect(await screen.findByText(/use Edit Bill/i)).toBeInTheDocument();
     // The original contents, so the operator can see what they are replacing.
@@ -1008,26 +1009,26 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
   it('refuses to cancel without a reason of real substance', async () => {
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
     await screen.findByText('Brake Shoe Set Ace');
 
-    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Just delete it' })).toBeDisabled();
     await user.type(screen.getByLabelText(/Why is this bill/), 'oops');
-    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Just delete it' })).toBeDisabled();
     await user.type(screen.getByLabelText(/Why is this bill/), ' wrong item entirely');
-    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Just delete it' })).toBeEnabled();
   });
 
   it('cancels through the real endpoint, with a reason and an idempotency key', async () => {
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
       'customer wanted one more',
     );
-    await user.click(screen.getByRole('button', { name: 'Just cancel it' }));
+    await user.click(screen.getByRole('button', { name: 'Just delete it' }));
 
     await waitFor(() => expect(cancel).toHaveBeenCalled());
     const [invoiceId, reason, key] = cancel.mock.calls[0] as [string, string, string];
@@ -1041,14 +1042,14 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     const rebuild = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel onRebuild={rebuild} />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
       'customer wanted one more',
     );
     await user.click(
-      screen.getByRole('button', { name: /Cancel it and start the new bill/ }),
+      screen.getByRole('button', { name: /Delete it and start a replacement bill/ }),
     );
 
     await waitFor(() => expect(rebuild).toHaveBeenCalled());
@@ -1077,14 +1078,14 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     const rebuild = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel onRebuild={rebuild} />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
       'customer wanted one more',
     );
     await user.click(
-      screen.getByRole('button', { name: /Cancel it and start the new bill/ }),
+      screen.getByRole('button', { name: /Delete it and start a replacement bill/ }),
     );
 
     await waitFor(() => expect(cancel).toHaveBeenCalled());
@@ -1107,7 +1108,7 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     });
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     await user.type(
       screen.getByLabelText(/Why is this bill/),
@@ -1115,11 +1116,11 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     );
 
     // Blocked until acknowledged, even with a good reason.
-    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Just delete it' })).toBeDisabled();
     expect(screen.getByText(/does not record cash going out/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('checkbox'));
-    expect(screen.getByRole('button', { name: 'Just cancel it' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Just delete it' })).toBeEnabled();
   });
 
   it('refetches the day after a cancellation rather than adjusting it locally', async () => {
@@ -1127,7 +1128,7 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
     // every one of them is the server's to compute (FR-RPT-030).
     const user = userEvent.setup();
     render(<DailyBills policy={POLICY} canCancel />);
-    await user.click(await screen.findByRole('button', { name: 'Cancel & Re-bill' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
     await screen.findByText('Brake Shoe Set Ace');
     const callsBefore = dailySales.mock.calls.length;
 
@@ -1135,7 +1136,7 @@ describe('Cancel & Re-bill reverses a sale that should not have happened', () =>
       screen.getByLabelText(/Why is this bill/),
       'customer wanted one more',
     );
-    await user.click(screen.getByRole('button', { name: 'Just cancel it' }));
+    await user.click(screen.getByRole('button', { name: 'Just delete it' }));
 
     await waitFor(() =>
       expect(dailySales.mock.calls.length).toBeGreaterThan(callsBefore),

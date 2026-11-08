@@ -461,3 +461,161 @@ describe('the packing tick', () => {
     expect(screen.getByRole('checkbox', { name: /AXEL PACKING/i })).not.toBeChecked();
   });
 });
+
+// --- the `Damage Filter` / `Diesel Filter` case (owner report, 2026-11-08) -----
+//
+// The owner typed `Damage Filter`, the catalogue answered with `Diesel Filter`, and two
+// things went wrong at once:
+//
+//   * `Diesel Filter` was pre-highlighted, so one press of `Enter` put a part the
+//     customer never asked for onto a real bill;
+//   * "Add New Item to Stock" switched itself off, because it was gated on the result
+//     list being *empty* — so there was no way to add the part that genuinely did not
+//     exist.
+//
+// They share one cause: the client threw away the server's `match.kind` and treated a
+// trigram neighbour exactly like a part code the cashier had typed the start of. These
+// tests pin both halves, and the positive cases that must not slow down.
+
+const DIESEL_FILTER = {
+  id: 'p-diesel',
+  name: 'DIESEL FILTER',
+  sku: 'DF-100',
+  unit: { code: 'NOS', name: 'Numbers', allows_fraction: false, decimal_places: 0 },
+  default_selling_price: '240',
+  is_active: true,
+  stock: null,
+  /** What `SEARCH_SQL`'s bottom tier returns: `similarity(search_text, …) * 40`. */
+  match: { kind: 'fuzzy', score: 18 },
+};
+
+describe('a merely-similar part is suggested, never chosen', () => {
+  it('does not highlight a fuzzy match, so Enter cannot put the wrong part on a bill', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [DIESEL_FILTER], page: {} });
+    const { onPick } = renderCell();
+
+    const cell = screen.getByLabelText(/Item, row 1/);
+    await user.type(cell, 'Damage Filter');
+    // The suggestion is on screen...
+    expect(await screen.findByText('DIESEL FILTER')).toBeInTheDocument();
+    // ...and nothing is armed under Enter.
+    expect(cell).not.toHaveAttribute('aria-activedescendant');
+
+    await user.keyboard('{Enter}');
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('still offers to create the part the cashier actually typed', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [DIESEL_FILTER], page: {} });
+    renderCell();
+
+    await user.type(screen.getByLabelText(/Item, row 1/), 'Damage Filter');
+
+    expect(
+      await screen.findByRole('button', { name: 'Add New Item to Stock' }),
+    ).toBeInTheDocument();
+    // And it says so in terms that cannot be mistaken for the suggestion above it.
+    expect(await screen.findByText(/None of these is “Damage Filter”/)).toBeInTheDocument();
+  });
+
+  it('Enter opens the create dialog when only suggestions came back', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [DIESEL_FILTER], page: {} });
+    const { onPick } = renderCell();
+
+    await user.type(screen.getByLabelText(/Item, row 1/), 'Damage Filter');
+    await screen.findByText('DIESEL FILTER');
+    await user.keyboard('{Enter}');
+
+    // The owner's keyboard-only path: type the name, press Enter, fill two fields.
+    expect(await screen.findByLabelText('Selling price')).toBeInTheDocument();
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('↓ then Enter does pick the suggestion — it is reachable, just not armed', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [DIESEL_FILTER], page: {} });
+    const { onPick } = renderCell();
+
+    await user.type(screen.getByLabelText(/Item, row 1/), 'Damage Filter');
+    await screen.findByText('DIESEL FILTER');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
+
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ productId: 'p-diesel', name: 'DIESEL FILTER' }),
+    );
+  });
+
+  it('clicking a suggestion still selects it', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({ items: [DIESEL_FILTER], page: {} });
+    const { onPick } = renderCell();
+
+    await user.type(screen.getByLabelText(/Item, row 1/), 'Damage Filter');
+    await user.click(await screen.findByText('DIESEL FILTER'));
+
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ productId: 'p-diesel' }),
+    );
+  });
+});
+
+describe('a part the cashier typed the start of is still chosen instantly', () => {
+  it('highlights a name-prefix match and Enter picks it', async () => {
+    // The speed requirement (FR-BILL-001). Nothing about the fix may add a keystroke to
+    // the 99% of searches that are a prefix of a real part.
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({
+      items: [{ ...DIESEL_FILTER, match: { kind: 'name_prefix', score: 60 } }],
+      page: {},
+    });
+    const { onPick } = renderCell();
+
+    const cell = screen.getByLabelText(/Item, row 1/);
+    await user.type(cell, 'DIES');
+    await screen.findByText('DIESEL FILTER');
+    expect(cell).toHaveAttribute('aria-activedescendant');
+
+    await user.keyboard('{Enter}');
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ productId: 'p-diesel' }),
+    );
+  });
+
+  it('does NOT offer to create a part whose name is already in the catalogue', async () => {
+    // The duplicate-protection half: an exact name means choose it, never add a second.
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({
+      items: [{ ...DIESEL_FILTER, match: { kind: 'name_prefix', score: 60 } }],
+      page: {},
+    });
+    renderCell();
+
+    await user.type(screen.getByLabelText(/Item, row 1/), 'Diesel Filter');
+
+    await waitFor(() => expect(mocks.search).toHaveBeenCalled());
+    await screen.findByText('DIESEL FILTER');
+    expect(
+      screen.queryByRole('button', { name: 'Add New Item to Stock' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does NOT offer to create when the typed text is an existing part code', async () => {
+    const user = userEvent.setup();
+    mocks.search.mockResolvedValue({
+      items: [{ ...DIESEL_FILTER, match: { kind: 'exact_sku', score: 100 } }],
+      page: {},
+    });
+    renderCell();
+
+    await user.type(screen.getByLabelText(/Item, row 1/), 'DF-100');
+
+    await screen.findByText('DIESEL FILTER');
+    expect(
+      screen.queryByRole('button', { name: 'Add New Item to Stock' }),
+    ).not.toBeInTheDocument();
+  });
+});

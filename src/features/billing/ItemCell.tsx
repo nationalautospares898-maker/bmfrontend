@@ -66,6 +66,66 @@ export interface SearchHit {
   stockAsOf: string | null;
   isActive: boolean;
   fromCache: boolean;
+  /**
+   * Which tier of `SEARCH_SQL` produced this row — `exact_sku`, `sku_prefix`,
+   * `name_prefix`, `alias_prefix` or `fuzzy`. `null` for a hit read from the offline
+   * cache, which is matched locally and carries no ranking.
+   *
+   * The server has always sent this and the client used to throw it away, which is how
+   * a trigram match came to be indistinguishable from an exact one.
+   */
+  matchKind: string | null;
+}
+
+/**
+ * Match tiers precise enough to stand under the cursor with `Enter` armed.
+ *
+ * Everything here is something the cashier **typed the beginning of**: an exact part
+ * code, a part-code prefix, a name prefix, an alias prefix. `fuzzy` is deliberately
+ * absent — it is trigram similarity, which is a fine way to *suggest* a part and a
+ * terrible way to *choose* one. `Damage Filter` and `Diesel Filter` share the trigrams
+ * of ` Filter`, so the owner typing the first got the second pre-selected and one press
+ * of `Enter` put the wrong part on a customer's bill.
+ */
+const CONFIDENT_MATCH_KINDS: ReadonlySet<string> = new Set([
+  'exact_sku',
+  'sku_prefix',
+  'name_prefix',
+  'alias_prefix',
+]);
+
+/** Case- and space-insensitive, so `  damage  filter ` and `Damage Filter` compare equal. */
+function compareKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Whether this hit is a safe thing to have highlighted when `Enter` is pressed.
+ *
+ * The server's own tier decides it where there is one. Cached hits have no tier, so they
+ * fall back to the same question asked locally: does this actually start with what was
+ * typed? A cached row that merely contains the text is a suggestion too.
+ */
+function isConfidentMatch(hit: SearchHit, query: string): boolean {
+  if (hit.matchKind !== null) return CONFIDENT_MATCH_KINDS.has(hit.matchKind);
+  const typed = compareKey(query);
+  if (typed === '') return false;
+  return (
+    compareKey(hit.name).startsWith(typed) ||
+    (hit.sku !== null && compareKey(hit.sku).startsWith(typed))
+  );
+}
+
+/**
+ * Where the highlight starts: on the first match only if that match is confident.
+ *
+ * `-1` means *nothing is highlighted*, which is the state that fixes the owner's bug.
+ * The suggestions are still right there and `↓` reaches them in one keystroke — they
+ * just are not armed under `Enter` before anybody has looked at them.
+ */
+function initialHighlight(hits: readonly SearchHit[], query: string): number {
+  const first = hits[0];
+  return first && isConfidentMatch(first, query) ? 0 : -1;
 }
 
 function fromProduct(product: Product): SearchHit {
@@ -80,6 +140,7 @@ function fromProduct(product: Product): SearchHit {
     stockAsOf: product.stock?.as_of ?? null,
     isActive: product.is_active,
     fromCache: false,
+    matchKind: product.match?.kind ?? null,
   };
 }
 
@@ -125,7 +186,8 @@ export function ItemCell({
 }: ItemCellProps) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
-  const [highlighted, setHighlighted] = useState(0);
+  /** `-1` = nothing highlighted, so `Enter` cannot pick a mere suggestion. */
+  const [highlighted, setHighlighted] = useState(-1);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usedCache, setUsedCache] = useState(false);
@@ -138,7 +200,17 @@ export function ItemCell({
    * while one is in flight — offering "Add New Item to Stock" in either of those states
    * would dangle it under the cell while results were still on their way.
    */
-  const [searchedEmpty, setSearchedEmpty] = useState(false);
+  /**
+   * A **server** search came back without an error.
+   *
+   * Replaces the old `searchedEmpty`, which was `items.length === 0` and therefore the
+   * reason the owner could not create `Damage Filter`: `Diesel Filter` came back as a
+   * fuzzy match, the list was not empty, and the one affordance for adding the part that
+   * genuinely did not exist switched itself off. Whether anything was found is a
+   * separate question from whether the catalogue was actually asked — and only the
+   * second one decides if creating is safe to offer.
+   */
+  const [searchCompleted, setSearchCompleted] = useState(false);
 
   const inFlight = useRef<AbortController | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,34 +232,35 @@ export function ItemCell({
         setHits([]);
         setOpen(false);
         setUsedCache(false);
-        setSearchedEmpty(false);
+        setSearchCompleted(false);
+        setHighlighted(-1);
         return;
       }
 
       if (!online) {
         const cached = await catalogCache.searchOffline(text);
-        setHits(
-          cached.map(({ product }) => ({
-            productId: product.id,
-            name: product.name,
-            sku: product.sku,
-            unitCode: product.unit_code,
-            allowsFraction: product.allows_fraction,
-            unitPrice: product.default_selling_price,
-            stock: product.branch_quantity,
-            stockAsOf: product.as_of,
-            isActive: product.is_active,
-            fromCache: true,
-          })),
-        );
-        setHighlighted(0);
+        const offline: SearchHit[] = cached.map(({ product }) => ({
+          productId: product.id,
+          name: product.name,
+          sku: product.sku,
+          unitCode: product.unit_code,
+          allowsFraction: product.allows_fraction,
+          unitPrice: product.default_selling_price,
+          stock: product.branch_quantity,
+          stockAsOf: product.as_of,
+          isActive: product.is_active,
+          fromCache: true,
+          matchKind: null,
+        }));
+        setHits(offline);
+        setHighlighted(initialHighlight(offline, text));
         setOpen(true);
         setUsedCache(true);
         setError(null);
-        // Never offered from the cache: "not in the copy saved on this computer" is not
-        // evidence that the catalogue lacks the part, and creating a duplicate of
-        // something that exists on the server is exactly the wrong outcome.
-        setSearchedEmpty(false);
+        // Creation is never offered from the cache: "not in the copy saved on this
+        // computer" is not evidence that the catalogue lacks the part, and creating a
+        // duplicate of something that exists on the server is exactly the wrong outcome.
+        setSearchCompleted(false);
         return;
       }
 
@@ -195,12 +268,16 @@ export function ItemCell({
       inFlight.current = controller;
       try {
         const result = await catalog.search(text, { signal: controller.signal });
-        setHits(result.items.map(fromProduct));
-        setHighlighted(0);
+        const found = result.items.map(fromProduct);
+        setHits(found);
+        // **Not always 0.** A confident match is armed under `Enter` exactly as before,
+        // so nothing slows down for the 99% of searches that are a prefix of a real
+        // part. A list of mere suggestions starts with no highlight at all.
+        setHighlighted(initialHighlight(found, text));
         setOpen(true);
         setUsedCache(false);
         setError(null);
-        setSearchedEmpty(result.items.length === 0);
+        setSearchCompleted(true);
       } catch (caught) {
         if (controller.signal.aborted) return;
         setError(
@@ -210,7 +287,7 @@ export function ItemCell({
         );
         // A failed search is not an empty catalogue. Offering to create here would
         // invite a duplicate of a part the server knows about perfectly well.
-        setSearchedEmpty(false);
+        setSearchCompleted(false);
       }
     },
     [online],
@@ -243,8 +320,32 @@ export function ItemCell({
    * nothing, from the **server** (not the offline cache), by someone who may create a
    * product, for a name they have actually typed.
    */
+  /**
+   * Does any hit actually **name** what was typed?
+   *
+   * This is the question that decides whether creating is still on offer. An exact name
+   * or part code means the part exists and must be chosen, not duplicated. Anything
+   * weaker — a prefix, a trigram neighbour — leaves "the part I typed" unaccounted for,
+   * so the offer stands alongside the suggestions.
+   */
+  const typedKey = compareKey(query);
+  const hasExactMatch =
+    typedKey !== '' &&
+    hits.some(
+      (hit) =>
+        compareKey(hit.name) === typedKey ||
+        (hit.sku !== null && compareKey(hit.sku) === typedKey),
+    );
+
   const offerCreate =
-    canCreateProduct && online && searchedEmpty && !usedCache && query.trim() !== '';
+    canCreateProduct &&
+    online &&
+    searchCompleted &&
+    !usedCache &&
+    typedKey !== '' &&
+    // **Not `hits.length === 0`.** See `searchCompleted`: a fuzzy neighbour used to
+    // suppress this and strand the owner with no way to add a genuinely new part.
+    !hasExactMatch;
 
   function pick(hit: SearchHit): void {
     onPick(hit);
@@ -274,10 +375,28 @@ export function ItemCell({
         return;
       }
       if (event.key === 'Enter') {
-        event.preventDefault();
-        const hit = hits[highlighted];
-        if (hit) pick(hit);
-        return;
+        // `highlighted` is `-1` when the list holds nothing but suggestions, and then
+        // `Enter` must not pick one. What it does instead depends on what is on offer:
+        //
+        //   * creation is available — take it. This is the owner's path: type
+        //     `Damage Filter`, press Enter, fill two fields, carry on billing, with
+        //     `Diesel Filter` sitting in the list untouched.
+        //   * creation is not available (offline, no `catalog.write`, a cached list) —
+        //     fall through to grid movement, so `Enter` still means "down a row" rather
+        //     than nothing at all.
+        //
+        // Either way a suggestion is only ever chosen by `↓` first, or by a click.
+        const hit = highlighted >= 0 ? hits[highlighted] : undefined;
+        if (hit) {
+          event.preventDefault();
+          pick(hit);
+          return;
+        }
+        if (offerCreate) {
+          event.preventDefault();
+          setCreating(true);
+          return;
+        }
       }
       if (event.key === 'Escape') {
         // Closes the list and keeps what was typed — the user may be mid-word.
@@ -405,7 +524,7 @@ export function ItemCell({
         aria-autocomplete="list"
         // Reports which match the arrows are standing on without moving focus out of
         // the cell — the other half of keeping the options off the tab order.
-        {...(open && hits.length > 0
+        {...(open && hits.length > 0 && highlighted >= 0
           ? { 'aria-activedescendant': `${listId}-${highlighted}` }
           : {})}
         placeholder={row === 0 ? BILLING.searchPlaceholder : undefined}
@@ -480,10 +599,41 @@ export function ItemCell({
               </button>
             </li>
           ))}
+          {/*
+            **The offer has to live inside the list.**
+
+            Before, it was a second absolutely-positioned panel at the same `top-full`,
+            so whenever both were on screen they sat on top of each other — which is the
+            other half of why the owner could not add `Damage Filter` while
+            `Diesel Filter` was being suggested. Here it is the last row of the one
+            list: visible, scrolled to with the same `↓`, and unmistakably *after* the
+            suggestions rather than one of them.
+
+            `role="presentation"` because it is not an `option` — picking it does not
+            select a product, it opens the create dialog. Leaving it an `option` would
+            put a thing `Enter` cannot pick into the listbox's own count.
+          */}
+          {offerCreate ? (
+            <li role="presentation" className="bg-slate-50 p-2">
+              <p className="px-1 pb-2 text-xs text-slate-700">
+                {BILLING.addMissingItemNotListed(query.trim())}
+              </p>
+              <button
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setCreating(true)}
+                className="w-full rounded bg-nas-navy px-3 py-2 text-left text-sm font-medium text-white"
+              >
+                {BILLING.addMissingItem}
+              </button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
 
-      {open && offerCreate ? (
+      {/* The empty-result case keeps its own panel: there is no list to sit inside. */}
+      {open && offerCreate && hits.length === 0 ? (
         <div className="absolute left-0 top-full z-30 w-[26rem] max-w-[90vw] rounded border border-nas-navy bg-white p-2 shadow-lg">
           <p className="px-1 pb-2 text-xs text-slate-600">
             {BILLING.addMissingItemNoMatch(query.trim())}

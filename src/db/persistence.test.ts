@@ -457,3 +457,134 @@ describe('device identity', () => {
     expect(second).toBe(first);
   });
 });
+
+// --- "the work I was doing was gone" (owner report, 2026-11-08) ----------------
+//
+// The owner's two complaints arrived as one sentence: *"it's logging out after every 13
+// min and the work I was doing was gone"*. They are separate faults with separate fixes
+// — the sign-out is a `SameSite` misconfiguration on the deployment, handled in the
+// backend's `config.py` — and this is the half that belongs here: **whatever happens to
+// the session, the typing stays on disk.**
+//
+// Worth stating because the two look identical from the counter: a cashier bounced to a
+// sign-in form mid-bill cannot see that their bill is safe in IndexedDB, so "logged out"
+// and "lost my work" are the same event to them. These tests pin the part that must be
+// true for the recovery to be real.
+
+describe('a lost session never costs the cashier their typing', () => {
+  const FULL_HEADER = {
+    customer_id: null,
+    customer_name: 'ANAS',
+    customer_business_name: 'Anas Transports',
+    vehicle_number: 'TS09AB1234',
+    mechanic_name: 'Ramesh',
+    phone: '9948207903',
+    notes: 'Rear axle job',
+    is_credit_intent: true,
+  };
+
+  it('restores every header field, line, quantity and edited price after a reload', async () => {
+    const draft = await draftsDb.createDraft(COUNTER, 4, 'Bill 1', db);
+    await draftsDb.updateDraft(
+      draft.id,
+      (current) => {
+        current.header = { ...FULL_HEADER };
+        draftsDb.appendLine(current, line('p1', '3.000'));
+        draftsDb.appendLine(current, line('p2', '2.000'));
+        // A price the cashier typed over the catalogue's, which is the edit most
+        // expensive to lose: it is the one figure nothing else can reconstruct.
+        const second = current.lines[1];
+        if (second) {
+          second.unit_price = '999.0000';
+          second.price_source = 'manual_override';
+        }
+      },
+      db,
+    );
+    db.close();
+
+    const reopened = new CounterDatabase(`test-${dbIndex}`);
+    await reopened.open();
+    const recovered = await draftsDb.getDraft(draft.id, reopened);
+
+    expect(recovered?.header).toEqual(FULL_HEADER);
+    expect(recovered?.lines).toHaveLength(2);
+    expect(recovered?.lines[0]?.quantity).toBe('3.000');
+    expect(recovered?.lines[1]?.unit_price).toBe('999.0000');
+    expect(recovered?.lines[1]?.price_source).toBe('manual_override');
+    // Still a draft. Recovery must never promote a bill to a sale.
+    expect(recovered?.status).toBe('editing');
+    expect(recovered?.invoice_id).toBeNull();
+    reopened.close();
+  });
+
+  it('keeps several bill tabs separate, with no bleed between them', async () => {
+    // The owner bills more than one customer at a time; a recovery that merged two
+    // bills would be worse than one that lost them.
+    const first = await draftsDb.createDraft(COUNTER, 4, 'Bill 1', db);
+    const second = await draftsDb.createDraft(COUNTER, 4, 'Bill 2', db);
+    await draftsDb.updateDraft(
+      first.id,
+      (d) => {
+        d.header.customer_name = 'ANAS';
+        draftsDb.appendLine(d, line('p1', '1.000'));
+      },
+      db,
+    );
+    await draftsDb.updateDraft(
+      second.id,
+      (d) => {
+        d.header.customer_name = 'RAVI';
+        draftsDb.appendLine(d, line('p2', '5.000'));
+        draftsDb.appendLine(d, line('p3', '7.000'));
+      },
+      db,
+    );
+    db.close();
+
+    const reopened = new CounterDatabase(`test-${dbIndex}`);
+    await reopened.open();
+    const open = await draftsDb.openDrafts(COUNTER, reopened);
+    const a = open.find((d) => d.id === first.id);
+    const b = open.find((d) => d.id === second.id);
+
+    expect(open).toHaveLength(2);
+    expect(a?.header.customer_name).toBe('ANAS');
+    expect(a?.lines).toHaveLength(1);
+    expect(b?.header.customer_name).toBe('RAVI');
+    expect(b?.lines).toHaveLength(2);
+    expect(b?.lines[1]?.quantity).toBe('7.000');
+    reopened.close();
+  });
+
+  it('survives dropping the in-memory session, which is all a 401 does', async () => {
+    // `CLAUDE.md §13`: *"Do not delete local drafts in response to an auth or sync
+    // error."* `clearSession()` is the function the 401 handler calls, so the invariant
+    // is asserted against the real one rather than described in a comment.
+    const { clearSession, setSession } = await import('@/api/session');
+    setSession({
+      accessToken: 'token',
+      expiresAt: Date.now() + 60_000,
+      permissions: new Set<string>(),
+      serverTimeOffsetMs: 0,
+    } as never);
+
+    const draft = await draftsDb.createDraft(COUNTER, 4, 'Bill 1', db);
+    await draftsDb.updateDraft(
+      draft.id,
+      (d) => {
+        d.header.customer_name = 'ANAS';
+        draftsDb.appendLine(d, line('p1', '4.000'));
+      },
+      db,
+    );
+
+    clearSession();
+
+    const after = await draftsDb.getDraft(draft.id, db);
+    expect(after?.lines).toHaveLength(1);
+    expect(after?.lines[0]?.quantity).toBe('4.000');
+    expect(after?.header.customer_name).toBe('ANAS');
+    expect(after?.status).toBe('editing');
+  });
+});

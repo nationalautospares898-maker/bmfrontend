@@ -287,6 +287,37 @@ Route `/billing`. Default landing for billing users (FR-NAV-001).
 
 ### 4.2 Product search (FR-CAT-003…015)
 
+> **A suggestion is not a selection (owner report, 2026-11-08).**
+>
+> The owner typed `Damage Filter`, the catalogue answered with `Diesel Filter`, and the
+> wrong part went onto the bill. Two faults, one cause — the client discarded the
+> server's `match.kind` and treated a trigram neighbour exactly like a part code the
+> cashier had typed the start of:
+>
+> * the fuzzy hit was pre-highlighted, so one press of `Enter` added it;
+> * *"Add New Item to Stock"* was gated on the result list being **empty**, so the one
+>   affordance for adding the genuinely-new part switched itself off.
+>
+> `SEARCH_SQL`'s ranking was already correct (`exact_sku` 100 · `sku_prefix` 80 ·
+> `name_prefix` 60 · `alias_prefix` 50 · `fuzzy` ≤ 40) and the backend already sent
+> `match: {kind, score}`. The fix is entirely client-side:
+>
+> * **Only a confident tier is highlighted.** `exact_sku`/`sku_prefix`/`name_prefix`/
+>   `alias_prefix` arm `Enter` exactly as before — nothing slows down for the 99% of
+>   searches that are a prefix of a real part. A fuzzy-only list starts with **no**
+>   highlight, so `Enter` cannot pick one. `↓` still reaches it in one keystroke, and a
+>   click still selects it: suggestions stay reachable, they just stop being armed.
+> * **Creating is offered whenever no hit actually *names* what was typed**, alongside
+>   the suggestions rather than instead of them, as the last row of the same list. An
+>   exact name or part code still suppresses it, so duplicates are still prevented.
+> * Offline/cached results carry no tier, so confidence falls back to the same question
+>   asked locally — does this start with what was typed? Creating is still never offered
+>   from the cache.
+>
+> **Inventory is untouched.** `NewItemDialog` creates a catalogue entry only; a new part
+> gets no stock unless the opening quantity is entered, which needs `inventory.adjust`.
+
+
 - Auto-focused on load and after every line is added (FR-BILL-001) — this single behaviour is what
   makes keyboard-only billing possible.
 - Results appear from the **first character**, debounced 120 ms, previous request cancelled.
@@ -627,6 +658,33 @@ Customer [ imran▌                                           ]
 ---
 
 ## 6. Daily Bills (FR-RPT-020…027)
+
+> ### `Delete Bill` — the owner's word, in front of the safe operation (2026-11-08)
+>
+> The owner asked for *"a delete bill option in Daily Bills"*. **It already existed** —
+> the row action labelled `Cancel & Re-bill`, which calls `POST /invoices/{id}:cancel`,
+> reverses the stock, cancels what a credit customer owes and leaves the invoice listed
+> as cancelled. They had not found it, and the name is why: it reads like a promise that
+> a replacement bill is compulsory, when the dialog has always offered *"just cancel
+> it"* as well.
+>
+> The row action is now **`Delete Bill`**. **Nothing about the operation changed:** no
+> hard delete, no new endpoint, no second cancellation path, no change to the backend.
+> A financial record cannot be erased here even deliberately — `invoices` carries no
+> `DELETE` grant for `bm_app` and `stock_movements` is append-only — so the word
+> *delete* is paired everywhere in the dialog with what actually happens:
+>
+> * title — *"Delete this bill"*;
+> * how it works — *"The bill is cancelled and kept in the record — never erased"*;
+> * body — *"…the bill itself stays in the list marked cancelled, because a bill that
+>   was once issued is a permanent record and this system cannot erase one"*;
+> * the two buttons — *"Just delete it"* and *"Delete it and start a replacement bill"*.
+>
+> A button the owner can find, in front of the safe operation, beats a correctly-named
+> button they never press. The reason field, the cash-refund warning (the system records
+> no cash going out), the credit-note note and the `Edit Bill` cross-reference are all
+> unchanged. Strings and their rationale: `src/lib/strings.ts` → `AMEND`.
+
 
 ```
 Daily Bills                                              [ Today ▾ ] [ Export ]
@@ -977,6 +1035,33 @@ Used range **`A1:E37`**. No hidden rows or columns. The owner's file was **copie
 - **No amount in words.**
 
 **Do not invent any of these.** Their absence is now evidence, not an unknown.
+
+> ### The grid is now actually printed (2026-11-08)
+>
+> The `Borders` row above — *"full thin grid on `A8:E33`"*, classed `[VERIFIED]` in
+> §12.2a — described the workbook correctly and **was not implemented**. `print.css`
+> carried a single `border-bottom` under the header row and no cell borders at all, so
+> the billing screen showed a bordered spreadsheet while the bill printed as five
+> columns of floating text. The owner reported exactly that mismatch.
+>
+> `src/styles/print.css` now draws all of it: the outer rectangle, a border on every
+> `th`/`td` (which with `border-collapse: collapse` is the complete lattice including the
+> table's outer edge), the boxed `GRAND TOTAL` row, and the grid across **all 25 item
+> rows whether used or not** — an unused row is an empty *box*, not a gap, and its
+> contents stay blank (FR-PRINT-018, never the reference's hand-typed `0`).
+>
+> Two further things came with it, both from §12.1: the five columns are sized from the
+> workbook's measured character widths (`table-layout: fixed`, so two bills from the same
+> pad put their rupee columns in the same place), and `S R` is **centred** rather than
+> right-aligned with the money.
+>
+> Verified by rendering the real component with the real stylesheet in Chromium under
+> `emulateMedia({ media: 'print' })` and **measuring** the computed borders — cash,
+> credit, one-item and full-25-row bills, all four with every header and data cell
+> bordered, the filler rows bordered, the grand total boxed, and header-to-row column
+> positions identical. A long part name wraps inside its cell without breaking the grid.
+> `tests/structural/rules.test.ts` guards the stylesheet rules so they cannot be deleted
+> again silently.
 
 ### 12.1a Row map and merged ranges
 

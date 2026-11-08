@@ -252,6 +252,43 @@ describe('ADR-028 — the print layout is isolated from application styling', ()
     );
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });
+
+  /**
+   * The printed item table carries a **full grid** (owner report, 2026-11-08).
+   *
+   * `UI-UX-SPECIFICATION.md §12.1` read the borders off the owner's own workbook —
+   * *"full thin grid on `A8:E33`"*, with §12.2a classing "Full table grid borders" as
+   * `[VERIFIED]`. What shipped was a single `border-bottom` under the header row and no
+   * cell borders at all, so the billing screen showed a bordered spreadsheet and the
+   * bill printed as five columns of floating text. The owner reported the mismatch.
+   *
+   * Asserted against the stylesheet rather than a render because borders are a print
+   * concern: `jsdom` has no layout, and the rules live inside `@media print`, so a
+   * component test cannot see them. The rendered-in-Chromium proof is the companion to
+   * this, not a replacement — this is the cheap guard that fails fast if the rule is
+   * deleted again.
+   */
+  it('print.css draws a border on every printed item cell', () => {
+    const css = read(join(ROOT, 'src/styles/print.css'));
+    // Header and data cells share one rule, which with `border-collapse: collapse`
+    // produces the complete lattice including the table's outer edge.
+    expect(css).toMatch(
+      /\.bill__items th,\s*\.bill__items td\s*\{[^}]*border:\s*1px solid #000/,
+    );
+    expect(css).toMatch(/\.bill__items\s*\{[^}]*border-collapse:\s*collapse/);
+    // The outer rectangle around `A1:E37`, and the boxed `GRAND TOTAL` row.
+    expect(css).toMatch(/\.bill\s*\{[^}]*border:\s*1px solid #000/);
+    expect(css).toMatch(/\.bill__grand-total td\s*\{[^}]*border:\s*1px solid #000/);
+  });
+
+  it('print.css never strips the borders back off an unused item row', () => {
+    // The workbook grids all 25 rows, used or not: an empty row is an empty *box*. A
+    // `border: none` here would reopen the gap this fixed.
+    const css = read(join(ROOT, 'src/styles/print.css'));
+    const filler = /\.bill__items tr\.is-filler td\s*\{([^}]*)\}/.exec(css);
+    expect(filler).not.toBeNull();
+    expect(filler?.[1]).not.toMatch(/border[^:]*:\s*(none|0)/);
+  });
 });
 
 describe('SECURITY.md §3 — every permission the client gates on is a real permission', () => {

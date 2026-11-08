@@ -49,6 +49,10 @@
   }
 
   .bill {
+    /* "Thin outer rectangle around `A1:E37`" (§12.1) — the bill is a bordered document,
+       not text floating on a page. */
+    border: 1px solid #000;
+    padding: 1.5mm;
     /* A monospaced family for the figures so the rupee columns line up on any printer
        that substitutes the font. A proportional font makes a totals column ragged. */
     font-family: 'Courier New', Courier, monospace;
@@ -95,27 +99,96 @@
     display: none;
   }
 
+  /*
+   * The item table: a **full thin grid**, which is what the owner's workbook has and
+   * what the printed bill did not.
+   *
+   * `UI-UX-SPECIFICATION.md §12.1` records the borders read from
+   * `ANAS_1234_20260606_231456.xlsx`: *"thin outer rectangle around `A1:E37` · thin rule
+   * under row 7 · **full thin grid on `A8:E33`** · `GRAND TOTAL` row boxed · no internal
+   * grid in the customer block"*, and §12.2a classes "Full table grid borders" as
+   * `[VERIFIED]`. What was implemented was a single `border-bottom` under the header and
+   * no cell borders at all, so the bill printed as five ragged columns of floating text
+   * while the billing screen showed a bordered spreadsheet. The owner reported exactly
+   * that mismatch.
+   *
+   * `border-collapse: collapse` means a border on every `th`/`td` produces the complete
+   * lattice *including* the table's outer edge — one rule, no double lines.
+   */
   .bill__items {
     width: 100%;
     border-collapse: collapse;
+    /* So the five columns keep the workbook's proportions on every printer instead of
+       being re-apportioned by whatever text each bill happens to contain. Two bills from
+       the same pad then have their rupee columns in the same place. */
+    table-layout: fixed;
   }
 
-  .bill__items th {
-    border-bottom: 1px solid #000;
-    text-align: left;
-    font-weight: 700;
+  .bill__items th,
+  .bill__items td {
+    border: 1px solid #000;
     padding: 0.5mm 1mm;
   }
 
-  /* Serial, quantity, price and total are right-aligned; only the item name is left. */
-  .bill__items th:not(:nth-child(2)),
-  .bill__items td:not(:nth-child(2)) {
+  .bill__items th {
+    font-weight: 700;
+    /* Repeated at the top of every page once a bill runs past one. */
+    break-inside: avoid;
+  }
+
+  /* Column widths from the workbook's measured character widths (§12.1: A 4.664 ·
+     B 19.777 · C 3.332 · D 8.000 · E 10.441, summing to 46.214), as percentages so they
+     hold on both the A5 profile and the A4 fallback. */
+  .bill__items th:nth-child(1) {
+    width: 10.1%;
+  }
+  .bill__items th:nth-child(2) {
+    width: 42.8%;
+  }
+  .bill__items th:nth-child(3) {
+    width: 7.2%;
+  }
+  .bill__items th:nth-child(4) {
+    width: 17.3%;
+  }
+  .bill__items th:nth-child(5) {
+    width: 22.6%;
+  }
+
+  /* Alignment per §12.1: `S R` centre · `ITEM` left · `QTY`/`PRICE`/`TOTAL` right. The
+     serial column used to be right-aligned with the money, which the workbook does not
+     do. */
+  .bill__items th:nth-child(1),
+  .bill__items td:nth-child(1) {
+    text-align: center;
+  }
+
+  .bill__items th:nth-child(2),
+  .bill__items td:nth-child(2) {
+    text-align: left;
+    /* A part name longer than the column wraps inside its cell rather than widening the
+       column or spilling over the gridline. `anywhere` because some part codes are one
+       long unbroken token with nothing to break on (§9: names wrap in full on paper). */
+    overflow-wrap: anywhere;
+  }
+
+  .bill__items th:nth-child(3),
+  .bill__items td:nth-child(3),
+  .bill__items th:nth-child(4),
+  .bill__items td:nth-child(4),
+  .bill__items th:nth-child(5),
+  .bill__items td:nth-child(5) {
     text-align: right;
   }
 
   .bill__items td {
-    padding: 0.5mm 1mm;
     vertical-align: top;
+  }
+
+  /* A row is never split across a page break; a half-height row with its figures on the
+     next sheet is worse than a slightly shorter page. */
+  .bill__items tr {
+    break-inside: avoid;
   }
 
   /* Unused item rows print **blank** — never the reference workbook's hand-typed `0`
@@ -123,6 +196,10 @@
      every bill, which is what makes a pre-printed pad usable. */
   .bill__items tr.is-filler td {
     height: 1.25em;
+    /* The borders are deliberately **not** removed here. The workbook's grid covers
+       `A8:E33` — all 25 item rows, used or not — so an unused row is an empty *box*,
+       not a gap in the table. Its contents stay blank (FR-PRINT-018: never the
+       reference's hand-typed `0`); only the lines around it are drawn. */
   }
 
   .bill__totals {
@@ -139,10 +216,12 @@
     text-align: right;
   }
 
-  .bill__grand-total {
+  /* "`GRAND TOTAL` row boxed" (§12.1) — the largest figure on the page, in its own box
+     rather than under a single rule. */
+  .bill__grand-total td {
     font-weight: 700;
     font-size: 1.15em;
-    border-top: 1px solid #000;
+    border: 1px solid #000;
   }
 
   /* The credit block. Present only when the server says so (OD-22), never computed

@@ -516,11 +516,11 @@ test.describe('correcting a finalised bill', () => {
     // means correcting a cash bill always passes through this step.
     await expect(page.getByText(/does not record cash going out/)).toBeVisible();
     await expect(
-      page.getByRole('button', { name: /Cancel it and start the new bill/ }),
+      page.getByRole('button', { name: /Delete it and start a replacement bill/ }),
     ).toBeDisabled();
     await page.getByRole('checkbox').check();
 
-    await page.getByRole('button', { name: /Cancel it and start the new bill/ }).click();
+    await page.getByRole('button', { name: /Delete it and start a replacement bill/ }).click();
 
     // The cancellation put the stock back…
     await expect
@@ -593,7 +593,7 @@ test.describe('correcting a finalised bill', () => {
     await expect(page.getByText(/credit note/i)).toBeVisible();
 
     await page.getByLabel(/Why is this bill/).fill('billed to the wrong customer');
-    await page.getByRole('button', { name: 'Just cancel it' }).click();
+    await page.getByRole('button', { name: 'Just delete it' }).click();
 
     // A full-value credit note means they no longer owe it. Absent counts: with its only
     // credit invoice cancelled the customer drops out of the credit report, which
