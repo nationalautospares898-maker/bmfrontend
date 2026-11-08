@@ -36,6 +36,7 @@ import { auth } from '@/api/endpoints';
 import { ApiError, describeError } from '@/api/errors';
 import { Button, Field } from '@/components/primitives';
 import { AUTH, ERRORS } from '@/lib/strings';
+import { UpdateBanner } from '@/app/UpdateBanner';
 
 export interface ChangePasswordScreenProps {
   /** Called once the server confirms the new password. There is no session to hand
@@ -71,7 +72,10 @@ export function ChangePasswordScreen({ onDone, onSignOut }: ChangePasswordScreen
     setBusy(true);
     setError(null);
     try {
-      await auth.changePassword({ current_password: currentPassword, new_password: newPassword });
+      await auth.changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
       onDone();
     } catch (caught) {
       // `INVALID_CREDENTIALS` means something different here than it does at sign-in.
@@ -82,7 +86,9 @@ export function ChangePasswordScreen({ onDone, onSignOut }: ChangePasswordScreen
         setError(AUTH.currentPasswordWrong);
       } else {
         setError(
-          caught instanceof ApiError ? describeError(caught.code).message : ERRORS.unexpected,
+          caught instanceof ApiError
+            ? describeError(caught.code).message
+            : ERRORS.unexpected,
         );
       }
     } finally {
@@ -93,6 +99,7 @@ export function ChangePasswordScreen({ onDone, onSignOut }: ChangePasswordScreen
   return (
     <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
       <h1 className="text-xl font-semibold text-[#232852]">{AUTH.changePasswordTitle}</h1>
+      <UpdateBanner />
       <p className="text-sm text-slate-600">{AUTH.changePasswordIntro}</p>
 
       <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-3">

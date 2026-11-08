@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
 
 /**
  * The **only four** environment variables this repository may have (§5 rule 1).

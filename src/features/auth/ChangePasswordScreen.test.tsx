@@ -116,7 +116,9 @@ describe('ChangePasswordScreen', () => {
     const onSignOut = vi.fn();
     render(<ChangePasswordScreen onDone={vi.fn()} onSignOut={onSignOut} />);
 
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out instead' }));
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Sign out instead' }));
 
     expect(onSignOut).toHaveBeenCalled();
     expect(changePassword).not.toHaveBeenCalled();

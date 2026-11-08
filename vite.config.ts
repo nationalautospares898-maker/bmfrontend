@@ -98,6 +98,15 @@ export default defineConfig({
     cspConnectSrc(),
     VitePWA({
       registerType: 'prompt',
+      // `registerType: 'prompt'` means nothing on its own -- it only changes what the
+      // generated service worker *allows*, not who asks the user. The default
+      // `injectRegister: 'auto'` injects a script that calls `registerSW()` with no
+      // `onNeedRefresh` hook, so a new build installs and sits in Workbox's `waiting`
+      // phase forever on a counter PC that is never closed, and nobody is ever asked.
+      // `null` here hands registration to `src/app/swUpdate.ts`'s own
+      // `registerSW()` call (`virtual:pwa-register`), which is the only way to get the
+      // callback this mode exists for.
+      injectRegister: null,
       // ADR-031: the service worker caches the APP SHELL ONLY. No /api/ route is ever
       // cached and no mutation is ever queued by the service worker — a cached stock
       // figure or a replayed sale would both be worse than being offline.

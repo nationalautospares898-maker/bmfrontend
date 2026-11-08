@@ -32,10 +32,13 @@ test.skip(
 );
 
 const USERNAME = process.env.BM_E2E_FORCE_CHANGE_USERNAME ?? 'mcp-force-change-test';
-const CURRENT_PASSWORD = process.env.BM_E2E_FORCE_CHANGE_PASSWORD ?? 'mcp-test-temp-pw-01';
+const CURRENT_PASSWORD =
+  process.env.BM_E2E_FORCE_CHANGE_PASSWORD ?? 'mcp-test-temp-pw-01';
 const NEW_PASSWORD = 'a-brand-new-secure-password-01';
 
-test('a forced password change gates the app, then every owner action works', async ({ page }) => {
+test('a forced password change gates the app, then every owner action works', async ({
+  page,
+}) => {
   await page.goto('/');
   await page.getByLabel('Username').fill(USERNAME);
   await page.getByLabel('Password').fill(CURRENT_PASSWORD);
@@ -43,6 +46,15 @@ test('a forced password change gates the app, then every owner action works', as
 
   // The gate: Billing must not render while the flag is set. This is the regression
   // guard for "the billing interface remained visible" — it must not, any more.
+  await expect(page.getByRole('heading', { name: 'Set a new password' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole('button', { name: /Print Bill/ })).toHaveCount(0);
+
+  // The gate must survive a reload, not just the initial render — `toSessionState`
+  // reads `must_change_password` off the *refreshed* session on every cold start
+  // (`bootstrap.ts`), so a stale client-only flag could not fake this.
+  await page.reload();
   await expect(page.getByRole('heading', { name: 'Set a new password' })).toBeVisible({
     timeout: 30_000,
   });
@@ -56,7 +68,9 @@ test('a forced password change gates the app, then every owner action works', as
   // `change_own_password` revokes the calling device's own refresh tokens in the same
   // transaction as the change, so there is no session left to silently continue —
   // sign-in-again is correct, not a failure.
-  await expect(page.getByText('Password changed. Sign in with your new password.')).toBeVisible({
+  await expect(
+    page.getByText('Password changed. Sign in with your new password.'),
+  ).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByRole('heading', { name: 'Set a new password' })).toHaveCount(0);

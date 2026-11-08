@@ -75,6 +75,7 @@ import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
 import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
 import { ChangePasswordScreen } from '@/features/auth/ChangePasswordScreen';
+import { UpdateBanner } from './UpdateBanner';
 
 const DailyBills = lazy(() =>
   import('@/features/reports/DailyBills').then((module) => ({
@@ -421,6 +422,8 @@ export function AppShell() {
             screen === 'billing' ? 'lg:[@media(min-height:600px)]:overflow-hidden' : ''
           }`}
         >
+          <UpdateBanner />
+
           {!storageUsable ? (
             // Blocking, and worded so nobody mistakes it for a minor warning (FE-E-1).
             <Panel tone="danger" title="Bills cannot be saved on this computer">
@@ -576,6 +579,8 @@ function LoginScreen({
   return (
     <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
       <h1 className="text-xl font-semibold text-[#232852]">National Auto Spares</h1>
+
+      <UpdateBanner />
 
       {passwordChanged ? (
         <Panel tone="success">{AUTH.passwordChangedSignInAgain}</Panel>
