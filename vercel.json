@@ -4,7 +4,14 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm ci",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "//": "TOPOLOGY C, READY BUT DORMANT (2026-11-08). Proxying the API through this origin is the ONLY fix for the refresh/13-minute sign-out that works in every browser. SameSite=none is a third-party cookie, which Safari blocks outright and Chrome/Firefox tracking protection can block; proxied, the refresh cookie is FIRST-PARTY to bmfrontend-seven.vercel.app and SameSite=lax simply works. This rewrite does nothing while VITE_API_BASE_URL is an absolute Railway URL, because the client then never requests a relative /api path. Deleting VITE_API_BASE_URL in the Vercel dashboard activates it: client.ts falls back to the relative /api/v1 default. MUST stay ABOVE the catch-all or the catch-all swallows it. See bmbackend/docs/PRODUCTION-DEPLOYMENT-GUIDE.md 10.4 option C.",
+      "source": "/api/:path*",
+      "destination": "https://bmbackend-production.up.railway.app/api/:path*"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
