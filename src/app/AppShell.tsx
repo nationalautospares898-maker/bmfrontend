@@ -70,10 +70,11 @@ import type { Bootstrap } from '@/api/types';
 import type { MoneyPolicy } from '@/lib/money';
 import { Busy, Button, Field, Panel, StatusDot } from '@/components/primitives';
 import { navigateWithArrows } from '@/lib/keyboard';
-import { COMMON, ERRORS, NAV, OFFLINE } from '@/lib/strings';
+import { AUTH, COMMON, ERRORS, NAV, OFFLINE } from '@/lib/strings';
 import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
 import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
+import { ChangePasswordScreen } from '@/features/auth/ChangePasswordScreen';
 
 const DailyBills = lazy(() =>
   import('@/features/reports/DailyBills').then((module) => ({
@@ -138,6 +139,7 @@ export function AppShell() {
   const [policy, setPolicy] = useState<MoneyPolicy | null>(null);
   const [screen, setScreen] = useState<Screen>('billing');
   const [sessionLost, setSessionLost] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
   /** Bumped to re-run startup after a session loss; see `retriedAfterLoss`. */
   const [attempt, setAttempt] = useState(0);
   const online = useOnline();
@@ -257,12 +259,37 @@ export function AppShell() {
     return (
       <LoginScreen
         sessionLost={sessionLost}
+        passwordChanged={passwordChanged}
         storageUsable={storageUsable}
         onSignedIn={(result) => {
           setSession(result.session);
           setBootstrap(result.bootstrap);
           setPolicy(result.policy);
           setSessionLost(false);
+          setPasswordChanged(false);
+        }}
+      />
+    );
+  }
+
+  if (session.mustChangePassword) {
+    // Gates the entire application, the same way the sign-in screen does — not a
+    // banner alongside a shell that still works. Every permission-gated endpoint
+    // refuses while this is true (`bm/api/deps.py::require`), so rendering Billing
+    // here would just reproduce the "ask a supervisor" confusion this exists to fix.
+    return (
+      <ChangePasswordScreen
+        onDone={() => {
+          // `change_own_password` already revoked this device's refresh family in the
+          // same transaction as the change, so there is no session left to keep —
+          // sign-in with the new password is the actual next step, not a fallback.
+          void signOut().then(() => {
+            setSession(null);
+            setPasswordChanged(true);
+          });
+        }}
+        onSignOut={() => {
+          void signOut().then(() => setSession(null));
         }}
       />
     );
@@ -401,12 +428,6 @@ export function AppShell() {
             </Panel>
           ) : null}
 
-          {session.mustChangePassword ? (
-            <Panel tone="warning" title="Your password needs changing">
-              Ask the owner to help you set a new one before the end of the day.
-            </Panel>
-          ) : null}
-
           {policy === null ? (
             <Panel tone="danger" title="Settings could not be loaded">
               {/* Without the money policy the client would have to invent one, and a
@@ -518,10 +539,12 @@ export function AppShell() {
 
 function LoginScreen({
   sessionLost,
+  passwordChanged,
   storageUsable,
   onSignedIn,
 }: {
   sessionLost: boolean;
+  passwordChanged: boolean;
   storageUsable: boolean;
   onSignedIn: (result: Awaited<ReturnType<typeof signIn>>) => void;
 }) {
@@ -554,7 +577,9 @@ function LoginScreen({
     <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
       <h1 className="text-xl font-semibold text-[#232852]">National Auto Spares</h1>
 
-      {sessionLost ? (
+      {passwordChanged ? (
+        <Panel tone="success">{AUTH.passwordChangedSignInAgain}</Panel>
+      ) : sessionLost ? (
         // The reassurance is the point: drafts are safe and nothing was lost.
         <Panel tone="warning">{ERRORS.signInAgain}</Panel>
       ) : null}

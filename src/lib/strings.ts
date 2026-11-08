@@ -228,6 +228,25 @@ export const OFFLINE = {
     'whether it went through.',
 } as const;
 
+export const AUTH = {
+  changePasswordTitle: 'Set a new password',
+  changePasswordIntro:
+    'Your account was created with a temporary password. Set a new one to continue — ' +
+    'nothing else needs to happen first.',
+  currentPasswordLabel: 'Current password',
+  newPasswordLabel: 'New password',
+  confirmPasswordLabel: 'Confirm new password',
+  submit: 'Set password',
+  signOutInstead: 'Sign out instead',
+  // Mirrors the server's own floor (`bm.domain.auth.hashing.MIN_PASSWORD_LENGTH`) so the
+  // user hears about it before a round trip, not instead of the server's own check.
+  tooShort: 'Use at least 10 characters. A short phrase works well.',
+  mismatch: 'Those two passwords do not match.',
+  sameAsCurrent: 'Choose a password you have not used here.',
+  currentPasswordWrong: 'Your current password is incorrect.',
+  passwordChangedSignInAgain: 'Password changed. Sign in with your new password.',
+} as const;
+
 export const ERRORS = {
   /**
    * The last resort on the billing screen, and it should never be seen.
