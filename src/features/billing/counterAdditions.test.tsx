@@ -517,7 +517,9 @@ describe('a merely-similar part is suggested, never chosen', () => {
       await screen.findByRole('button', { name: 'Add New Item to Stock' }),
     ).toBeInTheDocument();
     // And it says so in terms that cannot be mistaken for the suggestion above it.
-    expect(await screen.findByText(/None of these is “Damage Filter”/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/None of these is “Damage Filter”/),
+    ).toBeInTheDocument();
   });
 
   it('Enter opens the create dialog when only suggestions came back', async () => {

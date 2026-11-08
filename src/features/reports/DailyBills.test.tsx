@@ -973,18 +973,14 @@ describe('Delete Bill reverses a sale that should not have happened', () => {
     // A button that is sometimes a 403 is worse than no button.
     render(<DailyBills policy={POLICY} />);
     await screen.findByText('C1');
-    expect(
-      screen.queryByRole('button', { name: 'Delete Bill' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Bill' })).not.toBeInTheDocument();
   });
 
   it('is not offered on a bill that is already cancelled', async () => {
     list.mockResolvedValue({ items: [{ ...CASH_UNPAID, status: 'cancelled' }] });
     render(<DailyBills policy={POLICY} canCancel />);
     await screen.findByText('Cancelled');
-    expect(
-      screen.queryByRole('button', { name: 'Delete Bill' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Bill' })).not.toBeInTheDocument();
   });
 
   it('says the bill is kept as cancelled rather than erased, and shows what is on it', async () => {
@@ -997,9 +993,13 @@ describe('Delete Bill reverses a sale that should not have happened', () => {
     render(<DailyBills policy={POLICY} canCancel />);
     await user.click(await screen.findByRole('button', { name: 'Delete Bill' }));
 
-    expect(await screen.findByText(/kept in the record — never erased/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/kept in the record — never erased/i),
+    ).toBeInTheDocument();
     // Said in full in the body too: stock back, credit cleared, bill still listed.
-    expect(await screen.findByText(/stays in the list marked cancelled/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/stays in the list marked cancelled/i),
+    ).toBeInTheDocument();
     // And it points at the other action, so the operator who wanted an edit can find it.
     expect(await screen.findByText(/use Edit Bill/i)).toBeInTheDocument();
     // The original contents, so the operator can see what they are replacing.

@@ -520,7 +520,9 @@ test.describe('correcting a finalised bill', () => {
     ).toBeDisabled();
     await page.getByRole('checkbox').check();
 
-    await page.getByRole('button', { name: /Delete it and start a replacement bill/ }).click();
+    await page
+      .getByRole('button', { name: /Delete it and start a replacement bill/ })
+      .click();
 
     // The cancellation put the stock back…
     await expect
