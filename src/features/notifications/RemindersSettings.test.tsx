@@ -67,10 +67,10 @@ describe('RemindersSettings', () => {
     const builtinRow = rows.find((r) => r.textContent?.includes('Pending bills'));
     const customRow = rows.find((r) => r.textContent?.includes('Call the tyre supplier'));
 
-    expect(builtinRow && screen.queryAllByRole('button', { name: 'Remove' })).toBeDefined();
     expect(
-      builtinRow?.querySelector('button')?.textContent === 'Remove',
-    ).toBe(false);
+      builtinRow && screen.queryAllByRole('button', { name: 'Remove' }),
+    ).toBeDefined();
+    expect(builtinRow?.querySelector('button')?.textContent === 'Remove').toBe(false);
     expect(customRow?.textContent).toContain('Remove');
   });
 

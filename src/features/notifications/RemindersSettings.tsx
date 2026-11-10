@@ -45,7 +45,9 @@ export function RemindersSettings({ open, onClose }: RemindersSettingsProps) {
       setItems(response.items);
       setError(null);
     } catch (caught) {
-      setError(caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry);
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
     }
   }
 
@@ -84,14 +86,17 @@ export function RemindersSettings({ open, onClose }: RemindersSettingsProps) {
       await remindersApi.create({
         label: label.trim(),
         fire_time: triggerKind === 'time' ? fireTime : null,
-        interval_hours: triggerKind === 'interval' ? Number.parseInt(intervalHours, 10) : null,
+        interval_hours:
+          triggerKind === 'interval' ? Number.parseInt(intervalHours, 10) : null,
       });
       setLabel('');
       setAdding(false);
       await load();
     } catch (caught) {
       setAddError(
-        caught instanceof ApiError ? describeError(caught.code).message : REMINDERS.addFailed,
+        caught instanceof ApiError
+          ? describeError(caught.code).message
+          : REMINDERS.addFailed,
       );
     } finally {
       setAddBusy(false);
@@ -124,7 +129,9 @@ export function RemindersSettings({ open, onClose }: RemindersSettingsProps) {
               <tr key={r.id} className="border-b border-slate-100">
                 <td className="py-1">{r.label}</td>
                 <td className="py-1 text-slate-600">{when(r)}</td>
-                <td className="py-1">{r.enabled ? REMINDERS.enabled : REMINDERS.disabled}</td>
+                <td className="py-1">
+                  {r.enabled ? REMINDERS.enabled : REMINDERS.disabled}
+                </td>
                 <td className="py-1">
                   <div className="flex gap-1">
                     <Button
@@ -154,7 +161,11 @@ export function RemindersSettings({ open, onClose }: RemindersSettingsProps) {
       {adding ? (
         <div className="mt-3 flex flex-col gap-2 rounded border border-slate-200 p-3">
           <h4 className="text-sm font-semibold">{REMINDERS.addTitle}</h4>
-          <Field label={REMINDERS.fieldLabel} value={label} onChange={(e) => setLabel(e.target.value)} />
+          <Field
+            label={REMINDERS.fieldLabel}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
           <fieldset className="flex flex-col gap-1">
             <legend className="text-sm font-medium text-slate-700">
               {REMINDERS.triggerKind}

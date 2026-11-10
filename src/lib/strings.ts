@@ -544,7 +544,7 @@ export const STOCK = {
           purchase: 'Purchase',
           stock_sheet: "Owner's sheet",
           manual: 'Manual',
-        })[sourceType] ?? sourceType,
+        }[sourceType] ?? sourceType),
   /** Said plainly rather than letting a capped list look complete. */
   reportTruncated:
     'This day had more movements than can be shown at once. The figures above cover the ' +

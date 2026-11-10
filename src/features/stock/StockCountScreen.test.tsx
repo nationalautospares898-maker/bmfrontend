@@ -129,12 +129,10 @@ describe('StockCountScreen', () => {
   it('recording a count enables Finalize and shows the discrepancy', async () => {
     mocks.listStockCounts.mockResolvedValue({ items: [] });
     mocks.startStockCount.mockResolvedValue(SESSION);
-    mocks.reviewStockCount
-      .mockResolvedValueOnce(REVIEW)
-      .mockResolvedValueOnce({
-        session: SESSION,
-        items: [{ ...REVIEW.items[0], counted_quantity: '10.000', discrepancy: '-2.000' }],
-      });
+    mocks.reviewStockCount.mockResolvedValueOnce(REVIEW).mockResolvedValueOnce({
+      session: SESSION,
+      items: [{ ...REVIEW.items[0], counted_quantity: '10.000', discrepancy: '-2.000' }],
+    });
     mocks.recordStockCountItem.mockResolvedValue(undefined);
 
     render(<StockCountScreen open onClose={vi.fn()} onFinalized={vi.fn()} />);
@@ -146,7 +144,11 @@ describe('StockCountScreen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() =>
-      expect(mocks.recordStockCountItem).toHaveBeenCalledWith('session-1', 'prod-1', '10'),
+      expect(mocks.recordStockCountItem).toHaveBeenCalledWith(
+        'session-1',
+        'prod-1',
+        '10',
+      ),
     );
     expect(await screen.findByText('-2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Finalize' })).not.toBeDisabled();

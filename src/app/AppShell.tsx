@@ -381,7 +381,7 @@ export function AppShell() {
   const canEditBill = session.permissions.has('billing.sale.edit');
 
   /**
-   * The six everyday sections the owner asked for. Nothing else belongs here.
+   * The everyday sections the owner asked for. Nothing else belongs here.
    */
   const sections: Array<{ key: Screen; label: string }> = [
     { key: 'billing', label: NAV.billing },
@@ -446,7 +446,7 @@ export function AppShell() {
           <NotificationBell
             onNavigate={(target, entityId) => {
               setScreen(target);
-              setHighlightOrderId(target === 'orders' ? entityId ?? null : null);
+              setHighlightOrderId(target === 'orders' ? (entityId ?? null) : null);
             }}
             onManageReminders={() => setRemindersOpen(true)}
           />

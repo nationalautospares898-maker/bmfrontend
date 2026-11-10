@@ -42,7 +42,10 @@ export interface OrdersScreenProps {
   onHighlightSeen?: () => void;
 }
 
-export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreenProps = {}) {
+export function OrdersScreen({
+  highlightOrderId,
+  onHighlightSeen,
+}: OrdersScreenProps = {}) {
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [drafts, setDrafts] = useState<DraftCard[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +60,9 @@ export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreen
       setOrders(response.items);
     } catch (caught) {
       setOrders([]);
-      setError(caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry);
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
     }
   }, []);
 
@@ -73,7 +78,9 @@ export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreen
   }
 
   function updateDraft(localId: string, patch: Partial<DraftCard>): void {
-    setDrafts((prev) => prev.map((d) => (d.localId === localId ? { ...d, ...patch } : d)));
+    setDrafts((prev) =>
+      prev.map((d) => (d.localId === localId ? { ...d, ...patch } : d)),
+    );
   }
 
   function discardDraft(localId: string): void {
@@ -93,7 +100,9 @@ export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreen
       discardDraft(draft.localId);
       await load('pending');
     } catch (caught) {
-      setError(caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry);
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
     } finally {
       setBusyId(null);
     }
@@ -105,7 +114,9 @@ export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreen
       await ordersApi.update(order.id, { body });
       await load('pending');
     } catch (caught) {
-      setError(caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry);
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
     } finally {
       setBusyId(null);
     }
@@ -138,7 +149,9 @@ export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreen
       await ordersApi.setReminder(order.id, remindAt);
       await load(showCompleted ? 'completed' : 'pending');
     } catch (caught) {
-      setError(caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry);
+      setError(
+        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
+      );
     } finally {
       setBusyId(null);
     }
@@ -185,7 +198,9 @@ export function OrdersScreen({ highlightOrderId, onHighlightSeen }: OrdersScreen
       {orders === null ? (
         <Busy label={COMMON.loading} />
       ) : cards.length === 0 ? (
-        <Panel tone="info">{showCompleted ? ORDERS.emptyCompleted : ORDERS.emptyPending}</Panel>
+        <Panel tone="info">
+          {showCompleted ? ORDERS.emptyCompleted : ORDERS.emptyPending}
+        </Panel>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {cards.map((card) =>
@@ -317,14 +332,17 @@ function SavedOrderCard({
     // Guarded rather than assumed: every real browser has `scrollIntoView`, but the
     // test environment's DOM does not implement it, and a missing method must not
     // crash the component that is otherwise working exactly as intended.
-    if (highlighted) ref.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    if (highlighted)
+      ref.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   }, [highlighted]);
 
   return (
     <CardShell ref={ref} highlighted={highlighted}>
       <div className="flex items-baseline justify-between text-xs text-slate-500">
         <span>{new Date(order.created_at).toLocaleString()}</span>
-        {order.customer_name ? <span className="font-medium">{order.customer_name}</span> : null}
+        {order.customer_name ? (
+          <span className="font-medium">{order.customer_name}</span>
+        ) : null}
       </div>
       <textarea
         value={body}
@@ -334,7 +352,9 @@ function SavedOrderCard({
         className="min-h-32 w-full resize-y rounded border border-slate-300 p-2 text-base"
       />
       {order.phone ? <p className="text-xs text-slate-500">{order.phone}</p> : null}
-      {!readOnly ? <ReminderControl order={order} busy={busy} onSet={onSetReminder} /> : null}
+      {!readOnly ? (
+        <ReminderControl order={order} busy={busy} onSet={onSetReminder} />
+      ) : null}
       {!readOnly ? (
         <div className="flex flex-wrap gap-2">
           {dirty ? (

@@ -163,7 +163,9 @@ describe('OrdersScreen', () => {
       expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
 
-      await waitFor(() => expect(mocks.setReminder).toHaveBeenCalledWith('order-1', null));
+      await waitFor(() =>
+        expect(mocks.setReminder).toHaveBeenCalledWith('order-1', null),
+      );
     });
 
     it('marks a past reminder as overdue', async () => {
@@ -179,7 +181,10 @@ describe('OrdersScreen', () => {
   describe('highlighting the order a notification pointed at', () => {
     it('visibly marks the highlighted order and not the others', async () => {
       mocks.list.mockResolvedValue({
-        items: [order({ id: 'order-1' }), order({ id: 'order-2', body: '1x oil filter' })],
+        items: [
+          order({ id: 'order-1' }),
+          order({ id: 'order-2', body: '1x oil filter' }),
+        ],
       });
       render(<OrdersScreen highlightOrderId="order-2" />);
       await screen.findByText('1x oil filter');
@@ -194,7 +199,9 @@ describe('OrdersScreen', () => {
       vi.useFakeTimers();
       mocks.list.mockResolvedValue({ items: [order()] });
       const onHighlightSeen = vi.fn();
-      render(<OrdersScreen highlightOrderId="order-1" onHighlightSeen={onHighlightSeen} />);
+      render(
+        <OrdersScreen highlightOrderId="order-1" onHighlightSeen={onHighlightSeen} />,
+      );
       await vi.waitFor(() => expect(mocks.list).toHaveBeenCalled());
 
       await vi.advanceTimersByTimeAsync(4000);

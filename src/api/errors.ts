@@ -256,7 +256,8 @@ export function describeError(code: ErrorCode): ErrorPresentation {
       };
     case 'STOCK_COUNT_ALREADY_OPEN':
       return {
-        message: 'A stock count is already open for this branch. Finish or cancel it first.',
+        message:
+          'A stock count is already open for this branch. Finish or cancel it first.',
         surface: 'inline',
         retryable: false,
         needsResolution: true,

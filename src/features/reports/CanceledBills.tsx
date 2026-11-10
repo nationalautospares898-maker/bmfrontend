@@ -103,13 +103,17 @@ export function CanceledBills() {
                 <Fragment key={row.id}>
                   <tr className="border-b border-slate-100">
                     <td className="px-2 py-2">
-                      {row.is_credit ? CANCELED_BILLS.typeCredit : CANCELED_BILLS.typeCash}
+                      {row.is_credit
+                        ? CANCELED_BILLS.typeCredit
+                        : CANCELED_BILLS.typeCash}
                     </td>
                     <td className="px-2 py-2">{row.internal_reference}</td>
                     <td className="px-2 py-2">{row.customer_name ?? ''}</td>
                     <td className="px-2 py-2">{money(row.total)}</td>
                     <td className="px-2 py-2">
-                      {row.cancelled_at ? new Date(row.cancelled_at).toLocaleString() : ''}
+                      {row.cancelled_at
+                        ? new Date(row.cancelled_at).toLocaleString()
+                        : ''}
                     </td>
                     <td className="px-2 py-2">{row.cancellation_reason ?? ''}</td>
                     <td className="px-2 py-2">

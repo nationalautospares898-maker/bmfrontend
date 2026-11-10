@@ -149,8 +149,7 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
         {
           product_id: row.product_id,
           quantity_delta: direction === 1 ? '1' : '-1',
-          reason_code:
-            direction === 1 ? 'adjustment_increase' : 'adjustment_decrease',
+          reason_code: direction === 1 ? 'adjustment_increase' : 'adjustment_decrease',
           reason_text: STOCK.quickAdjustReason,
         },
         uuidv7(),
@@ -158,7 +157,9 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
       await load();
     } catch (caught) {
       setQuickAdjustError(
-        caught instanceof ApiError ? describeError(caught.code).message : ERRORS.unexpected,
+        caught instanceof ApiError
+          ? describeError(caught.code).message
+          : ERRORS.unexpected,
       );
     } finally {
       setQuickAdjustingId(null);
@@ -335,14 +336,15 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
                         <Button
                           variant="secondary"
                           aria-label={STOCK.quickDecrease(row.name)}
-                          disabled={
-                            quickAdjustingId !== null || quantity.lte(0)
-                          }
+                          disabled={quickAdjustingId !== null || quantity.lte(0)}
                           onClick={() => void quickAdjust(row, -1)}
                         >
                           −
                         </Button>
-                        <span className="min-w-10 text-center" data-testid="stock-quantity">
+                        <span
+                          className="min-w-10 text-center"
+                          data-testid="stock-quantity"
+                        >
                           {formatQuantity(quantity)}
                         </span>
                         <Button

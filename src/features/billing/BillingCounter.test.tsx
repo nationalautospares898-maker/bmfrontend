@@ -541,7 +541,9 @@ describe('the Excel-style invoice grid', () => {
 
     await waitFor(() => {
       const state = useBillingStore.getState();
-      const draft = state.drafts.find((candidate) => candidate.id === state.activeDraftId);
+      const draft = state.drafts.find(
+        (candidate) => candidate.id === state.activeDraftId,
+      );
       expect(draft?.lines.length ?? 0).toBeGreaterThan(0);
     });
 

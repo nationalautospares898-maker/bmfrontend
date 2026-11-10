@@ -197,7 +197,7 @@ test.describe('the counter step is gone from the workflow', () => {
     );
   });
 
-  test('the navigation is the six everyday sections, with no counter setup among them', async ({
+  test('the navigation is the everyday sections, with no counter setup among them', async ({
     page,
   }) => {
     accessToken = '';
@@ -214,8 +214,10 @@ test.describe('the counter step is gone from the workflow', () => {
       'Billing',
       'Daily Bills',
       'Credit Bills',
+      'Canceled Bills',
       'Stock',
       'Customers',
+      'Orders',
       'Saving and syncing',
     ]);
   });

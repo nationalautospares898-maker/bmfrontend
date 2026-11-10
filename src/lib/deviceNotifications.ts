@@ -66,7 +66,10 @@ export function show(
 ): void {
   if (currentPermission() !== 'granted') return;
   try {
-    const n = new Notification(title, options.body !== undefined ? { body: options.body, tag } : { tag });
+    const n = new Notification(
+      title,
+      options.body !== undefined ? { body: options.body, tag } : { tag },
+    );
     if (options.onClick) {
       n.onclick = () => {
         // Best-effort: some platforms refuse an unsolicited `focus()` outright, and

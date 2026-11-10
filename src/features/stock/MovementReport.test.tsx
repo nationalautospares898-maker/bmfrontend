@@ -328,7 +328,9 @@ describe('the states that are easy to confuse', () => {
     await table();
     movementReport.mockResolvedValue({ ...EMPTY, kind: 'sold' });
     await user.click(screen.getByRole('button', { name: 'Stock Sold' }));
-    expect(await screen.findByText(/Nothing was sold in this period/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Nothing was sold in this period/),
+    ).toBeInTheDocument();
   });
 
   it('reports a failure as a failure, never as a quiet day', async () => {
@@ -467,7 +469,12 @@ describe('kind=adjusted (a bucket this report did not have before)', () => {
     const user = userEvent.setup();
     open();
     await table();
-    movementReport.mockResolvedValue({ ...ADJUSTED, items: [], movements: 0, products: 0 });
+    movementReport.mockResolvedValue({
+      ...ADJUSTED,
+      items: [],
+      movements: 0,
+      products: 0,
+    });
 
     await user.click(screen.getByRole('button', { name: 'Adjustments' }));
 

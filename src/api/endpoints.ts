@@ -676,9 +676,13 @@ export const inventory = {
   },
   cancelStockCount(sessionId: string): Promise<{ status: string }> {
     return data(
-      api.post<{ status: string }>(`/inventory/stock-counts/${sessionId}:cancel`, undefined, {
-        retry: 'never',
-      }),
+      api.post<{ status: string }>(
+        `/inventory/stock-counts/${sessionId}:cancel`,
+        undefined,
+        {
+          retry: 'never',
+        },
+      ),
     );
   },
 };
@@ -912,20 +916,30 @@ export const adminCounters = {
 
 export const notifications = {
   list(limit = 50): Promise<NotificationListResponse> {
-    return data(api.get<NotificationListResponse>('/notifications', { params: { limit } }));
+    return data(
+      api.get<NotificationListResponse>('/notifications', { params: { limit } }),
+    );
   },
   dismiss(notificationId: string): Promise<{ status: string }> {
     return data(
-      api.post<{ status: string }>(`/notifications/${notificationId}:dismiss`, undefined, {
-        retry: 'never',
-      }),
+      api.post<{ status: string }>(
+        `/notifications/${notificationId}:dismiss`,
+        undefined,
+        {
+          retry: 'never',
+        },
+      ),
     );
   },
   acknowledge(notificationId: string): Promise<{ status: string }> {
     return data(
-      api.post<{ status: string }>(`/notifications/${notificationId}:acknowledge`, undefined, {
-        retry: 'never',
-      }),
+      api.post<{ status: string }>(
+        `/notifications/${notificationId}:acknowledge`,
+        undefined,
+        {
+          retry: 'never',
+        },
+      ),
     );
   },
   snooze(notificationId: string, minutes: number): Promise<{ status: string }> {
@@ -968,9 +982,9 @@ export const reminders = {
 // --- Chitti orders (Feature B) --------------------------------------------------
 
 export const orders = {
-  list(params: { status?: 'pending' | 'completed' | 'discarded'; limit?: number } = {}): Promise<
-    OrderListResponse
-  > {
+  list(
+    params: { status?: 'pending' | 'completed' | 'discarded'; limit?: number } = {},
+  ): Promise<OrderListResponse> {
     return data(api.get<OrderListResponse>('/orders', { params }));
   },
   create(body: {
@@ -984,7 +998,9 @@ export const orders = {
     orderId: string,
     body: { body?: string; customer_name?: string | null; phone?: string | null },
   ): Promise<{ updated: boolean }> {
-    return data(api.put<{ updated: boolean }>(`/orders/${orderId}`, body, { retry: 'never' }));
+    return data(
+      api.put<{ updated: boolean }>(`/orders/${orderId}`, body, { retry: 'never' }),
+    );
   },
   complete(orderId: string): Promise<{ status: string }> {
     return data(
@@ -995,7 +1011,9 @@ export const orders = {
   },
   discard(orderId: string): Promise<{ status: string }> {
     return data(
-      api.post<{ status: string }>(`/orders/${orderId}:discard`, undefined, { retry: 'never' }),
+      api.post<{ status: string }>(`/orders/${orderId}:discard`, undefined, {
+        retry: 'never',
+      }),
     );
   },
   /**

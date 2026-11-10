@@ -118,8 +118,8 @@ export function StockCountScreen({ open, onClose, onFinalized }: StockCountScree
   }
 
   const counted = items?.filter((i) => i.counted_quantity !== null).length ?? 0;
-  const discrepancies = items?.filter((i) => i.discrepancy !== null && i.discrepancy !== '0.000')
-    .length ?? 0;
+  const discrepancies =
+    items?.filter((i) => i.discrepancy !== null && i.discrepancy !== '0.000').length ?? 0;
 
   /**
    * Find-an-item search (owner request), scoped to **display only**: `counted`,
@@ -150,7 +150,11 @@ export function StockCountScreen({ open, onClose, onFinalized }: StockCountScree
         confirming ? null : (
           <>
             <Button onClick={onClose}>{COMMON.close}</Button>
-            <Button variant="quiet" onClick={() => setConfirming('cancel')} disabled={!session}>
+            <Button
+              variant="quiet"
+              onClick={() => setConfirming('cancel')}
+              disabled={!session}
+            >
               {STOCK_COUNT.cancelCount}
             </Button>
             <Button
@@ -208,76 +212,89 @@ export function StockCountScreen({ open, onClose, onFinalized }: StockCountScree
           {visible.length === 0 ? (
             <p className="py-4 text-sm text-slate-500">{STOCK_COUNT.noMatches}</p>
           ) : (
-          <div className="max-h-[50vh] overflow-y-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="sticky top-0 border-b border-slate-300 bg-white text-left">
-                  <th className="py-1">{STOCK_COUNT.colItem}</th>
-                  <th className="py-1 text-right">{STOCK_COUNT.colSystem}</th>
-                  <th className="py-1 text-right">{STOCK_COUNT.colCounted}</th>
-                  <th className="py-1 text-right">{STOCK_COUNT.colDiscrepancy}</th>
-                  <th className="py-1" />
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((item) => {
-                  const draft = drafts[item.product_id] ?? item.counted_quantity ?? '';
-                  const discrepancy =
-                    item.discrepancy !== null ? parseMoney(item.discrepancy) : null;
-                  return (
-                    <tr key={item.product_id} className="border-b border-slate-100">
-                      <td className="py-1">
-                        {item.name}
-                        {item.sku ? (
-                          <span className="ml-2 text-xs text-slate-500">{item.sku}</span>
-                        ) : null}
-                      </td>
-                      <td className="py-1 text-right tabular-nums text-slate-600">
-                        {formatQuantity(parseMoney(item.system_quantity))}
-                      </td>
-                      <td className="py-1 text-right">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={draft}
-                          aria-label={STOCK_COUNT.countedLabel(item.name)}
-                          onChange={(e) =>
-                            setDrafts((prev) => ({ ...prev, [item.product_id]: e.target.value }))
-                          }
-                          className="w-24 rounded border border-slate-300 px-2 py-1 text-right"
-                        />
-                      </td>
-                      <td className="py-1 text-right tabular-nums">
-                        {discrepancy === null ? (
-                          <span className="text-slate-400">{STOCK_COUNT.notCounted}</span>
-                        ) : discrepancy.isZero() ? (
-                          <span className="text-emerald-700">0</span>
-                        ) : (
-                          <span className={discrepancy.isNegative() ? 'text-red-700' : 'text-amber-700'}>
-                            {discrepancy.isNegative() ? '' : '+'}
-                            {formatQuantity(discrepancy)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-1">
-                        <Button
-                          variant="quiet"
-                          busy={savingId === item.product_id}
-                          disabled={
-                            tryParseMoney(draft) === null ||
-                            draft === (item.counted_quantity ?? '')
-                          }
-                          onClick={() => void saveCount(item.product_id)}
-                        >
-                          {STOCK_COUNT.save}
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+            <div className="max-h-[50vh] overflow-y-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="sticky top-0 border-b border-slate-300 bg-white text-left">
+                    <th className="py-1">{STOCK_COUNT.colItem}</th>
+                    <th className="py-1 text-right">{STOCK_COUNT.colSystem}</th>
+                    <th className="py-1 text-right">{STOCK_COUNT.colCounted}</th>
+                    <th className="py-1 text-right">{STOCK_COUNT.colDiscrepancy}</th>
+                    <th className="py-1" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((item) => {
+                    const draft = drafts[item.product_id] ?? item.counted_quantity ?? '';
+                    const discrepancy =
+                      item.discrepancy !== null ? parseMoney(item.discrepancy) : null;
+                    return (
+                      <tr key={item.product_id} className="border-b border-slate-100">
+                        <td className="py-1">
+                          {item.name}
+                          {item.sku ? (
+                            <span className="ml-2 text-xs text-slate-500">
+                              {item.sku}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="py-1 text-right tabular-nums text-slate-600">
+                          {formatQuantity(parseMoney(item.system_quantity))}
+                        </td>
+                        <td className="py-1 text-right">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={draft}
+                            aria-label={STOCK_COUNT.countedLabel(item.name)}
+                            onChange={(e) =>
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [item.product_id]: e.target.value,
+                              }))
+                            }
+                            className="w-24 rounded border border-slate-300 px-2 py-1 text-right"
+                          />
+                        </td>
+                        <td className="py-1 text-right tabular-nums">
+                          {discrepancy === null ? (
+                            <span className="text-slate-400">
+                              {STOCK_COUNT.notCounted}
+                            </span>
+                          ) : discrepancy.isZero() ? (
+                            <span className="text-emerald-700">0</span>
+                          ) : (
+                            <span
+                              className={
+                                discrepancy.isNegative()
+                                  ? 'text-red-700'
+                                  : 'text-amber-700'
+                              }
+                            >
+                              {discrepancy.isNegative() ? '' : '+'}
+                              {formatQuantity(discrepancy)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1">
+                          <Button
+                            variant="quiet"
+                            busy={savingId === item.product_id}
+                            disabled={
+                              tryParseMoney(draft) === null ||
+                              draft === (item.counted_quantity ?? '')
+                            }
+                            onClick={() => void saveCount(item.product_id)}
+                          >
+                            {STOCK_COUNT.save}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

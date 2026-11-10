@@ -54,7 +54,9 @@ beforeEach(() => {
 
 describe('NotificationBell', () => {
   it('shows a count badge for active notifications', async () => {
-    mocks.list.mockResolvedValue({ notifications: [notification(), notification({ id: 'n-2' })] });
+    mocks.list.mockResolvedValue({
+      notifications: [notification(), notification({ id: 'n-2' })],
+    });
     render(<NotificationBell />);
     await waitFor(() => expect(mocks.list).toHaveBeenCalled());
     expect(await screen.findByText('2')).toBeInTheDocument();
@@ -92,7 +94,9 @@ describe('NotificationBell', () => {
   });
 
   it('"Go to" navigates to the right screen for the notification kind and closes the panel', async () => {
-    mocks.list.mockResolvedValue({ notifications: [notification({ kind: 'low_stock' })] });
+    mocks.list.mockResolvedValue({
+      notifications: [notification({ kind: 'low_stock' })],
+    });
     const onNavigate = vi.fn();
     render(<NotificationBell onNavigate={onNavigate} />);
     await waitFor(() => expect(mocks.list).toHaveBeenCalled());
@@ -146,7 +150,9 @@ describe('NotificationBell', () => {
 
   it('a custom reminder has no "Go to" action', async () => {
     mocks.list.mockResolvedValue({
-      notifications: [notification({ kind: 'custom_reminder', title: 'Call the tyre supplier' })],
+      notifications: [
+        notification({ kind: 'custom_reminder', title: 'Call the tyre supplier' }),
+      ],
     });
     render(<NotificationBell />);
     await waitFor(() => expect(mocks.list).toHaveBeenCalled());
@@ -216,7 +222,9 @@ describe('NotificationBell: device notifications', () => {
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
 
     mocks.list.mockResolvedValueOnce({
-      notifications: [notification({ id: 'n-new', title: 'Brake Shoe Set is running low' })],
+      notifications: [
+        notification({ id: 'n-new', title: 'Brake Shoe Set is running low' }),
+      ],
     });
     await vi.advanceTimersByTimeAsync(30_000);
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));

@@ -241,7 +241,9 @@ export async function stubApi(
   // (`api/v1/notifications.py`) — this stub predates the notification bell that
   // actually reads it, and `{ items: [] }` silently went unexercised until that
   // screen started parsing the response for real.
-  await page.route(`${API}/notifications**`, (route) => json(route, { notifications: [] }));
+  await page.route(`${API}/notifications**`, (route) =>
+    json(route, { notifications: [] }),
+  );
 }
 
 /** Boot the built application and wait until the counter is actually usable. */

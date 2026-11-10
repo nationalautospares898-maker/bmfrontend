@@ -86,7 +86,11 @@ export interface BillGridProps {
   /** `catalog.write`. Gates the Item cell's "Add New Item to Stock" affordance. */
   canCreateProduct: boolean;
   /** `catalog.write` + `inventory.adjust`. Lets a new item declare its opening stock. */
-  onAddProduct: (hit: SearchHit, rowIndex: number, opts?: { stayInRow?: boolean }) => void;
+  onAddProduct: (
+    hit: SearchHit,
+    rowIndex: number,
+    opts?: { stayInRow?: boolean },
+  ) => void;
   onChangeLine: (lineId: string, patch: Partial<LocalDraftLine>) => void;
   onRemoveLine: (lineId: string) => void;
   /**

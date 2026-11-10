@@ -73,14 +73,18 @@ export interface NotificationBellProps {
   onManageReminders?: () => void;
 }
 
-export function NotificationBell({ onNavigate, onManageReminders }: NotificationBellProps) {
+export function NotificationBell({
+  onNavigate,
+  onManageReminders,
+}: NotificationBellProps) {
   const [items, setItems] = useState<Notification[] | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [devicePermission, setDevicePermission] = useState<deviceNotifications.DevicePermission>(
-    deviceNotifications.currentPermission(),
-  );
+  const [devicePermission, setDevicePermission] =
+    useState<deviceNotifications.DevicePermission>(
+      deviceNotifications.currentPermission(),
+    );
 
   /**
    * Which active ids have already been shown as a **device** notification this
@@ -111,7 +115,9 @@ export function NotificationBell({ onNavigate, onManageReminders }: Notification
             const target = screenFor(n.kind);
             deviceNotifications.show(n.id, n.title, {
               ...(n.body ? { body: n.body } : {}),
-              ...(target ? { onClick: () => onNavigate?.(target, n.entity_id ?? undefined) } : {}),
+              ...(target
+                ? { onClick: () => onNavigate?.(target, n.entity_id ?? undefined) }
+                : {}),
             });
           }
         }
@@ -144,7 +150,11 @@ export function NotificationBell({ onNavigate, onManageReminders }: Notification
       await action(notificationId);
       setItems((prev) => (prev ? prev.filter((n) => n.id !== notificationId) : prev));
     } catch (caught) {
-      setError(caught instanceof ApiError ? describeError(caught.code).message : NOTIFICATIONS.actionFailed);
+      setError(
+        caught instanceof ApiError
+          ? describeError(caught.code).message
+          : NOTIFICATIONS.actionFailed,
+      );
     } finally {
       setBusyId(null);
     }
@@ -237,14 +247,18 @@ export function NotificationBell({ onNavigate, onManageReminders }: Notification
                     <Button
                       variant="quiet"
                       busy={busyId === n.id}
-                      onClick={() => void act((id) => notificationsApi.acknowledge(id), n.id)}
+                      onClick={() =>
+                        void act((id) => notificationsApi.acknowledge(id), n.id)
+                      }
                     >
                       {NOTIFICATIONS.acknowledge}
                     </Button>
                     <Button
                       variant="quiet"
                       disabled={busyId === n.id}
-                      onClick={() => void act((id) => notificationsApi.snooze(id, 60), n.id)}
+                      onClick={() =>
+                        void act((id) => notificationsApi.snooze(id, 60), n.id)
+                      }
                     >
                       {NOTIFICATIONS.snooze}
                     </Button>
