@@ -151,8 +151,12 @@ async function fillLogin(page: Page): Promise<void> {
  * through the thing a cashier actually uses.
  */
 async function expectReadyToBill(page: Page): Promise<void> {
+  // 45s, not 30s: the CI runner is a shared 2-core box, slower than a developer
+  // machine (the performance job's own comment makes the same point), and this wait
+  // covers a full boot — auth bootstrap, counter resolution, and the draft store
+  // opening — which has grown with each feature added since this number was chosen.
   await expect(page.getByLabel('Item, row 1', { exact: true })).toBeVisible({
-    timeout: 30_000,
+    timeout: 45_000,
   });
   // And the dead end is genuinely absent, not merely scrolled past.
   await expect(page.getByText(/Billing is not ready on this computer/)).toHaveCount(0);
