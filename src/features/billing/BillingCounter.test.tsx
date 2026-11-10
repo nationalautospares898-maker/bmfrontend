@@ -527,6 +527,49 @@ describe('the Excel-style invoice grid', () => {
     expect(screen.getByLabelText('Price, row 1')).toHaveValue('30');
   });
 
+  it('Tab fills the highlighted match in and stays on the same row, at Quantity', async () => {
+    // Owner request: unlike Enter (which hands off to the *next* row's Item cell,
+    // FR-BILL-001), Tab should fill the highlighted suggestion in and let the cashier
+    // edit Quantity/Price on the row that was just filled, without a popup.
+    mocks.search.mockResolvedValue({ items: [PRODUCT], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    await user.type(bill(0).getByLabelText('Item, row 1'), 'axel');
+    await screen.findByRole('listbox');
+    await user.keyboard('{Tab}');
+
+    await waitFor(() => {
+      const state = useBillingStore.getState();
+      const draft = state.drafts.find((candidate) => candidate.id === state.activeDraftId);
+      expect(draft?.lines.length ?? 0).toBeGreaterThan(0);
+    });
+
+    // Same row's Quantity cell — not row 2's Item cell. Once a line exists, row 1's
+    // Item cell becomes a read-only display (not an input — see `ItemCell`), so the
+    // product landing is asserted by its text rather than by `toHaveValue`.
+    await waitFor(() => {
+      expect(bill(0).getByLabelText('Quantity, row 1')).toHaveFocus();
+    });
+    expect(bill(0).getByLabelText('Item, row 1')).toHaveTextContent('AXEL PACKING');
+  });
+
+  it('Tab with nothing highlighted does not insert a product (no suggestion armed)', async () => {
+    // Guards against stealing Tab when the list has not produced/armed a highlight yet
+    // — e.g. before any search has resolved.
+    mocks.search.mockResolvedValue({ items: [], page: {} });
+    const user = userEvent.setup();
+    render(<BillingCounter policy={POLICY} online canBill canOverridePrice />);
+
+    await user.type(bill(0).getByLabelText('Item, row 1'), 'zzz-no-match');
+    const draftId = useBillingStore.getState().activeDraftId!;
+    await user.keyboard('{Tab}');
+
+    const state = useBillingStore.getState();
+    const draft = state.drafts.find((candidate) => candidate.id === draftId);
+    expect(draft?.lines.length ?? 0).toBe(0);
+  });
+
   it('keeps a space a space while a product name is being typed', async () => {
     // `AXEL PACKING` has one in the middle. A grid that swallowed `Space` to select a
     // cell would make half the catalogue untypeable, so this is asserted rather than

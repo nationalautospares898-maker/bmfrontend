@@ -110,7 +110,8 @@ class NetworkError extends Error { retryable = true as const; }
 ```
 
 `ErrorCode` is a **generated union** of every code in
-`../../bmbackend/docs/API-SPECIFICATION.md §4.2` — **53 codes** as of Phase 2 closure. Feature code
+`../../bmbackend/docs/API-SPECIFICATION.md §4.2` — **54 codes** as of Feature A.6 (2026-11-10;
+53 as of Phase 2 closure). Feature code
 handles it with an exhaustive `switch`, so adding a backend code produces a TypeScript error until
 the client handles it — this is the mechanism behind FBO-5 ("errors are actionable"), not a promise
 to be careful.
@@ -156,6 +157,7 @@ Full UI presentation in `docs/UI-UX-SPECIFICATION.md §9`; mechanics here.
 | `PRODUCT_INACTIVE` | no | Flag the line, offer removal |
 | `TOTAL_MISMATCH` | no | Refetch the draft, warn, **do not resubmit automatically** |
 | `EMPTY_SALE` | no | Should be prevented client-side; log as a client bug if seen |
+| `STOCK_COUNT_ALREADY_OPEN` | no | Offer to open/resume the existing session instead |
 | `CREDIT_CUSTOMER_REQUIRED` | no | Focus customer selection |
 | `CREDIT_LIMIT_EXCEEDED` | no | Show figures; override where permitted |
 | `IDEMPOTENCY_KEY_REUSE` | no | **Client bug** — report to error tracking, reload the bill from the server |

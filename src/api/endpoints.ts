@@ -37,6 +37,14 @@ import type {
   MechanicListResponse,
   MeResponse,
   Named,
+  NotificationListResponse,
+  Order,
+  OrderListResponse,
+  ReminderListResponse,
+  StockCountFinalizeResponse,
+  StockCountReview,
+  StockCountSession,
+  StockCountSessionListResponse,
   PaymentHistoryList,
   PaymentRequest,
   PaymentResponse,
@@ -373,6 +381,12 @@ export const invoices = {
     customer_id?: string;
     counter_id?: string;
     is_credit?: boolean;
+    /**
+     * Canceled Bills (2026-11-10). Omit for Daily/Credit Bills, which now excludes
+     * cancelled bills server-side by default; pass `'cancelled'` for the dedicated
+     * Canceled Bills screen.
+     */
+    status?: 'cancelled';
     limit?: number;
   }): Promise<InvoiceListResponse> {
     return data(api.get<InvoiceListResponse>('/invoices', { params: filters }));
@@ -533,14 +547,20 @@ export const inventory = {
    *
    * `on_date` is a **business-local** date (`YYYY-MM-DD`) — the server resolves the day
    * boundary in the shop's own timezone, the same way Daily Bills does, so the client
-   * never has to reason about UTC. `kind` is `added` (everything that increased stock)
-   * or `sold` (sale deductions only).
+   * never has to reason about UTC. `kind` is `added` (everything that increased stock),
+   * `sold` (sale deductions only), or `adjusted` (every other decrease — a correction,
+   * scrap, a transfer out). `end_date` is optional and defaults to `on_date` on the
+   * server; the owner's Stock Report passes both for a date range.
    *
    * `signal` is accepted so the caller can abandon a request whose answer is no longer
    * wanted: changing the date twice quickly must not let the first reply land last.
    */
   movementReport(
-    params: { on_date: string; kind: 'added' | 'sold' },
+    params: {
+      on_date: string;
+      kind: 'added' | 'sold' | 'adjusted';
+      end_date?: string;
+    },
     signal?: AbortSignal,
   ): Promise<MovementReport> {
     return data(
@@ -608,6 +628,56 @@ export const inventory = {
       api.post<{ movement_id: string }>('/inventory/adjustments', body, {
         idempotencyKey,
         retry: 'auto',
+      }),
+    );
+  },
+
+  // --- physical stock count (Feature A.6) ---------------------------------------
+
+  listStockCounts(): Promise<StockCountSessionListResponse> {
+    return data(api.get<StockCountSessionListResponse>('/inventory/stock-counts'));
+  },
+  /** Refused with `STOCK_COUNT_ALREADY_OPEN` if one is already open for this branch. */
+  startStockCount(notes?: string): Promise<StockCountSession> {
+    return data(
+      api.post<StockCountSession>(
+        '/inventory/stock-counts',
+        { notes: notes || null },
+        { retry: 'never' },
+      ),
+    );
+  },
+  /** Every product with a balance in the branch, counted or not, with the *current*
+   * system quantity — never the figure from when it was counted. */
+  reviewStockCount(sessionId: string): Promise<StockCountReview> {
+    return data(api.get<StockCountReview>(`/inventory/stock-counts/${sessionId}`));
+  },
+  recordStockCountItem(
+    sessionId: string,
+    productId: string,
+    countedQuantity: string,
+  ): Promise<void> {
+    return data(
+      api.put<void>(
+        `/inventory/stock-counts/${sessionId}/items/${productId}`,
+        { counted_quantity: countedQuantity },
+        { retry: 'never' },
+      ),
+    );
+  },
+  finalizeStockCount(sessionId: string): Promise<StockCountFinalizeResponse> {
+    return data(
+      api.post<StockCountFinalizeResponse>(
+        `/inventory/stock-counts/${sessionId}:finalize`,
+        undefined,
+        { retry: 'never' },
+      ),
+    );
+  },
+  cancelStockCount(sessionId: string): Promise<{ status: string }> {
+    return data(
+      api.post<{ status: string }>(`/inventory/stock-counts/${sessionId}:cancel`, undefined, {
+        retry: 'never',
       }),
     );
   },
@@ -837,3 +907,111 @@ export const adminCounters = {
     );
   },
 };
+
+// --- notifications (Feature A.1/A.2) -------------------------------------------
+
+export const notifications = {
+  list(limit = 50): Promise<NotificationListResponse> {
+    return data(api.get<NotificationListResponse>('/notifications', { params: { limit } }));
+  },
+  dismiss(notificationId: string): Promise<{ status: string }> {
+    return data(
+      api.post<{ status: string }>(`/notifications/${notificationId}:dismiss`, undefined, {
+        retry: 'never',
+      }),
+    );
+  },
+  acknowledge(notificationId: string): Promise<{ status: string }> {
+    return data(
+      api.post<{ status: string }>(`/notifications/${notificationId}:acknowledge`, undefined, {
+        retry: 'never',
+      }),
+    );
+  },
+  snooze(notificationId: string, minutes: number): Promise<{ status: string }> {
+    return data(
+      api.post<{ status: string }>(
+        `/notifications/${notificationId}:snooze`,
+        { minutes },
+        { retry: 'never' },
+      ),
+    );
+  },
+};
+
+// --- scheduled reminders (Feature A.5) ------------------------------------------
+
+export const reminders = {
+  list(): Promise<ReminderListResponse> {
+    return data(api.get<ReminderListResponse>('/reminders'));
+  },
+  create(body: {
+    label: string;
+    fire_time?: string | null;
+    interval_hours?: number | null;
+  }): Promise<{ id: string }> {
+    return data(api.post<{ id: string }>('/reminders', body, { retry: 'never' }));
+  },
+  update(
+    reminderId: string,
+    body: { label?: string; enabled?: boolean },
+  ): Promise<{ updated: boolean }> {
+    return data(
+      api.put<{ updated: boolean }>(`/reminders/${reminderId}`, body, { retry: 'never' }),
+    );
+  },
+  remove(reminderId: string): Promise<void> {
+    return data(api.delete<void>(`/reminders/${reminderId}`, { retry: 'never' }));
+  },
+};
+
+// --- Chitti orders (Feature B) --------------------------------------------------
+
+export const orders = {
+  list(params: { status?: 'pending' | 'completed' | 'discarded'; limit?: number } = {}): Promise<
+    OrderListResponse
+  > {
+    return data(api.get<OrderListResponse>('/orders', { params }));
+  },
+  create(body: {
+    body: string;
+    customer_name?: string | null;
+    phone?: string | null;
+  }): Promise<{ id: string }> {
+    return data(api.post<{ id: string }>('/orders', body, { retry: 'never' }));
+  },
+  update(
+    orderId: string,
+    body: { body?: string; customer_name?: string | null; phone?: string | null },
+  ): Promise<{ updated: boolean }> {
+    return data(api.put<{ updated: boolean }>(`/orders/${orderId}`, body, { retry: 'never' }));
+  },
+  complete(orderId: string): Promise<{ status: string }> {
+    return data(
+      api.post<{ status: string }>(`/orders/${orderId}:complete`, undefined, {
+        retry: 'never',
+      }),
+    );
+  },
+  discard(orderId: string): Promise<{ status: string }> {
+    return data(
+      api.post<{ status: string }>(`/orders/${orderId}:discard`, undefined, { retry: 'never' }),
+    );
+  },
+  /**
+   * Set or clear (`remind_at: null`) the owner's own one-time reminder for one order.
+   * Fires ahead of the flat ten-minute nudge once due, and is server-consumed the
+   * instant it fires — see `domain/orders/service.py::nudge_pending`.
+   */
+  setReminder(orderId: string, remindAt: string | null): Promise<{ updated: boolean }> {
+    return data(
+      api.put<{ updated: boolean }>(
+        `/orders/${orderId}/reminder`,
+        { remind_at: remindAt },
+        { retry: 'never' },
+      ),
+    );
+  },
+};
+
+export type { Order };

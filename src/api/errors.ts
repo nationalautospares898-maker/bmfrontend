@@ -45,6 +45,8 @@ export type ErrorCode =
   | 'PRODUCT_INACTIVE'
   | 'TOTAL_MISMATCH'
   | 'EMPTY_SALE'
+  // physical stock count (Feature A.6)
+  | 'STOCK_COUNT_ALREADY_OPEN'
   // credit
   | 'CREDIT_CUSTOMER_REQUIRED'
   | 'CREDIT_LIMIT_EXCEEDED'
@@ -251,6 +253,13 @@ export function describeError(code: ErrorCode): ErrorPresentation {
         surface: 'inline',
         retryable: false,
         needsResolution: false,
+      };
+    case 'STOCK_COUNT_ALREADY_OPEN':
+      return {
+        message: 'A stock count is already open for this branch. Finish or cancel it first.',
+        surface: 'inline',
+        retryable: false,
+        needsResolution: true,
       };
 
     // --- conflicts needing a choice: dialog -----------------------------------

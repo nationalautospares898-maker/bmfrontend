@@ -138,7 +138,7 @@ describe('opening the report', () => {
       on_date: TODAY,
       kind: 'added',
     });
-    expect(screen.getByLabelText('Date')).toHaveValue(TODAY);
+    expect(screen.getByLabelText('Start date')).toHaveValue(TODAY);
   });
 
   it('starts on Stock Added, with that choice shown as pressed', async () => {
@@ -268,8 +268,8 @@ describe('changing the day', () => {
     open();
     await table();
 
-    await user.clear(screen.getByLabelText('Date'));
-    await user.type(screen.getByLabelText('Date'), '2026-10-30');
+    await user.clear(screen.getByLabelText('Start date'));
+    await user.type(screen.getByLabelText('Start date'), '2026-10-30');
 
     await waitFor(() =>
       expect(movementReport).toHaveBeenLastCalledWith(
@@ -300,8 +300,8 @@ describe('changing the day', () => {
       on_date: '2026-10-30',
       items: [{ ...ADDED.items[0], movement_id: 'm-new', reference: 'NEWER/DOC' }],
     });
-    await user.clear(screen.getByLabelText('Date'));
-    await user.type(screen.getByLabelText('Date'), '2026-10-30');
+    await user.clear(screen.getByLabelText('Start date'));
+    await user.type(screen.getByLabelText('Start date'), '2026-10-30');
     expect(await screen.findByText('NEWER/DOC')).toBeInTheDocument();
 
     // Now the first, stale answer arrives.
@@ -317,7 +317,7 @@ describe('the states that are easy to confuse', () => {
     movementReport.mockResolvedValue(EMPTY);
     open();
     expect(
-      await screen.findByText(/No stock was added on this date/),
+      await screen.findByText(/No stock was added in this period/),
     ).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
@@ -328,7 +328,7 @@ describe('the states that are easy to confuse', () => {
     await table();
     movementReport.mockResolvedValue({ ...EMPTY, kind: 'sold' });
     await user.click(screen.getByRole('button', { name: 'Stock Sold' }));
-    expect(await screen.findByText(/Nothing was sold on this date/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing was sold in this period/)).toBeInTheDocument();
   });
 
   it('reports a failure as a failure, never as a quiet day', async () => {
@@ -367,6 +367,114 @@ describe('the states that are easy to confuse', () => {
   });
 });
 
+describe('the date range (owner request: start date + end date)', () => {
+  it('sends end_date equal to the start date by default', async () => {
+    open();
+    await waitFor(() => expect(movementReport).toHaveBeenCalled());
+    expect(movementReport.mock.calls[0]?.[0]).toMatchObject({
+      on_date: TODAY,
+      end_date: TODAY,
+    });
+    expect(screen.getByLabelText('End date')).toHaveValue(TODAY);
+  });
+
+  it('widening the end date reloads with both dates', async () => {
+    const user = userEvent.setup();
+    open();
+    await table();
+
+    await user.clear(screen.getByLabelText('End date'));
+    await user.type(screen.getByLabelText('End date'), '2026-11-05');
+
+    await waitFor(() =>
+      expect(movementReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ on_date: TODAY, end_date: '2026-11-05' }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it('moving the start date past the end date carries the end date along, rather than sending an invalid range', async () => {
+    const user = userEvent.setup();
+    open();
+    await table();
+
+    await user.clear(screen.getByLabelText('Start date'));
+    await user.type(screen.getByLabelText('Start date'), '2026-11-20');
+
+    await waitFor(() =>
+      expect(movementReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ on_date: '2026-11-20', end_date: '2026-11-20' }),
+        expect.anything(),
+      ),
+    );
+  });
+});
+
+describe('kind=adjusted (a bucket this report did not have before)', () => {
+  const ADJUSTED = {
+    on_date: TODAY,
+    end_date: TODAY,
+    kind: 'adjusted',
+    items: [
+      {
+        movement_id: 'm-4',
+        product_id: 'p-1',
+        product_name: 'Tie Rod End Bolero',
+        sku: 'TT-1001-A',
+        quantity: '2.000',
+        stock_before: '10.000',
+        stock_after: '8.000',
+        reason: 'adjustment_decrease',
+        source_type: 'stock_count',
+        reference: null,
+        is_credit: null,
+        invoice_cancelled: null,
+        created_at: '2026-11-02T13:00:00Z',
+      },
+    ],
+    products: 1,
+    total_quantity: '2.000',
+    movements: 1,
+    invoices: 0,
+    truncated: false,
+    as_of: '2026-11-02T14:00:00Z',
+  };
+
+  it('loads the adjusted report when that tab is pressed, and shows the movement type and source', async () => {
+    const user = userEvent.setup();
+    open();
+    await table();
+    movementReport.mockResolvedValue(ADJUSTED);
+
+    await user.click(screen.getByRole('button', { name: 'Adjustments' }));
+
+    await waitFor(() =>
+      expect(movementReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ kind: 'adjusted' }),
+        expect.anything(),
+      ),
+    );
+    const row = within(await table()).getByRole('row', { name: /Tie Rod End Bolero/ });
+    expect(within(row).getByText('Correction (less)')).toBeInTheDocument();
+    expect(within(row).getByText('Stock Count')).toBeInTheDocument();
+    // Not a sale report: no Sale Type / Invoices figure.
+    expect(screen.queryByText('Sale Type')).not.toBeInTheDocument();
+    expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
+  });
+
+  it('says plainly when nothing was adjusted in the period', async () => {
+    const user = userEvent.setup();
+    open();
+    await table();
+    movementReport.mockResolvedValue({ ...ADJUSTED, items: [], movements: 0, products: 0 });
+
+    await user.click(screen.getByRole('button', { name: 'Adjustments' }));
+
+    expect(await screen.findByText(/No adjustments in this period/)).toBeInTheDocument();
+  });
+});
+
 describe('refresh and close', () => {
   it('reloads the same day when Refresh is pressed', async () => {
     const user = userEvent.setup();
@@ -401,18 +509,27 @@ describe('keyboard and accessibility', () => {
     open();
     await table();
 
-    const order = ['Date', 'Stock Added', 'Stock Sold', 'Refresh report', 'Close report'];
+    const order = [
+      'Start date',
+      'End date',
+      'Stock Added',
+      'Stock Sold',
+      'Adjustments',
+      'Refresh report',
+      'Close report',
+    ];
     const seen: string[] = [];
-    screen.getByLabelText('Date').focus();
+    screen.getByLabelText('Start date').focus();
     for (let step = 0; step < order.length; step += 1) {
       const active = document.activeElement as HTMLElement | null;
       seen.push(active?.getAttribute('aria-label') ?? active?.textContent?.trim() ?? '');
       await user.tab();
     }
 
+    // The two date fields have real labels rather than an aria-label; the rest are buttons.
     expect(seen[0]).toBe('');
-    // The date field has a real label rather than an aria-label; the rest are buttons.
-    expect(seen.slice(1)).toEqual(order.slice(1));
+    expect(seen[1]).toBe('');
+    expect(seen.slice(2)).toEqual(order.slice(2));
   });
 
   it('switches tabs with the keyboard', async () => {

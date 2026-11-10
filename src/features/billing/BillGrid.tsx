@@ -86,7 +86,7 @@ export interface BillGridProps {
   /** `catalog.write`. Gates the Item cell's "Add New Item to Stock" affordance. */
   canCreateProduct: boolean;
   /** `catalog.write` + `inventory.adjust`. Lets a new item declare its opening stock. */
-  onAddProduct: (hit: SearchHit, rowIndex: number) => void;
+  onAddProduct: (hit: SearchHit, rowIndex: number, opts?: { stayInRow?: boolean }) => void;
   onChangeLine: (lineId: string, patch: Partial<LocalDraftLine>) => void;
   onRemoveLine: (lineId: string) => void;
   /**
@@ -142,6 +142,29 @@ export function BillGrid({
     element?.focus();
     if (element instanceof HTMLInputElement) element.select();
   });
+
+  /**
+   * `Tab` on a highlighted Item-cell suggestion (owner request): fill the product in and
+   * land on *this same row's* Quantity cell, instead of `Enter`'s FR-BILL-001 handover to
+   * the next row's Item cell.
+   *
+   * A row ref, not `pending`/`move` above: the Quantity cell for a row with no line yet
+   * renders an inert placeholder `<div>`, not an `<input>` (see the ternary below) — it
+   * only becomes focusable once `addLine` resolves and republishes `lines`. Retrying off
+   * `lines` itself, rather than firing once on the next paint, is what makes this land
+   * reliably rather than focusing a `<div>` the instant before the real input appears.
+   */
+  const stayInRowAfterPick = useRef<number | null>(null);
+  useEffect(() => {
+    const row = stayInRowAfterPick.current;
+    if (row === null) return;
+    if (!lines[row]) return;
+    stayInRowAfterPick.current = null;
+    const selector = `[data-cell="${row}-quantity"]`;
+    const element = container.current?.querySelector<HTMLInputElement>(selector);
+    element?.focus();
+    element?.select();
+  }, [lines]);
 
   /** Spreadsheet traversal. Wraps across columns, clamps at the top and bottom. */
   const step = useCallback(
@@ -359,7 +382,16 @@ export function BillGrid({
                         online={online}
                         readOnly={readOnly}
                         canCreateProduct={canCreateProduct}
-                        onPick={(hit) => onAddProduct(hit, row)}
+                        onPick={(hit, opts) => {
+                          onAddProduct(hit, row, opts);
+                          // `stayInRow` (Tab): land on this same row's Quantity cell once
+                          // its line exists (see `stayInRowAfterPick` above), instead of
+                          // `BillPanel`'s `focusItemCell(row + 1)` (which it skips when
+                          // `stayInRow` is set — see `addProduct`).
+                          if (opts?.stayInRow) {
+                            stayInRowAfterPick.current = row;
+                          }
+                        }}
                         onFocusCell={() => setFocus({ row, column: 'item' })}
                         onMove={(direction) =>
                           move(step({ row, column: 'item' }, direction))

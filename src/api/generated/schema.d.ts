@@ -4,24 +4,7 @@
  */
 
 export interface paths {
-    "/api/v1/admin/counters": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Counters */
-        get: operations["list_counters_api_v1_admin_counters_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/counters/{counter_id}": {
+    "/api/v1/auth/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -29,37 +12,16 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Update Counter
-         * @description FR-ADMIN-003: a counter's name, draft capacity (minimum 20, C-5) and whether it
-         *     is open for business.
-         */
-        put: operations["update_counter_api_v1_admin_counters__counter_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/devices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Devices */
-        get: operations["list_devices_api_v1_admin_devices_get"];
         put?: never;
-        post?: never;
+        /** Login */
+        post: operations["login_api_v1_auth_login_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/devices/{device_id}/counter": {
+    "/api/v1/auth/unattended": {
         parameters: {
             query?: never;
             header?: never;
@@ -67,23 +29,38 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        put?: never;
         /**
-         * Assign Device Counter
-         * @description Decide which counter a registered computer bills as (C-2).
+         * Unattended
+         * @description Open a session with no password, when this server is configured to allow it.
          *
-         *     `admin.settings.manage`, not `admin.devices.manage`: this chooses whose takings the
-         *     machine's next sale is attributed to, which is business configuration rather than
-         *     device hygiene. Reasoning in `bm.domain.auth.counters`.
+         *     The shop runs from one computer and wanted the application to open straight into
+         *     billing. This is how: the browser asks for a session, and a server that has been told
+         *     to vouch for it issues an ordinary one.
+         *
+         *     **Disabled unless somebody turns it on.** `BM_UNATTENDED_ACCESS` is off by default and
+         *     a server with it off refuses here, so no deployment acquires this by upgrading. When
+         *     it is on, `BM_UNATTENDED_USERNAME` names the account the session belongs to — the
+         *     audit trail still says who acted, and the row carries a reason recording that no
+         *     password was presented.
+         *
+         *     **Nothing downstream changes.** The response is the same `SessionOut` a login returns,
+         *     with the same access token, the same rotating refresh cookie, the same permissions and
+         *     the same device registration. Every other endpoint still demands that token and still
+         *     checks its permissions; a revoked device is still refused here and everywhere else.
+         *
+         *     **The risk, stated plainly:** anyone who can reach this endpoint gets a working
+         *     session. Enable it only where the network is already controlled — bound to localhost,
+         *     or on a LAN the shop owns — never on a server reachable from the open internet.
          */
-        put: operations["assign_device_counter_api_v1_admin_devices__device_id__counter_put"];
-        post?: never;
+        post: operations["unattended_api_v1_auth_unattended_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/devices/{device_id}:revoke": {
+    "/api/v1/auth/refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -93,28 +70,46 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Revoke Device
-         * @description Stops refresh immediately and refuses sync on every endpoint (T-4).
-         *
-         *     Local data on the device is **never** deleted in response — the client shows a
-         *     blocking screen. Unsynced drafts are lost by design; they were never sales (E-11).
+         * Refresh
+         * @description Rotates the token. Presenting a consumed one revokes the whole family
+         *     (FR-AUTH-002) — a consumed token in the wild means the cookie was copied.
          */
-        post: operations["revoke_device_api_v1_admin_devices__device_id__revoke_post"];
+        post: operations["refresh_api_v1_auth_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/settings": {
+    "/api/v1/auth/logout": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Settings */
-        get: operations["list_settings_api_v1_admin_settings_get"];
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Me
+         * @description The caller's own context. Needs no specific permission.
+         */
+        get: operations["me_api_v1_auth_me_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -123,7 +118,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/settings/{key}": {
+    "/api/v1/auth/select-branch": {
         parameters: {
             query?: never;
             header?: never;
@@ -131,15 +126,30 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        put?: never;
+        /** Select Branch */
+        post: operations["select_branch_api_v1_auth_select_branch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         /**
-         * Update Setting
-         * @description Audited with before/after values (FR-AUDIT-003).
-         *
-         *     A discount cap or a credit term is a business rule that moves money, so "who
-         *     changed this and when" has to be answerable.
+         * Change Password
+         * @description Reachable while `must_change_password` is set — it is the one thing such a user
+         *     must be able to do.
          */
-        put: operations["update_setting_api_v1_admin_settings__key__put"];
-        post?: never;
+        post: operations["change_password_api_v1_auth_change_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -197,73 +207,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/change-password": {
+    "/api/v1/admin/devices": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /**
-         * Change Password
-         * @description Reachable while `must_change_password` is set — it is the one thing such a user
-         *     must be able to do.
-         */
-        post: operations["change_password_api_v1_auth_change_password_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Login */
-        post: operations["login_api_v1_auth_login_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Logout */
-        post: operations["logout_api_v1_auth_logout_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Me
-         * @description The caller's own context. Needs no specific permission.
-         */
-        get: operations["me_api_v1_auth_me_get"];
+        /** List Devices */
+        get: operations["list_devices_api_v1_admin_devices_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -272,7 +224,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/refresh": {
+    "/api/v1/admin/devices/{device_id}:revoke": {
         parameters: {
             query?: never;
             header?: never;
@@ -282,18 +234,181 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh
-         * @description Rotates the token. Presenting a consumed one revokes the whole family
-         *     (FR-AUTH-002) — a consumed token in the wild means the cookie was copied.
+         * Revoke Device
+         * @description Stops refresh immediately and refuses sync on every endpoint (T-4).
+         *
+         *     Local data on the device is **never** deleted in response — the client shows a
+         *     blocking screen. Unsynced drafts are lost by design; they were never sales (E-11).
          */
-        post: operations["refresh_api_v1_auth_refresh_post"];
+        post: operations["revoke_device_api_v1_admin_devices__device_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/select-branch": {
+    "/api/v1/admin/devices/{device_id}/counter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign Device Counter
+         * @description Decide which counter a registered computer bills as (C-2).
+         *
+         *     `admin.settings.manage`, not `admin.devices.manage`: this chooses whose takings the
+         *     machine's next sale is attributed to, which is business configuration rather than
+         *     device hygiene. Reasoning in `bm.domain.auth.counters`.
+         */
+        put: operations["assign_device_counter_api_v1_admin_devices__device_id__counter_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/counters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Counters */
+        get: operations["list_counters_api_v1_admin_counters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/counters/{counter_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Counter
+         * @description FR-ADMIN-003: a counter's name, draft capacity (minimum 20, C-5) and whether it
+         *     is open for business.
+         */
+        put: operations["update_counter_api_v1_admin_counters__counter_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Settings */
+        get: operations["list_settings_api_v1_admin_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Setting
+         * @description Audited with before/after values (FR-AUDIT-003).
+         *
+         *     A discount cap or a credit term is a business rule that moves money, so "who
+         *     changed this and when" has to be answerable.
+         */
+        put: operations["update_setting_api_v1_admin_settings__key__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Products
+         * @description Minimum query length **1**. Results are ranked exact SKU → SKU prefix → name
+         *     prefix → alias → trigram, with sales frequency then name as the tie-break.
+         */
+        get: operations["search_products_api_v1_products_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/lookup-barcode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lookup Barcode */
+        get: operations["lookup_barcode_api_v1_products_lookup_barcode_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Product */
+        get: operations["get_product_api_v1_products__product_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Product
+         * @description A price change is audited with before/after values (FR-AUDIT-003, T-2).
+         */
+        patch: operations["update_product_api_v1_products__product_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/products": {
         parameters: {
             query?: never;
             header?: never;
@@ -302,15 +417,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Select Branch */
-        post: operations["select_branch_api_v1_auth_select_branch_post"];
+        /** Create Product */
+        post: operations["create_product_api_v1_products_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/unattended": {
+    "/api/v1/products/{product_id}:deactivate": {
         parameters: {
             query?: never;
             header?: never;
@@ -320,29 +435,89 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Unattended
-         * @description Open a session with no password, when this server is configured to allow it.
-         *
-         *     The shop runs from one computer and wanted the application to open straight into
-         *     billing. This is how: the browser asks for a session, and a server that has been told
-         *     to vouch for it issues an ordinary one.
-         *
-         *     **Disabled unless somebody turns it on.** `BM_UNATTENDED_ACCESS` is off by default and
-         *     a server with it off refuses here, so no deployment acquires this by upgrading. When
-         *     it is on, `BM_UNATTENDED_USERNAME` names the account the session belongs to — the
-         *     audit trail still says who acted, and the row carries a reason recording that no
-         *     password was presented.
-         *
-         *     **Nothing downstream changes.** The response is the same `SessionOut` a login returns,
-         *     with the same access token, the same rotating refresh cookie, the same permissions and
-         *     the same device registration. Every other endpoint still demands that token and still
-         *     checks its permissions; a revoked device is still refused here and everywhere else.
-         *
-         *     **The risk, stated plainly:** anyone who can reach this endpoint gets a working
-         *     session. Enable it only where the network is already controlled — bound to localhost,
-         *     or on a LAN the shop owns — never on a server reachable from the open internet.
+         * Deactivate Product
+         * @description Never deletes (FR-CAT-009).
          */
-        post: operations["unattended_api_v1_auth_unattended_post"];
+        post: operations["deactivate_product_api_v1_products__product_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/aliases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Aliases */
+        get: operations["list_aliases_api_v1_products__product_id__aliases_get"];
+        put?: never;
+        /**
+         * Add Alias
+         * @description Adding an alias refreshes the parent's `search_text` (fix S-8), otherwise the
+         *     alias is stored but unsearchable.
+         */
+        post: operations["add_alias_api_v1_products__product_id__aliases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/aliases/{alias_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Alias */
+        delete: operations["delete_alias_api_v1_products__product_id__aliases__alias_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Units */
+        get: operations["list_units_api_v1_units_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/units:ensure-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ensure Default Units
+         * @description Seed the default units for a business created after migration 0016 ran.
+         *
+         *     Units are reference data a spare-parts shop cannot operate without. A tax rate, a
+         *     product or a business identity is **never** seeded.
+         */
+        post: operations["ensure_default_units_api_v1_units_ensure_defaults_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -383,35 +558,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credit-notes/{note_id}/allocations": {
+    "/api/v1/inventory/balances": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Allocate Credit Note */
-        post: operations["allocate_credit_note_api_v1_credit_notes__note_id__allocations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/credit/ageing-summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Ageing Summary
-         * @description Buckets: current, 1-30, 31-60, 61-90, 90+.
-         */
-        get: operations["ageing_summary_api_v1_credit_ageing_summary_get"];
+        /** List Balances */
+        get: operations["list_balances_api_v1_inventory_balances_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -420,7 +575,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credit/customers": {
+    "/api/v1/inventory/movements": {
         parameters: {
             query?: never;
             header?: never;
@@ -428,14 +583,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Credit Customers
-         * @description The top level of the Credit Bills view (FR-CREDIT-011, FR-RPT-028).
+         * List Movements
+         * @description The append-only ledger (FR-INV-001) — one product's complete history.
          *
-         *     Every aggregate is **server-computed** — the client never sums these as
-         *     authoritative (FR-RPT-030, ADR-032). Grouping keys on `customer_id`, so a rename
-         *     changes only the label (FR-RPT-029).
+         *     Every movement is here, not only sales: the opening figure, each sheet arrival, each
+         *     correction, each sale, and each reversal of a cancelled bill. `balance_after` is the
+         *     stock the database actually held after that row, recorded when the movement was
+         *     written — so the history is read from the ledger and never reconstructed backwards
+         *     from today's total.
+         *
+         *     `oldest_first=true` is what the History panel asks for, so the running balance reads
+         *     downwards.
          */
-        get: operations["credit_customers_api_v1_credit_customers_get"];
+        get: operations["list_movements_api_v1_inventory_movements_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -444,7 +604,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credit/outstanding": {
+    "/api/v1/inventory/movements/report": {
         parameters: {
             query?: never;
             header?: never;
@@ -452,10 +612,32 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Credit Outstanding
-         * @description Derived from authoritative data (FR-CREDIT-002), never from a cache table.
+         * Movement Report
+         * @description What moved in or out of stock over a business-local date range (the Stock Report).
+         *
+         *     The per-product History answers "what happened to this part"; this answers "what
+         *     happened in this period", from the same append-only ledger — so the two can never
+         *     disagree and nothing is recomputed from the current total. `end_date` defaults to
+         *     `on_date`, so a single day's report (the original shape of this endpoint) is just the
+         *     range where both ends are the same day.
+         *
+         *     `kind=added` is every movement that **increased** stock: the opening figure, a
+         *     purchase receipt, the owner's stock sheet, a correction upwards, a customer return, an
+         *     applied import, and the reversal of a cancelled bill. `kind=sold` is `reason = 'sale'`
+         *     alone — what customers took away. `kind=adjusted` is every other decrease — a
+         *     correction downwards, scrap, a transfer out, a supplier return — the movements that
+         *     belonged to neither bucket before this existed.
+         *
+         *     Three exclusions are structural rather than filtered, which is what makes them
+         *     reliable: a **draft** writes no movement, a **reprint** writes no movement, and a
+         *     **credit payment** moves money rather than goods. None of them can appear here
+         *     whatever this endpoint does.
+         *
+         *     `stock_before` and `stock_after` are the ledger's own figures. The day boundary is the
+         *     business-local one (`(created_at AT TIME ZONE …)::date`), the same boundary Daily
+         *     Bills uses, so the two screens agree on what "today" means.
          */
-        get: operations["credit_outstanding_api_v1_credit_outstanding_get"];
+        get: operations["movement_report_api_v1_inventory_movements_report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -464,7 +646,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credit/write-off": {
+    "/api/v1/inventory/stock-entries:resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve Stock Entry
+         * @description What would saving this item name do — add a new product, or top up an existing one?
+         *
+         *     Read-only, and answered by the **same** matcher the save uses, so the screen's
+         *     "will update existing stock" can never promise something the save then does
+         *     differently (FR-INV-008, the owner's stock sheet).
+         */
+        get: operations["resolve_stock_entry_api_v1_inventory_stock_entries_resolve_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-entries": {
         parameters: {
             query?: never;
             header?: never;
@@ -474,10 +680,188 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Write Off
-         * @description Owner-only. Produces a credit note carrying the reason.
+         * Create Stock Entries
+         * @description Save a sheet of stock arrivals. **Adds to stock; never replaces it.**
+         *
+         *     The route declares `catalog.write` because a row may create a product;
+         *     `StockEntryService` additionally re-asserts `inventory.adjust`, so a caller who may
+         *     edit the catalog but not move stock is refused there rather than here.
+         *
+         *     The key is **claimed**, not merely required. Requiring the header and then ignoring it
+         *     is worse than not asking for it: the caller is told the retry is safe while a second
+         *     press books the delivery a second time, and because `stock_movements` can never be
+         *     deleted the only correction left is a third, opposite movement. `claim` runs before
+         *     any stock is locked and `store_response` commits in the same transaction as the
+         *     movements, so a replay returns the first outcome verbatim (`§5.2.1`, `§5.2.8`).
          */
-        post: operations["write_off_api_v1_credit_write_off_post"];
+        post: operations["create_stock_entries_api_v1_inventory_stock_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Adjustment
+         * @description A reasoned, audited correction. `Idempotency-Key` is required so a retried
+         *     adjustment cannot be applied twice.
+         */
+        post: operations["create_adjustment_api_v1_inventory_adjustments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/reconciliation/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest Reconciliation
+         * @description Read-only. **Reports and never repairs** (FR-INV-006).
+         *
+         *     Also carries T3-04's numbering check: per series, `max(sequence_number) + 1` must
+         *     equal `next_number`. A mismatch indicates a lost update and is reported, not
+         *     corrected.
+         */
+        get: operations["latest_reconciliation_api_v1_inventory_reconciliation_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/reconciliation:run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Reconciliation
+         * @description Runs the check now rather than waiting for the nightly job.
+         *
+         *     Still read-only with respect to balances — it writes only its own report row.
+         */
+        post: operations["run_reconciliation_api_v1_inventory_reconciliation_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Stock Counts */
+        get: operations["list_stock_counts_api_v1_inventory_stock_counts_get"];
+        put?: never;
+        /**
+         * Start Stock Count
+         * @description Start a physical stock count for the caller's branch (Feature A.6).
+         *
+         *     Refuses with `STOCK_COUNT_ALREADY_OPEN` if one is already open — two concurrent
+         *     counts of the same shelf is how a count gets applied twice.
+         */
+        post: operations["start_stock_count_api_v1_inventory_stock_counts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Review Stock Count
+         * @description Every product with a balance in the branch, counted or not, with the
+         *     **current** system quantity and the discrepancy (`null` until counted).
+         */
+        get: operations["review_stock_count_api_v1_inventory_stock_counts__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{session_id}/items/{product_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Record Stock Count Item */
+        put: operations["record_stock_count_item_api_v1_inventory_stock_counts__session_id__items__product_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{session_id}:finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize Stock Count
+         * @description Apply every counted item's discrepancy as one adjustment movement each, against
+         *     the balance at this instant. Uncounted products are left alone entirely.
+         */
+        post: operations["finalize_stock_count_api_v1_inventory_stock_counts__session_id__finalize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{session_id}:cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Stock Count */
+        post: operations["cancel_stock_count_api_v1_inventory_stock_counts__session_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -517,26 +901,6 @@ export interface paths {
         get: operations["list_customers_api_v1_customers_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/customers/check-duplicates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Check Duplicates
-         * @description Surfaces candidates for a person to choose between. **Never merges.**
-         */
-        post: operations["check_duplicates_api_v1_customers_check_duplicates_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -585,6 +949,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customers/check-duplicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Duplicates
+         * @description Surfaces candidates for a person to choose between. **Never merges.**
+         */
+        post: operations["check_duplicates_api_v1_customers_check_duplicates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers/{customer_id}/ledger": {
         parameters: {
             query?: never;
@@ -619,6 +1003,77 @@ export interface paths {
          * @description Soft deactivate. A referenced customer is never hard-deleted.
          */
         post: operations["deactivate_customer_api_v1_customers__customer_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mechanics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Mechanics
+         * @description Suggestions for the billing screen.
+         *
+         *     **`query` is optional on purpose.** The field is focused before anything is typed,
+         *     and the recently-used list is the most useful thing to show at that moment.
+         */
+        get: operations["list_mechanics_api_v1_mechanics_get"];
+        put?: never;
+        /**
+         * Ensure Mechanic
+         * @description Get-or-create by normalised name, and mark it used.
+         *
+         *     `200`, not `201`: the common outcome is "this mechanic already existed", and a
+         *     status code that claims a creation every time would be a lie the client then has to
+         *     ignore. `created` in the body carries the truth.
+         */
+        post: operations["ensure_mechanic_api_v1_mechanics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mechanics/{mechanic_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename Mechanic
+         * @description Correct a spelling. Past bills keep their own snapshot and are unaffected.
+         */
+        patch: operations["rename_mechanic_api_v1_mechanics__mechanic_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/mechanics/{mechanic_id}:deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deactivate Mechanic
+         * @description Drop from the suggestions. Deliberately not a delete.
+         */
+        post: operations["deactivate_mechanic_api_v1_mechanics__mechanic_id__deactivate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -686,6 +1141,711 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales:finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize Sale
+         * @description Atomically finalise a cash or credit sale.
+         *
+         *     Everything between BEGIN and COMMIT either all happens or none of it does
+         *     (FR-SALE-001): the invoice, its item snapshots, the stock movements, any payment, the
+         *     draft's finalised state, the audit row and the outbox event. Stock is deducted
+         *     **exactly once**.
+         */
+        post: operations["finalize_sale_api_v1_sales_finalize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Payments */
+        get: operations["list_payments_api_v1_payments_get"];
+        put?: never;
+        /**
+         * Record Payment
+         * @description Writes payment and allocation rows **only**.
+         *
+         *     `Idempotency-Key` is required (FR-PAY-004), so a retried submission records one
+         *     payment rather than two.
+         */
+        post: operations["record_payment_api_v1_payments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/{payment_id}:reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse Payment
+         * @description Creates a reversal row. The original is **never** edited (FR-PAY-005).
+         */
+        post: operations["reverse_payment_api_v1_payments__payment_id__reverse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit/outstanding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Credit Outstanding
+         * @description Derived from authoritative data (FR-CREDIT-002), never from a cache table.
+         */
+        get: operations["credit_outstanding_api_v1_credit_outstanding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit/ageing-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ageing Summary
+         * @description Buckets: current, 1-30, 31-60, 61-90, 90+.
+         */
+        get: operations["ageing_summary_api_v1_credit_ageing_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Credit Customers
+         * @description The top level of the Credit Bills view (FR-CREDIT-011, FR-RPT-028).
+         *
+         *     Every aggregate is **server-computed** — the client never sums these as
+         *     authoritative (FR-RPT-030, ADR-032). Grouping keys on `customer_id`, so a rename
+         *     changes only the label (FR-RPT-029).
+         */
+        get: operations["credit_customers_api_v1_credit_customers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit/write-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write Off
+         * @description Owner-only. Produces a credit note carrying the reason.
+         */
+        post: operations["write_off_api_v1_credit_write_off_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit-notes/{note_id}/allocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Allocate Credit Note */
+        post: operations["allocate_credit_note_api_v1_credit_notes__note_id__allocations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Invoices
+         * @description Backs Daily Bills **and** Credit Bills — one dataset, two views (FR-RPT-003).
+         *
+         *     `status` (Canceled Bills, 2026-11-10): omit it for the normal Daily/Credit Bills
+         *     behaviour, which now excludes cancelled bills by default; pass `status=cancelled`
+         *     for the dedicated Canceled Bills screen.
+         */
+        get: operations["list_invoices_api_v1_invoices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Invoice
+         * @description One bill with its lines.
+         *
+         *     `credit.read` is accepted as well as `reports.sales.read` because this is how the
+         *     Credit Bills folder shows what a customer actually bought on an invoice. Every
+         *     seeded role holding `credit.read` happens to hold `reports.sales.read` too, so this
+         *     changes nothing for them — it stops a *custom* credit-only role from seeing a
+         *     customer's bill list it may read and then a 403 on every bill in it.
+         *
+         *     No widening of what is returned: the cost snapshot still needs `catalog.cost.read`
+         *     and is omitted, not nulled (FR-CAT-004), and `InvoiceReader.get` predicates on the
+         *     caller's `business_id` so a cross-tenant id is a 404.
+         */
+        get: operations["get_invoice_api_v1_invoices__invoice_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}/print-payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Print Payload
+         * @description Everything needed to render the document (FR-PRINT-001).
+         *
+         *     **A plain read.** It never calls a finalisation endpoint and creates nothing — no
+         *     sale, no number, no movement.
+         */
+        get: operations["get_print_payload_api_v1_invoices__invoice_id__print_payload_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}/print-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Print Event
+         * @description Records a print attempt (FR-PRINT-004).
+         *
+         *     A logging failure **never blocks printing**: a customer waiting for their bill is
+         *     not a good moment to fail on an audit nicety, so the error is logged server-side and
+         *     the route still succeeds.
+         */
+        post: operations["record_print_event_api_v1_invoices__invoice_id__print_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}:cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Invoice
+         * @description Reverses stock exactly, issues a full-value credit note for a credit sale,
+         *     **retains** the internal reference and keeps the record listed.
+         */
+        post: operations["cancel_invoice_api_v1_invoices__invoice_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}:amend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Amend Invoice
+         * @description Edit a finalised bill **in place** (owner Decision A, 2026-11-07).
+         *
+         *     Keeps the invoice's id and internal reference, writes the complete before-state to
+         *     `invoice_revisions`, recomputes the money server-side, reconciles stock with new
+         *     append-only movements, and never touches a payment.
+         *
+         *     `Idempotency-Key` is required, so a retried save applies once rather than writing a
+         *     second revision and a second set of stock movements.
+         *
+         *     Refuses, with its own error code each time: a stale `expected_version`
+         *     (`409 INVOICE_VERSION_CONFLICT`), a cancelled bill (`409 INVOICE_NOT_EDITABLE`), and
+         *     a new total below what has already been paid (`409 EDIT_BELOW_PAID_TOTAL` — the
+         *     owner's explicit rule; the correction there is a return or a credit note).
+         */
+        post: operations["amend_invoice_api_v1_invoices__invoice_id__amend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Invoice Revisions
+         * @description The edit history of one bill, newest first, with each before-state's lines.
+         */
+        get: operations["invoice_revisions_api_v1_invoices__invoice_id__revisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/daily-sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily Sales
+         * @description Counts, gross, discount, tax, net, and a breakdown by payment method.
+         *
+         *     **Credit sales are included**, on their sale date (FR-RPT-001) — a credit sale is a
+         *     sale, and excluding it would understate the day's trading.
+         */
+        get: operations["daily_sales_api_v1_reports_daily_sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/credit-outstanding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Credit Outstanding Report
+         * @description The other view of the same dataset as `daily-sales`. The two must reconcile
+         *     exactly (FR-RPT-003).
+         */
+        get: operations["credit_outstanding_report_api_v1_reports_credit_outstanding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/reconciliation-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reconciliation Check
+         * @description Proves daily sales and credit outstanding describe the same money.
+         *
+         *     A `reconciles: false` means `amount_paid` has drifted from the allocations, which is
+         *     NFR-DATA-003 failing — it is reported, never auto-corrected.
+         */
+        get: operations["reconciliation_check_api_v1_reports_reconciliation_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/stock-position": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stock Position */
+        get: operations["stock_position_api_v1_reports_stock_position_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/item-sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Item Sales
+         * @description Margin requires `catalog.cost.read` on top of this report's permission; the
+         *     columns are **omitted** rather than nulled when it is absent.
+         */
+        get: operations["item_sales_api_v1_reports_item_sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/counter-reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Counter Reconciliation
+         * @description Cash expected versus collected, per counter per day.
+         */
+        get: operations["counter_reconciliation_api_v1_reports_counter_reconciliation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{name}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Report
+         * @description Streaming CSV (FR-RPT-007).
+         *
+         *     Leading `=`, `+`, `-` and `@` are escaped, so a product named `=cmd()` arrives in
+         *     the accountant's spreadsheet as text rather than a formula.
+         */
+        get: operations["export_report_api_v1_reports__name__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sync/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Operations
+         * @description Apply a bounded batch of safe offline operations.
+         *
+         *     A bad operation never blocks the rest of the batch, except that operations for the
+         *     **same entity** stop at the first failure to preserve ordering — a later edit
+         *     applied before an unresolved earlier one would silently reorder the user's work.
+         */
+        post: operations["apply_operations_api_v1_sync_operations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sync/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog Delta
+         * @description A bounded delta for the offline cache.
+         *
+         *     **`cost_price` is never included, regardless of permission** — a stolen counter
+         *     machine must not carry the shop's margins (`SECURITY.md §11`).
+         */
+        get: operations["catalog_delta_api_v1_sync_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sync/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bootstrap
+         * @description One call after login.
+         *
+         *     Publishes the **money policy** so the client never hardcodes a rounding rule, the
+         *     client-visible settings, the print profile and the date order — and states plainly
+         *     that offline finalisation is refused, so the client can show the reason rather than
+         *     inventing one.
+         */
+        get: operations["bootstrap_api_v1_sync_bootstrap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sync/operation-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Operation Types
+         * @description The registry, so a client can verify it rather than assume it.
+         */
+        get: operations["operation_types_api_v1_sync_operation_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Suppliers */
+        get: operations["list_suppliers_api_v1_suppliers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplier_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upsert Supplier */
+        put: operations["upsert_supplier_api_v1_suppliers__supplier_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Purchases */
+        get: operations["list_purchases_api_v1_purchases_get"];
+        put?: never;
+        /**
+         * Create Purchase
+         * @description Creates a `draft`. **No stock change** — recording a supplier's delivery note is
+         *     not the same as the goods being on the shelf.
+         */
+        post: operations["create_purchase_api_v1_purchases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/{purchase_id}:confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Purchase
+         * @description **The only path that receives stock** (FR-PUR-003). Idempotent.
+         */
+        post: operations["confirm_purchase_api_v1_purchases__purchase_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/{purchase_id}:cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Purchase
+         * @description Only while `draft`. A confirmed receipt is immutable — correcting it is a
+         *     supplier return or an adjustment, not an edit.
+         */
+        post: operations["cancel_purchase_api_v1_purchases__purchase_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Returns */
+        get: operations["list_returns_api_v1_returns_get"];
+        put?: never;
+        /**
+         * Create Return
+         * @description Credits the **snapshot price** — what the customer paid, not today's price.
+         *
+         *     Damaged goods, or an explicit `restock: false`, become **scrap** rather than
+         *     sellable stock.
+         */
+        post: operations["create_return_api_v1_returns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports": {
         parameters: {
             query?: never;
@@ -729,30 +1889,6 @@ export interface paths {
          * @description Job status and counts (FR-IMP-005).
          */
         get: operations["get_import_api_v1_imports__job_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/imports/{job_id}/report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Import Report
-         * @description Per-row outcome, retained for audit (FR-IMP-009).
-         *
-         *     Returns every row with its result and reason — including the skipped ones, which are
-         *     the whole point. "47 applied" without "and these 3 were skipped because the part
-         *     code matched nothing" is a report that hides exactly what the reader needs.
-         */
-        get: operations["import_report_api_v1_imports__job_id__report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -874,45 +2010,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/inventory/adjustments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create Adjustment
-         * @description A reasoned, audited correction. `Idempotency-Key` is required so a retried
-         *     adjustment cannot be applied twice.
-         */
-        post: operations["create_adjustment_api_v1_inventory_adjustments_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/balances": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Balances */
-        get: operations["list_balances_api_v1_inventory_balances_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/movements": {
+    "/api/v1/imports/{job_id}/report": {
         parameters: {
             query?: never;
             header?: never;
@@ -920,420 +2018,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Movements
-         * @description The append-only ledger (FR-INV-001) — one product's complete history.
+         * Import Report
+         * @description Per-row outcome, retained for audit (FR-IMP-009).
          *
-         *     Every movement is here, not only sales: the opening figure, each sheet arrival, each
-         *     correction, each sale, and each reversal of a cancelled bill. `balance_after` is the
-         *     stock the database actually held after that row, recorded when the movement was
-         *     written — so the history is read from the ledger and never reconstructed backwards
-         *     from today's total.
-         *
-         *     `oldest_first=true` is what the History panel asks for, so the running balance reads
-         *     downwards.
+         *     Returns every row with its result and reason — including the skipped ones, which are
+         *     the whole point. "47 applied" without "and these 3 were skipped because the part
+         *     code matched nothing" is a report that hides exactly what the reader needs.
          */
-        get: operations["list_movements_api_v1_inventory_movements_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/movements/report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Movement Report
-         * @description What moved in or out of stock on one day.
-         *
-         *     The per-product History answers "what happened to this part"; this answers "what
-         *     happened today", from the same append-only ledger — so the two can never disagree and
-         *     nothing is recomputed from the current total.
-         *
-         *     `kind=added` is every movement that **increased** stock: the opening figure, a
-         *     purchase receipt, the owner's stock sheet, a correction upwards, a customer return, an
-         *     applied import, and the reversal of a cancelled bill. `kind=sold` is `reason = 'sale'`
-         *     alone — what customers took away.
-         *
-         *     Three exclusions are structural rather than filtered, which is what makes them
-         *     reliable: a **draft** writes no movement, a **reprint** writes no movement, and a
-         *     **credit payment** moves money rather than goods. None of them can appear here
-         *     whatever this endpoint does.
-         *
-         *     `stock_before` and `stock_after` are the ledger's own figures. The day is the
-         *     business-local one (`(created_at AT TIME ZONE …)::date`), the same boundary Daily
-         *     Bills uses, so the two screens agree on what "today" means.
-         */
-        get: operations["movement_report_api_v1_inventory_movements_report_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/reconciliation/latest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Latest Reconciliation
-         * @description Read-only. **Reports and never repairs** (FR-INV-006).
-         *
-         *     Also carries T3-04's numbering check: per series, `max(sequence_number) + 1` must
-         *     equal `next_number`. A mismatch indicates a lost update and is reported, not
-         *     corrected.
-         */
-        get: operations["latest_reconciliation_api_v1_inventory_reconciliation_latest_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/reconciliation:run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Run Reconciliation
-         * @description Runs the check now rather than waiting for the nightly job.
-         *
-         *     Still read-only with respect to balances — it writes only its own report row.
-         */
-        post: operations["run_reconciliation_api_v1_inventory_reconciliation_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/stock-entries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create Stock Entries
-         * @description Save a sheet of stock arrivals. **Adds to stock; never replaces it.**
-         *
-         *     The route declares `catalog.write` because a row may create a product;
-         *     `StockEntryService` additionally re-asserts `inventory.adjust`, so a caller who may
-         *     edit the catalog but not move stock is refused there rather than here.
-         *
-         *     The key is **claimed**, not merely required. Requiring the header and then ignoring it
-         *     is worse than not asking for it: the caller is told the retry is safe while a second
-         *     press books the delivery a second time, and because `stock_movements` can never be
-         *     deleted the only correction left is a third, opposite movement. `claim` runs before
-         *     any stock is locked and `store_response` commits in the same transaction as the
-         *     movements, so a replay returns the first outcome verbatim (`§5.2.1`, `§5.2.8`).
-         */
-        post: operations["create_stock_entries_api_v1_inventory_stock_entries_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/inventory/stock-entries:resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Resolve Stock Entry
-         * @description What would saving this item name do — add a new product, or top up an existing one?
-         *
-         *     Read-only, and answered by the **same** matcher the save uses, so the screen's
-         *     "will update existing stock" can never promise something the save then does
-         *     differently (FR-INV-008, the owner's stock sheet).
-         */
-        get: operations["resolve_stock_entry_api_v1_inventory_stock_entries_resolve_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Invoices
-         * @description Backs Daily Bills **and** Credit Bills — one dataset, two views (FR-RPT-003).
-         */
-        get: operations["list_invoices_api_v1_invoices_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices/{invoice_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Invoice
-         * @description One bill with its lines.
-         *
-         *     `credit.read` is accepted as well as `reports.sales.read` because this is how the
-         *     Credit Bills folder shows what a customer actually bought on an invoice. Every
-         *     seeded role holding `credit.read` happens to hold `reports.sales.read` too, so this
-         *     changes nothing for them — it stops a *custom* credit-only role from seeing a
-         *     customer's bill list it may read and then a 403 on every bill in it.
-         *
-         *     No widening of what is returned: the cost snapshot still needs `catalog.cost.read`
-         *     and is omitted, not nulled (FR-CAT-004), and `InvoiceReader.get` predicates on the
-         *     caller's `business_id` so a cross-tenant id is a 404.
-         */
-        get: operations["get_invoice_api_v1_invoices__invoice_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices/{invoice_id}/print-events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Record Print Event
-         * @description Records a print attempt (FR-PRINT-004).
-         *
-         *     A logging failure **never blocks printing**: a customer waiting for their bill is
-         *     not a good moment to fail on an audit nicety, so the error is logged server-side and
-         *     the route still succeeds.
-         */
-        post: operations["record_print_event_api_v1_invoices__invoice_id__print_events_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices/{invoice_id}/print-payload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Print Payload
-         * @description Everything needed to render the document (FR-PRINT-001).
-         *
-         *     **A plain read.** It never calls a finalisation endpoint and creates nothing — no
-         *     sale, no number, no movement.
-         */
-        get: operations["get_print_payload_api_v1_invoices__invoice_id__print_payload_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices/{invoice_id}/revisions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Invoice Revisions
-         * @description The edit history of one bill, newest first, with each before-state's lines.
-         */
-        get: operations["invoice_revisions_api_v1_invoices__invoice_id__revisions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices/{invoice_id}:amend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Amend Invoice
-         * @description Edit a finalised bill **in place** (owner Decision A, 2026-11-07).
-         *
-         *     Keeps the invoice's id and internal reference, writes the complete before-state to
-         *     `invoice_revisions`, recomputes the money server-side, reconciles stock with new
-         *     append-only movements, and never touches a payment.
-         *
-         *     `Idempotency-Key` is required, so a retried save applies once rather than writing a
-         *     second revision and a second set of stock movements.
-         *
-         *     Refuses, with its own error code each time: a stale `expected_version`
-         *     (`409 INVOICE_VERSION_CONFLICT`), a cancelled bill (`409 INVOICE_NOT_EDITABLE`), and
-         *     a new total below what has already been paid (`409 EDIT_BELOW_PAID_TOTAL` — the
-         *     owner's explicit rule; the correction there is a return or a credit note).
-         */
-        post: operations["amend_invoice_api_v1_invoices__invoice_id__amend_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/invoices/{invoice_id}:cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Cancel Invoice
-         * @description Reverses stock exactly, issues a full-value credit note for a credit sale,
-         *     **retains** the internal reference and keeps the record listed.
-         */
-        post: operations["cancel_invoice_api_v1_invoices__invoice_id__cancel_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mechanics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Mechanics
-         * @description Suggestions for the billing screen.
-         *
-         *     **`query` is optional on purpose.** The field is focused before anything is typed,
-         *     and the recently-used list is the most useful thing to show at that moment.
-         */
-        get: operations["list_mechanics_api_v1_mechanics_get"];
-        put?: never;
-        /**
-         * Ensure Mechanic
-         * @description Get-or-create by normalised name, and mark it used.
-         *
-         *     `200`, not `201`: the common outcome is "this mechanic already existed", and a
-         *     status code that claims a creation every time would be a lie the client then has to
-         *     ignore. `created` in the body carries the truth.
-         */
-        post: operations["ensure_mechanic_api_v1_mechanics_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mechanics/{mechanic_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Rename Mechanic
-         * @description Correct a spelling. Past bills keep their own snapshot and are unaffected.
-         */
-        patch: operations["rename_mechanic_api_v1_mechanics__mechanic_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/mechanics/{mechanic_id}:deactivate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deactivate Mechanic
-         * @description Drop from the suggestions. Deliberately not a delete.
-         */
-        post: operations["deactivate_mechanic_api_v1_mechanics__mechanic_id__deactivate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/meta": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Meta
-         * @description Authenticated, but needs no specific permission: it reports the server's own
-         *     version and time to whoever is signed in.
-         */
-        get: operations["meta_api_v1_meta_get"];
+        get: operations["import_report_api_v1_imports__job_id__report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1351,7 +2043,7 @@ export interface paths {
         };
         /**
          * List Notifications
-         * @description The caller's business's unread notices.
+         * @description The caller's business's active notices — Feature A.1/A.2.
          *
          *     No specific permission: these are notices about the business the caller is already
          *     signed in to, and gating "stock has run out" behind a reports permission would mean
@@ -1360,6 +2052,82 @@ export interface paths {
         get: operations["list_notifications_api_v1_notifications_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}:read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Notification Read */
+        post: operations["mark_notification_read_api_v1_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}:dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Notification
+         * @description "Check later." Stops the reminder; changes nothing it refers to (owner
+         *     request, 2026-11-10 — dismissing a low-stock notice must not raise stock).
+         */
+        post: operations["dismiss_notification_api_v1_notifications__notification_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}:acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge Notification
+         * @description "Seen, and I'm on it." For notifications with no server-verifiable resolution
+         *     of their own. Acknowledging a bill reminder must not mark the bill paid.
+         */
+        post: operations["acknowledge_notification_api_v1_notifications__notification_id__acknowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}:snooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Snooze Notification */
+        post: operations["snooze_notification_api_v1_notifications__notification_id__snooze_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1391,7 +2159,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/{notification_id}:read": {
+    "/api/v1/reminders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reminders */
+        get: operations["list_reminders_api_v1_reminders_get"];
+        put?: never;
+        /** Create Reminder */
+        post: operations["create_reminder_api_v1_reminders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reminders/{reminder_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1399,40 +2185,75 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        /** Mark Notification Read */
-        post: operations["mark_notification_read_api_v1_notifications__notification_id__read_post"];
-        delete?: never;
+        /** Update Reminder */
+        put: operations["update_reminder_api_v1_reminders__reminder_id__put"];
+        post?: never;
+        /** Delete Reminder */
+        delete: operations["delete_reminder_api_v1_reminders__reminder_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/payments": {
+    "/api/v1/orders": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Payments */
-        get: operations["list_payments_api_v1_payments_get"];
+        /** List Orders */
+        get: operations["list_orders_api_v1_orders_get"];
         put?: never;
+        /** Create Order */
+        post: operations["create_order_api_v1_orders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Order */
+        put: operations["update_order_api_v1_orders__order_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/reminder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
         /**
-         * Record Payment
-         * @description Writes payment and allocation rows **only**.
+         * Set Order Reminder
+         * @description Set or clear the owner's one-time reminder for one order (owner request).
          *
-         *     `Idempotency-Key` is required (FR-PAY-004), so a retried submission records one
-         *     payment rather than two.
+         *     Fires **ahead of** the flat ten-minute nudge once due, and is consumed (cleared)
+         *     the instant it fires — see `domain/orders/service.py::nudge_pending`.
          */
-        post: operations["record_payment_api_v1_payments_post"];
+        put: operations["set_order_reminder_api_v1_orders__order_id__reminder_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/payments/{payment_id}:reverse": {
+    "/api/v1/orders/{order_id}:complete": {
         parameters: {
             query?: never;
             header?: never;
@@ -1441,18 +2262,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Reverse Payment
-         * @description Creates a reversal row. The original is **never** edited (FR-PAY-005).
-         */
-        post: operations["reverse_payment_api_v1_payments__payment_id__reverse_post"];
+        /** Complete Order */
+        post: operations["complete_order_api_v1_orders__order_id__complete_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products": {
+    "/api/v1/orders/{order_id}:discard": {
         parameters: {
             query?: never;
             header?: never;
@@ -1461,552 +2279,29 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Product */
-        post: operations["create_product_api_v1_products_post"];
+        /** Discard Order */
+        post: operations["discard_order_api_v1_orders__order_id__discard_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products/lookup-barcode": {
+    "/api/v1/meta": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Lookup Barcode */
-        get: operations["lookup_barcode_api_v1_products_lookup_barcode_get"];
+        /**
+         * Meta
+         * @description Authenticated, but needs no specific permission: it reports the server's own
+         *     version and time to whoever is signed in.
+         */
+        get: operations["meta_api_v1_meta_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search Products
-         * @description Minimum query length **1**. Results are ranked exact SKU → SKU prefix → name
-         *     prefix → alias → trigram, with sales frequency then name as the tie-break.
-         */
-        get: operations["search_products_api_v1_products_search_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/{product_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Product */
-        get: operations["get_product_api_v1_products__product_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update Product
-         * @description A price change is audited with before/after values (FR-AUDIT-003, T-2).
-         */
-        patch: operations["update_product_api_v1_products__product_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/products/{product_id}/aliases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Aliases */
-        get: operations["list_aliases_api_v1_products__product_id__aliases_get"];
-        put?: never;
-        /**
-         * Add Alias
-         * @description Adding an alias refreshes the parent's `search_text` (fix S-8), otherwise the
-         *     alias is stored but unsearchable.
-         */
-        post: operations["add_alias_api_v1_products__product_id__aliases_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/{product_id}/aliases/{alias_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Alias */
-        delete: operations["delete_alias_api_v1_products__product_id__aliases__alias_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/{product_id}:deactivate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deactivate Product
-         * @description Never deletes (FR-CAT-009).
-         */
-        post: operations["deactivate_product_api_v1_products__product_id__deactivate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/purchases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Purchases */
-        get: operations["list_purchases_api_v1_purchases_get"];
-        put?: never;
-        /**
-         * Create Purchase
-         * @description Creates a `draft`. **No stock change** — recording a supplier's delivery note is
-         *     not the same as the goods being on the shelf.
-         */
-        post: operations["create_purchase_api_v1_purchases_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/purchases/{purchase_id}:cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Cancel Purchase
-         * @description Only while `draft`. A confirmed receipt is immutable — correcting it is a
-         *     supplier return or an adjustment, not an edit.
-         */
-        post: operations["cancel_purchase_api_v1_purchases__purchase_id__cancel_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/purchases/{purchase_id}:confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm Purchase
-         * @description **The only path that receives stock** (FR-PUR-003). Idempotent.
-         */
-        post: operations["confirm_purchase_api_v1_purchases__purchase_id__confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/counter-reconciliation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Counter Reconciliation
-         * @description Cash expected versus collected, per counter per day.
-         */
-        get: operations["counter_reconciliation_api_v1_reports_counter_reconciliation_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/credit-outstanding": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Credit Outstanding Report
-         * @description The other view of the same dataset as `daily-sales`. The two must reconcile
-         *     exactly (FR-RPT-003).
-         */
-        get: operations["credit_outstanding_report_api_v1_reports_credit_outstanding_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/daily-sales": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Daily Sales
-         * @description Counts, gross, discount, tax, net, and a breakdown by payment method.
-         *
-         *     **Credit sales are included**, on their sale date (FR-RPT-001) — a credit sale is a
-         *     sale, and excluding it would understate the day's trading.
-         */
-        get: operations["daily_sales_api_v1_reports_daily_sales_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/item-sales": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Item Sales
-         * @description Margin requires `catalog.cost.read` on top of this report's permission; the
-         *     columns are **omitted** rather than nulled when it is absent.
-         */
-        get: operations["item_sales_api_v1_reports_item_sales_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/reconciliation-check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Reconciliation Check
-         * @description Proves daily sales and credit outstanding describe the same money.
-         *
-         *     A `reconciles: false` means `amount_paid` has drifted from the allocations, which is
-         *     NFR-DATA-003 failing — it is reported, never auto-corrected.
-         */
-        get: operations["reconciliation_check_api_v1_reports_reconciliation_check_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/stock-position": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Stock Position */
-        get: operations["stock_position_api_v1_reports_stock_position_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/{name}/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export Report
-         * @description Streaming CSV (FR-RPT-007).
-         *
-         *     Leading `=`, `+`, `-` and `@` are escaped, so a product named `=cmd()` arrives in
-         *     the accountant's spreadsheet as text rather than a formula.
-         */
-        get: operations["export_report_api_v1_reports__name__export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/returns": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Returns */
-        get: operations["list_returns_api_v1_returns_get"];
-        put?: never;
-        /**
-         * Create Return
-         * @description Credits the **snapshot price** — what the customer paid, not today's price.
-         *
-         *     Damaged goods, or an explicit `restock: false`, become **scrap** rather than
-         *     sellable stock.
-         */
-        post: operations["create_return_api_v1_returns_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/sales:finalize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Finalize Sale
-         * @description Atomically finalise a cash or credit sale.
-         *
-         *     Everything between BEGIN and COMMIT either all happens or none of it does
-         *     (FR-SALE-001): the invoice, its item snapshots, the stock movements, any payment, the
-         *     draft's finalised state, the audit row and the outbox event. Stock is deducted
-         *     **exactly once**.
-         */
-        post: operations["finalize_sale_api_v1_sales_finalize_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/suppliers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Suppliers */
-        get: operations["list_suppliers_api_v1_suppliers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/suppliers/{supplier_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Upsert Supplier */
-        put: operations["upsert_supplier_api_v1_suppliers__supplier_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/sync/bootstrap": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Bootstrap
-         * @description One call after login.
-         *
-         *     Publishes the **money policy** so the client never hardcodes a rounding rule, the
-         *     client-visible settings, the print profile and the date order — and states plainly
-         *     that offline finalisation is refused, so the client can show the reason rather than
-         *     inventing one.
-         */
-        get: operations["bootstrap_api_v1_sync_bootstrap_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/sync/catalog": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Catalog Delta
-         * @description A bounded delta for the offline cache.
-         *
-         *     **`cost_price` is never included, regardless of permission** — a stolen counter
-         *     machine must not carry the shop's margins (`SECURITY.md §11`).
-         */
-        get: operations["catalog_delta_api_v1_sync_catalog_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/sync/operation-types": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Operation Types
-         * @description The registry, so a client can verify it rather than assume it.
-         */
-        get: operations["operation_types_api_v1_sync_operation_types_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/sync/operations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Apply Operations
-         * @description Apply a bounded batch of safe offline operations.
-         *
-         *     A bad operation never blocks the rest of the batch, except that operations for the
-         *     **same entity** stop at the first failure to preserve ordering — a later edit
-         *     applied before an unresolved earlier one would silently reorder the user's work.
-         */
-        post: operations["apply_operations_api_v1_sync_operations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/units": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Units */
-        get: operations["list_units_api_v1_units_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/units:ensure-defaults": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ensure Default Units
-         * @description Seed the default units for a business created after migration 0016 ran.
-         *
-         *     Units are reference data a spare-parts shop cannot operate without. A tax rate, a
-         *     product or a business identity is **never** seeded.
-         */
-        post: operations["ensure_default_units_api_v1_units_ensure_defaults_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2051,14 +2346,14 @@ export interface components {
          *     discovering it during an incident.
          */
         AlertingStatusOut: {
+            /** State */
+            state: string;
+            /** Recipient Name */
+            recipient_name?: string | null;
             /** Destination Hint */
             destination_hint?: string | null;
             /** Min Severity */
             min_severity: string;
-            /** Recipient Name */
-            recipient_name?: string | null;
-            /** State */
-            state: string;
         };
         /** AliasCreateRequest */
         AliasCreateRequest: {
@@ -2072,33 +2367,33 @@ export interface components {
         };
         /** AllocationIn */
         AllocationIn: {
-            /** Amount */
-            amount: number | string;
             /**
              * Invoice Id
              * Format: uuid
              */
             invoice_id: string;
+            /** Amount */
+            amount: number | string;
         };
         /** AllocationOut */
         AllocationOut: {
-            /** Amount */
-            amount: string;
             /**
              * Invoice Id
              * Format: uuid
              */
             invoice_id: string;
+            /** Amount */
+            amount: string;
         };
         /** AllocationSpec */
         AllocationSpec: {
-            /** Allocations */
-            allocations?: components["schemas"]["AllocationIn"][] | null;
             /**
              * Strategy
              * @default oldest_first
              */
             strategy: string;
+            /** Allocations */
+            allocations?: components["schemas"]["AllocationIn"][] | null;
         };
         /**
          * AmendHeaderIn
@@ -2109,25 +2404,23 @@ export interface components {
          *     blanks a field while sending nothing keeps it.
          */
         AmendHeaderIn: {
-            /** Customer Business Name */
-            customer_business_name?: string | null;
             /** Customer Name */
             customer_name?: string | null;
-            /** Due Date */
-            due_date?: string | null;
-            /** Mechanic Name */
-            mechanic_name?: string | null;
-            /** Notes */
-            notes?: string | null;
-            /** Phone */
-            phone?: string | null;
+            /** Customer Business Name */
+            customer_business_name?: string | null;
             /** Vehicle Number */
             vehicle_number?: string | null;
+            /** Mechanic Name */
+            mechanic_name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Due Date */
+            due_date?: string | null;
         };
         /** AmendLineIn */
         AmendLineIn: {
-            /** Discount Percent */
-            discount_percent?: number | string | null;
             /**
              * Product Id
              * Format: uuid
@@ -2137,6 +2430,8 @@ export interface components {
             quantity: number | string;
             /** Unit Price */
             unit_price: number | string;
+            /** Discount Percent */
+            discount_percent?: number | string | null;
         };
         /**
          * AmendOut
@@ -2145,35 +2440,35 @@ export interface components {
          *     not create one.
          */
         AmendOut: {
-            /** Amount Paid */
-            amount_paid: string;
             /**
              * Invoice Id
              * Format: uuid
              */
             invoice_id: string;
+            /** Revision Number */
+            revision_number: number;
+            /** Version */
+            version: number;
+            /** Total */
+            total: string;
+            /** Amount Paid */
+            amount_paid: string;
             /** Outstanding */
             outstanding: string;
             /** Payment Status */
             payment_status: string;
-            /** Revision Number */
-            revision_number: number;
-            /** Total */
-            total: string;
-            /** Version */
-            version: number;
         };
         /** AmendRequest */
         AmendRequest: {
             /** Expected Version */
             expected_version: number;
-            header?: components["schemas"]["AmendHeaderIn"] | null;
-            /** Lines */
-            lines: components["schemas"]["AmendLineIn"][];
-            /** Oversell Reason */
-            oversell_reason?: string | null;
             /** Reason */
             reason: string;
+            /** Lines */
+            lines: components["schemas"]["AmendLineIn"][];
+            header?: components["schemas"]["AmendHeaderIn"] | null;
+            /** Oversell Reason */
+            oversell_reason?: string | null;
         };
         /**
          * AssignCounterRequest
@@ -2189,6 +2484,12 @@ export interface components {
         };
         /** Body_upload_import_api_v1_imports_post */
         Body_upload_import_api_v1_imports_post: {
+            /** File */
+            file: string;
+            /** Intent */
+            intent: string;
+            /** Supplier Id */
+            supplier_id?: string | null;
             /**
              * Allow Duplicate
              * @default false
@@ -2196,12 +2497,6 @@ export interface components {
             allow_duplicate: boolean;
             /** Duplicate Reason */
             duplicate_reason?: string | null;
-            /** File */
-            file: string;
-            /** Intent */
-            intent: string;
-            /** Supplier Id */
-            supplier_id?: string | null;
         };
         /**
          * BootstrapBusinessOut
@@ -2210,119 +2505,119 @@ export interface components {
          *     (FR-PRINT-016, OD-4).
          */
         BootstrapBusinessOut: {
-            /** Address Lines */
-            address_lines?: string[];
             /** Display Name */
             display_name?: string | null;
+            /** Address Lines */
+            address_lines?: string[];
             /** Phone Numbers */
             phone_numbers?: string[];
         };
         /** BootstrapCounterOut */
         BootstrapCounterOut: {
-            /** Code */
-            code: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Max Open Drafts */
-            max_open_drafts: number;
+            /** Code */
+            code: string;
             /** Name */
             name: string;
+            /** Max Open Drafts */
+            max_open_drafts: number;
         };
         /** BootstrapOut */
         BootstrapOut: {
-            /** Branch Id */
-            branch_id: string | null;
-            business?: components["schemas"]["BootstrapBusinessOut"] | null;
-            /**
-             * Business Date
-             * Format: date
-             */
-            business_date: string;
             /**
              * Business Id
              * Format: uuid
              */
             business_id: string;
-            /** Catalog Cursor */
-            catalog_cursor: string | null;
+            /** Branch Id */
+            branch_id: string | null;
             counter: components["schemas"]["BootstrapCounterOut"] | null;
-            money_policy: components["schemas"]["MoneyPolicyOut"];
+            business?: components["schemas"]["BootstrapBusinessOut"] | null;
             /** Permissions */
             permissions: string[];
-            /**
-             * Server Time
-             * Format: date-time
-             */
-            server_time: string;
+            money_policy: components["schemas"]["MoneyPolicyOut"];
             /** Settings */
             settings: {
                 [key: string]: unknown;
             };
             sync: components["schemas"]["BootstrapSyncOut"];
+            /**
+             * Server Time
+             * Format: date-time
+             */
+            server_time: string;
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /** Catalog Cursor */
+            catalog_cursor: string | null;
         };
         /** BootstrapSyncOut */
         BootstrapSyncOut: {
             /** Allowed Operation Types */
             allowed_operation_types: string[];
-            /** Max Batch Size */
-            max_batch_size: number;
             /** Offline Finalisation */
             offline_finalisation: string;
+            /** Max Batch Size */
+            max_batch_size: number;
         };
         /** BranchOut */
         BranchOut: {
-            /** Code */
-            code: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Code */
+            code: string;
             /** Name */
             name: string;
         };
         /** BusinessOut */
         BusinessOut: {
-            /** Display Name */
-            display_name: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Display Name */
+            display_name: string;
         };
         /** CachedProductOut */
         CachedProductOut: {
-            /** Barcode */
-            barcode: string | null;
-            /** Default Selling Price */
-            default_selling_price: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
             /** Name */
             name: string;
             /** Sku */
             sku: string | null;
-            stock: components["schemas"]["StockOut"];
+            /** Barcode */
+            barcode: string | null;
             unit: components["schemas"]["UnitOut"];
+            /** Default Selling Price */
+            default_selling_price: string;
+            /** Is Active */
+            is_active: boolean;
+            stock: components["schemas"]["StockOut"];
         };
         /** CancelOut */
         CancelOut: {
-            /** Credit Note Id */
-            credit_note_id: string | null;
             /**
              * Invoice Id
              * Format: uuid
              */
             invoice_id: string;
+            /** Credit Note Id */
+            credit_note_id: string | null;
             /** Movements Reversed */
             movements_reversed: number;
             /** Status */
@@ -2339,23 +2634,23 @@ export interface components {
          *     machine must not carry the shop's margins (`SECURITY.md §11`).
          */
         CatalogDeltaOut: {
+            /** Products */
+            products: components["schemas"]["CachedProductOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
+            /** Reset Required */
+            reset_required: boolean;
+            /** Cache Policy */
+            cache_policy: {
+                [key: string]: number;
+            };
             /**
              * As Of
              * Format: date-time
              */
             as_of: string;
-            /** Cache Policy */
-            cache_policy: {
-                [key: string]: number;
-            };
-            /** Has More */
-            has_more: boolean;
-            /** Next Cursor */
-            next_cursor: string | null;
-            /** Products */
-            products: components["schemas"]["CachedProductOut"][];
-            /** Reset Required */
-            reset_required: boolean;
             /** Warnings */
             warnings: components["schemas"]["WarningOut"][];
         };
@@ -2375,42 +2670,50 @@ export interface components {
             id: string;
             /** Label */
             label: string;
-            /** Last Seen At */
-            last_seen_at: string | null;
             /** Status */
             status: string;
+            /** Last Seen At */
+            last_seen_at: string | null;
         };
         /** CounterOut */
         CounterOut: {
-            /**
-             * Branch Id
-             * Format: uuid
-             */
-            branch_id: string;
-            /** Code */
-            code: string;
-            /** Devices */
-            devices: components["schemas"]["CounterDeviceOut"][];
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Max Open Drafts */
-            max_open_drafts: number;
+            /** Code */
+            code: string;
             /** Name */
             name: string;
+            /**
+             * Branch Id
+             * Format: uuid
+             */
+            branch_id: string;
+            /** Max Open Drafts */
+            max_open_drafts: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Devices */
+            devices: components["schemas"]["CounterDeviceOut"][];
         };
         /** CounterUpdateRequest */
         CounterUpdateRequest: {
-            /** Is Active */
-            is_active?: boolean | null;
-            /** Max Open Drafts */
-            max_open_drafts?: number | null;
             /** Name */
             name?: string | null;
+            /** Max Open Drafts */
+            max_open_drafts?: number | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
+        /** CreatedIdOut */
+        CreatedIdOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /**
          * CreditCustomerOut
@@ -2418,25 +2721,25 @@ export interface components {
          *     (FR-RPT-030, ADR-032).
          */
         CreditCustomerOut: {
-            /** Ageing */
-            ageing: {
-                [key: string]: string;
-            };
             customer: components["schemas"]["CreditCustomerRefOut"];
-            /** Days Overdue */
-            days_overdue: number | null;
             /** Invoice Count */
             invoice_count: number;
-            /** Oldest Due Date */
-            oldest_due_date: string | null;
             /** Open Invoice Count */
             open_invoice_count: number;
-            /** Outstanding */
-            outstanding: string;
             /** Total Invoiced */
             total_invoiced: string;
             /** Total Paid */
             total_paid: string;
+            /** Outstanding */
+            outstanding: string;
+            /** Oldest Due Date */
+            oldest_due_date: string | null;
+            /** Days Overdue */
+            days_overdue: number | null;
+            /** Ageing */
+            ageing: {
+                [key: string]: string;
+            };
         };
         /** CreditCustomerRefOut */
         CreditCustomerRefOut: {
@@ -2452,18 +2755,18 @@ export interface components {
         };
         /** CreditCustomersOut */
         CreditCustomersOut: {
+            /** Items */
+            items: components["schemas"]["CreditCustomerOut"][];
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            page: components["schemas"]["Page"];
             /**
              * As Of
              * Format: date-time
              */
             as_of: string;
-            /** Items */
-            items: components["schemas"]["CreditCustomerOut"][];
-            page: components["schemas"]["Page"];
-            /** Summary */
-            summary: {
-                [key: string]: unknown;
-            };
         };
         /** CreditNoteAllocationRequest */
         CreditNoteAllocationRequest: {
@@ -2472,55 +2775,55 @@ export interface components {
         };
         /** CustomerSelectionIn */
         CustomerSelectionIn: {
-            /** Customer Id */
-            customer_id?: string | null;
             /**
              * Mode
              * @default none
              */
             mode: string;
+            /** Customer Id */
+            customer_id?: string | null;
             /** Name */
             name?: string | null;
         };
         /** CustomerUpsertRequest */
         CustomerUpsertRequest: {
-            /** Address Lines */
-            address_lines?: string[] | null;
-            /** Business Name */
-            business_name?: string | null;
-            /** Credit Limit */
-            credit_limit?: number | string | null;
-            /** Credit Terms Days */
-            credit_terms_days?: number | null;
-            /** Default Mechanic Name */
-            default_mechanic_name?: string | null;
             /** Name */
             name: string;
+            /** Business Name */
+            business_name?: string | null;
             /** Phone */
             phone?: string | null;
+            /** Address Lines */
+            address_lines?: string[] | null;
+            /** Default Mechanic Name */
+            default_mechanic_name?: string | null;
             /** Vehicle Number */
             vehicle_number?: string | null;
+            /** Credit Terms Days */
+            credit_terms_days?: number | null;
+            /** Credit Limit */
+            credit_limit?: number | string | null;
         };
         /** DailySalesByDayOut */
         DailySalesByDayOut: {
-            /** Bill Count */
-            bill_count: number;
-            /** Credit Sales */
-            credit_sales: string;
             /**
              * Date
              * Format: date
              */
             date: string;
+            /** Bill Count */
+            bill_count: number;
             /** Net */
             net: string;
+            /** Credit Sales */
+            credit_sales: string;
         };
         /** DailySalesByMethodOut */
         DailySalesByMethodOut: {
-            /** Collected */
-            collected: string;
             /** Method */
             method: string;
+            /** Collected */
+            collected: string;
         };
         /**
          * DailySalesOut
@@ -2532,36 +2835,36 @@ export interface components {
              * Format: date-time
              */
             as_of: string;
-            /** Bill Count */
-            bill_count: number;
-            /** By Day */
-            by_day: components["schemas"]["DailySalesByDayOut"][];
-            /** By Payment Method */
-            by_payment_method: components["schemas"]["DailySalesByMethodOut"][];
-            /** Cash Sales */
-            cash_sales: string;
-            /** Collected */
-            collected: string;
-            /** Credit Bill Count */
-            credit_bill_count: number;
-            /** Credit Sales */
-            credit_sales: string;
-            /** Discount */
-            discount: string;
-            /** Excluded */
-            excluded: {
-                [key: string]: unknown;
-            };
             /** Filters */
             filters: {
                 [key: string]: unknown;
             };
+            /** Excluded */
+            excluded: {
+                [key: string]: unknown;
+            };
+            /** Bill Count */
+            bill_count: number;
             /** Gross */
             gross: string;
-            /** Net */
-            net: string;
+            /** Discount */
+            discount: string;
             /** Tax */
             tax: string;
+            /** Net */
+            net: string;
+            /** Cash Sales */
+            cash_sales: string;
+            /** Credit Sales */
+            credit_sales: string;
+            /** Credit Bill Count */
+            credit_bill_count: number;
+            /** Collected */
+            collected: string;
+            /** By Day */
+            by_day: components["schemas"]["DailySalesByDayOut"][];
+            /** By Payment Method */
+            by_payment_method: components["schemas"]["DailySalesByMethodOut"][];
         } & {
             [key: string]: unknown;
         };
@@ -2580,10 +2883,6 @@ export interface components {
         };
         /** DeviceOut */
         DeviceOut: {
-            /** Branch Id */
-            branch_id: string | null;
-            /** Counter Id */
-            counter_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -2591,23 +2890,21 @@ export interface components {
             id: string;
             /** Label */
             label: string;
-            /** Last Seen At */
-            last_seen_at: string | null;
-            /** Revoke Reason */
-            revoke_reason: string | null;
-            /** Revoked At */
-            revoked_at: string | null;
             /** Status */
             status: string;
+            /** Branch Id */
+            branch_id: string | null;
+            /** Counter Id */
+            counter_id: string | null;
+            /** Last Seen At */
+            last_seen_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Revoke Reason */
+            revoke_reason: string | null;
         };
         /** DraftItemIn */
         DraftItemIn: {
-            /** Catalog Price At Add */
-            catalog_price_at_add?: number | string | null;
-            /** Discount Amount */
-            discount_amount?: number | string | null;
-            /** Discount Percent */
-            discount_percent?: number | string | null;
             /**
              * Id
              * Format: uuid
@@ -2615,13 +2912,6 @@ export interface components {
             id: string;
             /** Line No */
             line_no: number;
-            /** Notes */
-            notes?: string | null;
-            /**
-             * Price Source
-             * @default catalog
-             */
-            price_source: string;
             /**
              * Product Id
              * Format: uuid
@@ -2631,15 +2921,22 @@ export interface components {
             quantity: number | string;
             /** Unit Price */
             unit_price: number | string;
+            /** Catalog Price At Add */
+            catalog_price_at_add?: number | string | null;
+            /**
+             * Price Source
+             * @default catalog
+             */
+            price_source: string;
+            /** Discount Percent */
+            discount_percent?: number | string | null;
+            /** Discount Amount */
+            discount_amount?: number | string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** DraftItemOut */
         DraftItemOut: {
-            /** Catalog Price At Add */
-            catalog_price_at_add: string;
-            /** Discount Amount */
-            discount_amount: string;
-            /** Discount Percent */
-            discount_percent: string;
             /**
              * Id
              * Format: uuid
@@ -2647,10 +2944,6 @@ export interface components {
             id: string;
             /** Line No */
             line_no: number;
-            /** Line Total Preview */
-            line_total_preview: string;
-            /** Price Source */
-            price_source: string;
             /**
              * Product Id
              * Format: uuid
@@ -2662,6 +2955,16 @@ export interface components {
             quantity: string;
             /** Unit Price */
             unit_price: string;
+            /** Catalog Price At Add */
+            catalog_price_at_add: string;
+            /** Price Source */
+            price_source: string;
+            /** Discount Percent */
+            discount_percent: string;
+            /** Discount Amount */
+            discount_amount: string;
+            /** Line Total Preview */
+            line_total_preview: string;
         };
         /** DraftListOut */
         DraftListOut: {
@@ -2671,47 +2974,47 @@ export interface components {
         /** DraftOut */
         DraftOut: {
             /**
-             * Counter Id
-             * Format: uuid
-             */
-            counter_id: string;
-            /** Customer Business Name */
-            customer_business_name: string | null;
-            /** Customer Id */
-            customer_id: string | null;
-            /** Customer Name */
-            customer_name: string | null;
-            /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Invoice Id */
-            invoice_id: string | null;
+            /**
+             * Counter Id
+             * Format: uuid
+             */
+            counter_id: string;
+            /** Label */
+            label: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number | null;
+            /** Customer Id */
+            customer_id: string | null;
+            /** Customer Name */
+            customer_name: string | null;
+            /** Customer Business Name */
+            customer_business_name: string | null;
+            /** Vehicle Number */
+            vehicle_number: string | null;
+            /** Mechanic Name */
+            mechanic_name: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Notes */
+            notes: string | null;
             /** Is Credit Intent */
             is_credit_intent: boolean;
             /** Items */
             items: components["schemas"]["DraftItemOut"][];
-            /** Label */
-            label: string;
-            /** Mechanic Name */
-            mechanic_name: string | null;
-            /** Notes */
-            notes: string | null;
-            /** Phone */
-            phone: string | null;
             preview_totals: components["schemas"]["DraftPreviewTotalsOut"];
-            /** Status */
-            status: string;
+            /** Invoice Id */
+            invoice_id: string | null;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
-            /** Vehicle Number */
-            vehicle_number: string | null;
-            /** Version */
-            version: number | null;
         };
         /**
          * DraftPreviewTotalsOut
@@ -2726,38 +3029,38 @@ export interface components {
         };
         /** DraftUpsertRequest */
         DraftUpsertRequest: {
-            /** Client Created At */
-            client_created_at?: string | null;
-            /** Client Updated At */
-            client_updated_at?: string | null;
             /**
              * Counter Id
              * Format: uuid
              */
             counter_id: string;
-            /** Customer Business Name */
-            customer_business_name?: string | null;
+            /** Items */
+            items?: components["schemas"]["DraftItemIn"][];
+            /** Label */
+            label?: string | null;
             /** Customer Id */
             customer_id?: string | null;
             /** Customer Name */
             customer_name?: string | null;
+            /** Customer Business Name */
+            customer_business_name?: string | null;
+            /** Vehicle Number */
+            vehicle_number?: string | null;
+            /** Mechanic Name */
+            mechanic_name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Notes */
+            notes?: string | null;
             /**
              * Is Credit Intent
              * @default false
              */
             is_credit_intent: boolean;
-            /** Items */
-            items?: components["schemas"]["DraftItemIn"][];
-            /** Label */
-            label?: string | null;
-            /** Mechanic Name */
-            mechanic_name?: string | null;
-            /** Notes */
-            notes?: string | null;
-            /** Phone */
-            phone?: string | null;
-            /** Vehicle Number */
-            vehicle_number?: string | null;
+            /** Client Created At */
+            client_created_at?: string | null;
+            /** Client Updated At */
+            client_updated_at?: string | null;
         };
         /** DuplicateCheckRequest */
         DuplicateCheckRequest: {
@@ -2779,30 +3082,30 @@ export interface components {
         /** FinalizeRequest */
         FinalizeRequest: {
             /**
-             * Accept Price Changes
-             * @default false
-             */
-            accept_price_changes: boolean;
-            /** Client Computed Total */
-            client_computed_total?: number | string | null;
-            /**
              * Counter Id
              * Format: uuid
              */
             counter_id: string;
-            customer?: components["schemas"]["CustomerSelectionIn"];
+            /** Sale Type */
+            sale_type: string;
+            /** Lines */
+            lines: components["schemas"]["SaleLineIn"][];
             /** Draft Id */
             draft_id?: string | null;
             /** Draft Version */
             draft_version?: number | null;
+            customer?: components["schemas"]["CustomerSelectionIn"];
             header?: components["schemas"]["SaleHeaderIn"];
             invoice_discount?: components["schemas"]["InvoiceDiscountIn"] | null;
-            /** Lines */
-            lines: components["schemas"]["SaleLineIn"][];
-            oversell_override?: components["schemas"]["OversellOverrideIn"] | null;
             payment?: components["schemas"]["PaymentIn"] | null;
-            /** Sale Type */
-            sale_type: string;
+            /** Client Computed Total */
+            client_computed_total?: number | string | null;
+            /**
+             * Accept Price Changes
+             * @default false
+             */
+            accept_price_changes: boolean;
+            oversell_override?: components["schemas"]["OversellOverrideIn"] | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2815,46 +3118,46 @@ export interface components {
         };
         /** ImportJobOut */
         ImportJobOut: {
-            /** Applied At */
-            applied_at?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Created Purchase Id */
-            created_purchase_id?: string | null;
-            /** Duplicate Of Job Id */
-            duplicate_of_job_id?: string | null;
-            /** Error Summary */
-            error_summary?: string | null;
-            /** File Size Bytes */
-            file_size_bytes: number;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Intent */
-            intent: string;
             /** Ordinal */
             ordinal: number;
+            /** Intent */
+            intent: string;
+            /** Status */
+            status: string;
             /** Original Filename */
             original_filename: string;
+            /** File Size Bytes */
+            file_size_bytes: number;
+            /** Supplier Id */
+            supplier_id?: string | null;
             /** Row Count */
             row_count: number;
             /** Rows Applied */
             rows_applied: number;
+            /** Rows Skipped */
+            rows_skipped: number;
             /** Rows Failed */
             rows_failed: number;
             /** Rows Pending Decision */
             rows_pending_decision: number;
-            /** Rows Skipped */
-            rows_skipped: number;
-            /** Status */
-            status: string;
-            /** Supplier Id */
-            supplier_id?: string | null;
+            /** Error Summary */
+            error_summary?: string | null;
+            /** Created Purchase Id */
+            created_purchase_id?: string | null;
+            /** Duplicate Of Job Id */
+            duplicate_of_job_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Applied At */
+            applied_at?: string | null;
         };
         /** ImportJobsOut */
         ImportJobsOut: {
@@ -2872,62 +3175,62 @@ export interface components {
         };
         /** ImportReportRowOut */
         ImportReportRowOut: {
-            /** Apply Error */
-            apply_error?: string | null;
-            /** Apply Result */
-            apply_result?: string | null;
-            /** Decision */
-            decision: string;
-            /** Match Status */
-            match_status: string;
+            /** Row Index */
+            row_index: number;
             /** Parsed Name */
             parsed_name?: string | null;
             /** Parsed Sku */
             parsed_sku?: string | null;
-            /** Row Index */
-            row_index: number;
+            /** Match Status */
+            match_status: string;
+            /** Decision */
+            decision: string;
+            /** Apply Result */
+            apply_result?: string | null;
+            /** Apply Error */
+            apply_error?: string | null;
         };
         /** ImportRowOut */
         ImportRowOut: {
-            /** Apply Error */
-            apply_error?: string | null;
-            /** Apply Result */
-            apply_result?: string | null;
-            /** Candidate Product Ids */
-            candidate_product_ids: string[];
-            /** Decision */
-            decision: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Match Confidence */
-            match_confidence?: string | null;
+            /** Row Index */
+            row_index: number;
+            /** Raw Values */
+            raw_values: {
+                [key: string]: string | null;
+            };
+            /** Parsed Name */
+            parsed_name?: string | null;
+            /** Parsed Sku */
+            parsed_sku?: string | null;
+            /** Parsed Quantity */
+            parsed_quantity?: string | null;
+            /** Parsed Unit Cost */
+            parsed_unit_cost?: string | null;
+            /** Parsed Selling Price */
+            parsed_selling_price?: string | null;
             /** Match Status */
             match_status: string;
             /** Matched Product Id */
             matched_product_id?: string | null;
             /** Matched Product Name */
             matched_product_name?: string | null;
+            /** Candidate Product Ids */
+            candidate_product_ids: string[];
+            /** Match Confidence */
+            match_confidence?: string | null;
+            /** Decision */
+            decision: string;
+            /** Apply Result */
+            apply_result?: string | null;
+            /** Apply Error */
+            apply_error?: string | null;
             /** Needs Decision */
             needs_decision: boolean;
-            /** Parsed Name */
-            parsed_name?: string | null;
-            /** Parsed Quantity */
-            parsed_quantity?: string | null;
-            /** Parsed Selling Price */
-            parsed_selling_price?: string | null;
-            /** Parsed Sku */
-            parsed_sku?: string | null;
-            /** Parsed Unit Cost */
-            parsed_unit_cost?: string | null;
-            /** Raw Values */
-            raw_values: {
-                [key: string]: string | null;
-            };
-            /** Row Index */
-            row_index: number;
         };
         /** ImportRowsOut */
         ImportRowsOut: {
@@ -2943,8 +3246,6 @@ export interface components {
          *     checking `=== null` is clearer than one checking `in`.
          */
         ImportUploadOut: {
-            /** Duplicate Of Job Id */
-            duplicate_of_job_id?: string | null;
             /**
              * Job Id
              * Format: uuid
@@ -2952,76 +3253,78 @@ export interface components {
             job_id: string;
             /** Status */
             status: string;
+            /** Duplicate Of Job Id */
+            duplicate_of_job_id?: string | null;
         };
         /** InvoiceCustomerOut */
         InvoiceCustomerOut: {
-            /** Business Name Snapshot */
-            business_name_snapshot: string | null;
             /** Id */
             id: string | null;
-            /** Mechanic Name Snapshot */
-            mechanic_name_snapshot: string | null;
             /** Name Snapshot */
             name_snapshot: string | null;
-            /** Phone Snapshot */
-            phone_snapshot: string | null;
+            /** Business Name Snapshot */
+            business_name_snapshot: string | null;
             /** Vehicle Number Snapshot */
             vehicle_number_snapshot: string | null;
+            /** Mechanic Name Snapshot */
+            mechanic_name_snapshot: string | null;
+            /** Phone Snapshot */
+            phone_snapshot: string | null;
         };
         /** InvoiceDiscountIn */
         InvoiceDiscountIn: {
-            /** Amount */
-            amount?: number | string | null;
             /** Percent */
             percent?: number | string | null;
+            /** Amount */
+            amount?: number | string | null;
         };
         /** InvoiceItemOut */
         InvoiceItemOut: {
-            /** Discount Amount */
-            discount_amount: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Line No */
-            line_no: number;
-            /** Line Total */
-            line_total: string;
             /**
              * Product Id
              * Format: uuid
              */
             product_id: string;
+            /** Line No */
+            line_no: number;
             /** Product Name Snapshot */
             product_name_snapshot: string;
-            /** Quantity */
-            quantity: string;
-            /** Returned Quantity */
-            returned_quantity: string;
             /** Sku Snapshot */
             sku_snapshot: string | null;
-            /** Tax Amount */
-            tax_amount: string;
-            /** Tax Rate Snapshot */
-            tax_rate_snapshot: string;
             /** Unit Code Snapshot */
             unit_code_snapshot: string;
-            /** Unit Cost Snapshot */
-            unit_cost_snapshot?: string | null;
+            /** Quantity */
+            quantity: string;
             /** Unit Price */
             unit_price: string;
+            /** Discount Amount */
+            discount_amount: string;
+            /** Tax Rate Snapshot */
+            tax_rate_snapshot: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Line Total */
+            line_total: string;
+            /** Returned Quantity */
+            returned_quantity: string;
+            /** Unit Cost Snapshot */
+            unit_cost_snapshot?: string | null;
         };
         /** InvoiceListOut */
         InvoiceListOut: {
+            /** Items */
+            items: components["schemas"]["InvoiceSummaryOut"][];
+            page: components["schemas"]["Page"];
             /**
              * As Of
              * Format: date-time
              */
             as_of: string;
-            /** Items */
-            items: components["schemas"]["InvoiceSummaryOut"][];
-            page: components["schemas"]["Page"];
         };
         /**
          * InvoiceOut
@@ -3031,19 +3334,6 @@ export interface components {
          *     and the Daily Bills detail describe the same bill.
          */
         InvoiceOut: {
-            /** Amount Paid */
-            amount_paid: string;
-            /** Cancellation Reason */
-            cancellation_reason: string | null;
-            /** Cancelled At */
-            cancelled_at: string | null;
-            customer: components["schemas"]["InvoiceCustomerOut"];
-            /** Discount Total */
-            discount_total: string;
-            /** Document Kind */
-            document_kind: string;
-            /** Due Date */
-            due_date: string | null;
             /**
              * Id
              * Format: uuid
@@ -3051,58 +3341,71 @@ export interface components {
             id: string;
             /** Internal Reference */
             internal_reference: string;
-            /** Is Credit */
-            is_credit: boolean;
+            /** Sequence Number */
+            sequence_number: number;
+            /** Document Kind */
+            document_kind: string;
+            /** Status */
+            status: string;
             /**
              * Issued At
              * Format: date-time
              */
             issued_at: string;
-            /** Items */
-            items: components["schemas"]["InvoiceItemOut"][];
-            /** Money Policy Version */
-            money_policy_version: number;
+            /** Is Credit */
+            is_credit: boolean;
+            /** Due Date */
+            due_date: string | null;
+            customer: components["schemas"]["InvoiceCustomerOut"];
             /** Notes */
             notes: string | null;
+            /** Version */
+            version: number;
+            /** Items */
+            items: components["schemas"]["InvoiceItemOut"][];
+            /** Subtotal */
+            subtotal: string;
+            /** Discount Total */
+            discount_total: string;
+            /** Tax Total */
+            tax_total: string;
+            /** Rounding Adjustment */
+            rounding_adjustment: string;
+            /** Total */
+            total: string;
+            /** Amount Paid */
+            amount_paid: string;
             /** Outstanding */
             outstanding: string;
+            /** Payment Status */
+            payment_status: string;
             /** Oversell Override */
             oversell_override: boolean;
             /** Oversell Reason */
             oversell_reason: string | null;
-            /** Payment Status */
-            payment_status: string;
-            /** Rounding Adjustment */
-            rounding_adjustment: string;
-            /** Sequence Number */
-            sequence_number: number;
-            /** Status */
-            status: string;
-            /** Subtotal */
-            subtotal: string;
-            /** Tax Total */
-            tax_total: string;
-            /** Total */
-            total: string;
-            /** Version */
-            version: number;
+            /** Money Policy Version */
+            money_policy_version: number;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancellation Reason */
+            cancellation_reason: string | null;
         };
         /** InvoiceRevisionItemOut */
         InvoiceRevisionItemOut: {
             /** Line No */
             line_no: number;
-            /** Line Total */
-            line_total: string;
             /** Product Name */
             product_name: string;
-            /** Quantity */
-            quantity: string;
             /** Sku */
             sku: string | null;
             /** Unit Code */
             unit_code: string;
+            /** Quantity */
+            quantity: string;
             /** Unit Price */
             unit_price: string;
+            /** Line Total */
+            line_total: string;
         };
         /**
          * InvoiceRevisionOut
@@ -3110,32 +3413,32 @@ export interface components {
          *     only at the privilege level.
          */
         InvoiceRevisionOut: {
-            /** Amount Paid */
-            amount_paid: string;
-            /** Created At */
-            created_at: string;
-            /** Customer Name */
-            customer_name: string | null;
-            /** Edited By */
-            edited_by: string | null;
-            /** Items */
-            items: components["schemas"]["InvoiceRevisionItemOut"][];
-            /** Mechanic Name */
-            mechanic_name: string | null;
-            /** Notes */
-            notes: string | null;
-            /** Payment Status */
-            payment_status: string;
-            /** Reason */
-            reason: string;
             /** Revision Number */
             revision_number: number;
-            /** Status */
-            status: string;
+            /** Reason */
+            reason: string;
+            /** Created At */
+            created_at: string;
+            /** Edited By */
+            edited_by: string | null;
             /** Total */
             total: string;
+            /** Amount Paid */
+            amount_paid: string;
+            /** Payment Status */
+            payment_status: string;
+            /** Status */
+            status: string;
+            /** Customer Name */
+            customer_name: string | null;
+            /** Mechanic Name */
+            mechanic_name: string | null;
             /** Vehicle Number */
             vehicle_number: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Items */
+            items: components["schemas"]["InvoiceRevisionItemOut"][];
         };
         /** InvoiceRevisionsOut */
         InvoiceRevisionsOut: {
@@ -3144,16 +3447,6 @@ export interface components {
         };
         /** InvoiceSummaryOut */
         InvoiceSummaryOut: {
-            /** Amount Paid */
-            amount_paid: string;
-            /** Counter */
-            counter: string;
-            /** Customer Id */
-            customer_id: string | null;
-            /** Customer Name */
-            customer_name: string | null;
-            /** Due Date */
-            due_date: string | null;
             /**
              * Id
              * Format: uuid
@@ -3161,29 +3454,55 @@ export interface components {
             id: string;
             /** Internal Reference */
             internal_reference: string;
-            /** Is Credit */
-            is_credit: boolean;
             /**
              * Issued At
              * Format: date-time
              */
             issued_at: string;
+            /** Status */
+            status: string;
+            /** Is Credit */
+            is_credit: boolean;
+            /** Due Date */
+            due_date: string | null;
+            /** Customer Id */
+            customer_id: string | null;
+            /** Customer Name */
+            customer_name: string | null;
+            /** Counter */
+            counter: string;
+            /** Total */
+            total: string;
+            /** Amount Paid */
+            amount_paid: string;
             /** Outstanding */
             outstanding: string;
             /** Payment Status */
             payment_status: string;
+            /** Cancelled At */
+            cancelled_at?: string | null;
+            /** Cancellation Reason */
+            cancellation_reason?: string | null;
+        };
+        /**
+         * LifecycleStatusOut
+         * @description The body every dismiss/acknowledge/snooze/read action returns.
+         */
+        LifecycleStatusOut: {
             /** Status */
-            status: string;
-            /** Total */
-            total: string;
+            status?: string | null;
+            /** Read */
+            read?: boolean | null;
+            /** Snoozed Until */
+            snoozed_until?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
-            device: components["schemas"]["DeviceInput"];
-            /** Password */
-            password: string;
             /** Username */
             username: string;
+            /** Password */
+            password: string;
+            device: components["schemas"]["DeviceInput"];
         };
         /** MatchOut */
         MatchOut: {
@@ -3194,21 +3513,22 @@ export interface components {
         };
         /** MeOut */
         MeOut: {
-            /** Branch Id */
-            branch_id: string | null;
+            user: components["schemas"]["bm__api__v1__auth__UserOut"];
             /**
              * Business Id
              * Format: uuid
              */
             business_id: string;
+            /** Branch Id */
+            branch_id: string | null;
             /** Counter Id */
             counter_id: string | null;
             /** Device Id */
             device_id: string | null;
-            /** Permissions */
-            permissions: string[];
             /** Role */
             role: string;
+            /** Permissions */
+            permissions: string[];
             /**
              * Server Time
              * Format: date-time
@@ -3216,7 +3536,6 @@ export interface components {
             server_time: string;
             /** Tax Mode */
             tax_mode: string;
-            user: components["schemas"]["bm__api__v1__auth__UserOut"];
         };
         /** MechanicEnsureRequest */
         MechanicEnsureRequest: {
@@ -3233,23 +3552,23 @@ export interface components {
         };
         /** MechanicOut */
         MechanicOut: {
-            /** Created */
-            created: boolean;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Used At */
-            last_used_at: string | null;
             /** Name */
             name: string;
             /** Phone */
             phone: string | null;
+            /** Is Active */
+            is_active: boolean;
             /** Use Count */
             use_count: number;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Created */
+            created: boolean;
         };
         /** MechanicRenameRequest */
         MechanicRenameRequest: {
@@ -3266,57 +3585,48 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Used At */
-            last_used_at: string | null;
             /** Name */
             name: string;
             /** Phone */
             phone: string | null;
+            /** Is Active */
+            is_active: boolean;
             /** Use Count */
             use_count: number;
+            /** Last Used At */
+            last_used_at: string | null;
         };
         /**
          * MoneyPolicyOut
          * @description Published so the client never hardcodes a rounding or whole-rupee rule.
          */
         MoneyPolicyOut: {
-            /** Amount Scale */
-            amount_scale: number;
-            /** Currency */
-            currency: string;
-            /** Display Decimal Places */
-            display_decimal_places: number;
-            /** Percent Scale */
-            percent_scale: number;
-            /** Quantity Scale */
-            quantity_scale: number;
-            /** Require Integral Amounts */
-            require_integral_amounts: boolean;
-            /** Round Grand Total To Rupee */
-            round_grand_total_to_rupee: boolean;
-            /** Rounding Mode */
-            rounding_mode: string;
-            /** Unit Price Scale */
-            unit_price_scale: number;
             /** Version */
             version: number;
+            /** Currency */
+            currency: string;
+            /** Amount Scale */
+            amount_scale: number;
+            /** Unit Price Scale */
+            unit_price_scale: number;
+            /** Quantity Scale */
+            quantity_scale: number;
+            /** Percent Scale */
+            percent_scale: number;
+            /** Rounding Mode */
+            rounding_mode: string;
+            /** Round Grand Total To Rupee */
+            round_grand_total_to_rupee: boolean;
+            /** Require Integral Amounts */
+            require_integral_amounts: boolean;
+            /** Display Decimal Places */
+            display_decimal_places: number;
         };
         /**
          * MovementReportLineOut
          * @description One movement on the day's report.
          */
         MovementReportLineOut: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Invoice Cancelled */
-            invoice_cancelled?: boolean | null;
-            /** Is Credit */
-            is_credit?: boolean | null;
             /**
              * Movement Id
              * Format: uuid
@@ -3329,45 +3639,61 @@ export interface components {
             product_id: string;
             /** Product Name */
             product_name: string;
-            /** Quantity */
-            quantity: string;
-            /** Reason */
-            reason: string;
-            /** Reference */
-            reference?: string | null;
             /** Sku */
             sku?: string | null;
-            /** Stock After */
-            stock_after: string;
+            /** Quantity */
+            quantity: string;
             /** Stock Before */
             stock_before: string;
+            /** Stock After */
+            stock_after: string;
+            /** Reason */
+            reason: string;
+            /** Source Type */
+            source_type?: string | null;
+            /** Reference */
+            reference?: string | null;
+            /** Is Credit */
+            is_credit?: boolean | null;
+            /** Invoice Cancelled */
+            invoice_cancelled?: boolean | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** MovementReportOut */
         MovementReportOut: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /** Invoices */
-            invoices: number;
-            /** Items */
-            items: components["schemas"]["MovementReportLineOut"][];
-            /** Kind */
-            kind: string;
-            /** Movements */
-            movements: number;
             /**
              * On Date
              * Format: date
              */
             on_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Kind */
+            kind: string;
+            /** Items */
+            items: components["schemas"]["MovementReportLineOut"][];
             /** Products */
             products: number;
             /** Total Quantity */
             total_quantity: string;
+            /** Movements */
+            movements: number;
+            /** Invoices */
+            invoices: number;
             /** Truncated */
             truncated: boolean;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
         };
         /** NamedOut */
         NamedOut: {
@@ -3379,6 +3705,37 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** NotificationListOut */
+        NotificationListOut: {
+            /** Notifications */
+            notifications: components["schemas"]["NotificationOut"][];
+        };
+        /** NotificationOut */
+        NotificationOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Severity */
+            severity: string;
+            /** Title */
+            title: string;
+            /** Body */
+            body: string | null;
+            /** Created At */
+            created_at: string;
+            /** Status */
+            status: string;
+            /** Entity Type */
+            entity_type: string | null;
+            /** Entity Id */
+            entity_id: string | null;
+            /** Read At */
+            read_at: string | null;
+        };
         /** OperationTypesOut */
         OperationTypesOut: {
             /** Allowed */
@@ -3387,6 +3744,60 @@ export interface components {
             offline_finalisation: string;
             /** Reason */
             reason: string;
+        };
+        /** OrderIn */
+        OrderIn: {
+            /** Body */
+            body: string;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Phone */
+            phone?: string | null;
+        };
+        /** OrderListOut */
+        OrderListOut: {
+            /** Items */
+            items: components["schemas"]["OrderOut"][];
+        };
+        /** OrderOut */
+        OrderOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Customer Name */
+            customer_name: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Body */
+            body: string;
+            /** Status */
+            status: string;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Discarded At */
+            discarded_at: string | null;
+            /** Remind At */
+            remind_at?: string | null;
+        };
+        /** OrderReminderIn */
+        OrderReminderIn: {
+            /** Remind At */
+            remind_at?: string | null;
+        };
+        /** OrderUpdateIn */
+        OrderUpdateIn: {
+            /** Body */
+            body?: string | null;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Phone */
+            phone?: string | null;
         };
         /** OversellOverrideIn */
         OversellOverrideIn: {
@@ -3398,6 +3809,8 @@ export interface components {
          * @description Cursor pagination envelope (`API-SPECIFICATION.md §1.4`).
          */
         Page: {
+            /** Next Cursor */
+            next_cursor?: string | null;
             /**
              * Has More
              * @default false
@@ -3405,8 +3818,6 @@ export interface components {
             has_more: boolean;
             /** Limit */
             limit: number;
-            /** Next Cursor */
-            next_cursor?: string | null;
         };
         /** PaymentHistoryListOut */
         PaymentHistoryListOut: {
@@ -3423,78 +3834,78 @@ export interface components {
          *     money.
          */
         PaymentHistoryOut: {
-            /** Allocated */
-            allocated?: string | null;
-            /** Amount */
-            amount: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Invoice Id */
-            invoice_id?: string | null;
-            /** Kind */
-            kind: string;
+            /** Amount */
+            amount: string;
+            /** Allocated */
+            allocated?: string | null;
             /** Method */
             method: string;
+            /** Reference */
+            reference?: string | null;
             /**
              * Received At
              * Format: date-time
              */
             received_at: string;
-            /** Reference */
-            reference?: string | null;
+            /** Kind */
+            kind: string;
+            /** Invoice Id */
+            invoice_id?: string | null;
         };
         /** PaymentIn */
         PaymentIn: {
-            /** Amount */
-            amount: number | string;
             /** Method */
             method: string;
+            /** Amount */
+            amount: number | string;
             /** Reference */
             reference?: string | null;
         };
         /** PaymentOut */
         PaymentOut: {
-            /** Allocations */
-            allocations: components["schemas"]["AllocationOut"][];
-            /** On Account */
-            on_account: string;
             /**
              * Payment Id
              * Format: uuid
              */
             payment_id: string;
+            /** Allocations */
+            allocations: components["schemas"]["AllocationOut"][];
+            /** On Account */
+            on_account: string;
         };
         /** PaymentRequest */
         PaymentRequest: {
-            allocation?: components["schemas"]["AllocationSpec"];
-            /** Amount */
-            amount: number | string;
             /**
              * Customer Id
              * Format: uuid
              */
             customer_id: string;
+            /** Amount */
+            amount: number | string;
             /** Method */
             method: string;
-            /** Notes */
-            notes?: string | null;
-            /** Received At */
-            received_at?: string | null;
             /** Reference */
             reference?: string | null;
+            /** Received At */
+            received_at?: string | null;
+            allocation?: components["schemas"]["AllocationSpec"];
+            /** Notes */
+            notes?: string | null;
         };
         /**
          * PrintBusinessOut
          * @description Empty optional fields print nothing — **never a placeholder** (FR-PRINT-016).
          */
         PrintBusinessOut: {
-            /** Address Lines */
-            address_lines: string[];
             /** Display Name */
             display_name: string;
+            /** Address Lines */
+            address_lines: string[];
             /** Phone Numbers */
             phone_numbers: string[];
             /** Tax Identifier */
@@ -3504,16 +3915,16 @@ export interface components {
         };
         /** PrintCustomerOut */
         PrintCustomerOut: {
-            /** Business Name */
-            business_name: string | null;
-            /** Mechanic Name */
-            mechanic_name: string | null;
             /** Name */
             name: string | null;
-            /** Phone */
-            phone: string | null;
+            /** Business Name */
+            business_name: string | null;
             /** Vehicle Number */
             vehicle_number: string | null;
+            /** Mechanic Name */
+            mechanic_name: string | null;
+            /** Phone */
+            phone: string | null;
         };
         /** PrintEventRequest */
         PrintEventRequest: {
@@ -3525,14 +3936,14 @@ export interface components {
         };
         /** PrintLineOut */
         PrintLineOut: {
-            /** Item */
-            item: string;
-            /** Price */
-            price: string;
-            /** Quantity */
-            quantity: string;
             /** Sl No */
             sl_no: number;
+            /** Item */
+            item: string;
+            /** Quantity */
+            quantity: string;
+            /** Price */
+            price: string;
             /** Total */
             total: string;
         };
@@ -3544,68 +3955,76 @@ export interface components {
          *     alike until the FR-TAX-003 gate passes (OD-24, FR-PRINT-021).
          */
         PrintPayloadOut: {
-            /** Amount In Words */
-            amount_in_words: string;
-            business: components["schemas"]["PrintBusinessOut"];
-            /** Columns */
-            columns: string[];
-            customer: components["schemas"]["PrintCustomerOut"];
-            /** Date Format */
-            date_format: string;
             /** Document Title */
             document_title: string;
-            /** Footer Notes */
-            footer_notes: string[];
             /** Is Duplicate */
             is_duplicate: boolean;
+            business: components["schemas"]["PrintBusinessOut"];
             /**
              * Issued At
              * Format: date-time
              */
             issued_at: string;
-            /** Item Row Capacity */
-            item_row_capacity: number;
+            customer: components["schemas"]["PrintCustomerOut"];
+            /** Columns */
+            columns: string[];
             /** Lines */
             lines: components["schemas"]["PrintLineOut"][];
+            totals: components["schemas"]["PrintTotalsOut"];
+            /** Amount In Words */
+            amount_in_words: string;
             payment: components["schemas"]["PrintPaymentOut"];
-            /** Print Profile */
-            print_profile: string;
-            /** Show Credit Block */
-            show_credit_block: boolean;
+            /** Footer Notes */
+            footer_notes: string[];
             /** Tax Mode */
             tax_mode: string;
-            totals: components["schemas"]["PrintTotalsOut"];
+            /** Print Profile */
+            print_profile: string;
+            /** Date Format */
+            date_format: string;
+            /** Show Credit Block */
+            show_credit_block: boolean;
+            /** Item Row Capacity */
+            item_row_capacity: number;
         };
         /** PrintPaymentOut */
         PrintPaymentOut: {
+            /** Status */
+            status: string;
             /** Amount Paid */
             amount_paid: string;
+            /** Outstanding */
+            outstanding: string;
+            /** Method */
+            method: string | null;
             /** Due Date */
             due_date: string | null;
             /** Is Credit */
             is_credit: boolean;
-            /** Method */
-            method: string | null;
-            /** Outstanding */
-            outstanding: string;
-            /** Status */
-            status: string;
         };
         /** PrintTotalsOut */
         PrintTotalsOut: {
-            /** Discount */
-            discount: string;
-            /** Grand Total */
-            grand_total: string;
-            /** Rounding */
-            rounding: string;
             /** Subtotal */
             subtotal: string;
+            /** Discount */
+            discount: string;
             /** Tax */
             tax: string | null;
+            /** Rounding */
+            rounding: string;
+            /** Grand Total */
+            grand_total: string;
         };
         /** ProductCreateRequest */
         ProductCreateRequest: {
+            /** Name */
+            name: string;
+            /** Unit Code */
+            unit_code: string;
+            /** Default Selling Price */
+            default_selling_price: string;
+            /** Sku */
+            sku?: string | null;
             /** Barcode */
             barcode?: string | null;
             /** Brand */
@@ -3614,51 +4033,43 @@ export interface components {
             category?: string | null;
             /** Cost Price */
             cost_price?: string | null;
-            /** Default Selling Price */
-            default_selling_price: string;
+            /** Reorder Level */
+            reorder_level?: string | null;
             /** Hsn Code */
             hsn_code?: string | null;
             /** Id */
             id?: string | null;
-            /** Name */
-            name: string;
-            /** Reorder Level */
-            reorder_level?: string | null;
-            /** Sku */
-            sku?: string | null;
-            /** Unit Code */
-            unit_code: string;
         };
         /** ProductOut */
         ProductOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Sku */
+            sku: string | null;
             /** Barcode */
             barcode: string | null;
             /** Brand */
             brand: string | null;
             /** Category */
             category: string | null;
-            /** Cost Price */
-            cost_price?: string | null;
+            unit: components["schemas"]["UnitOut"];
             /** Default Selling Price */
             default_selling_price: string;
-            /** Hsn Code */
-            hsn_code: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            stock: components["schemas"]["StockOut"] | null;
             /** Is Active */
             is_active: boolean;
             /** Is Low Stock */
             is_low_stock: boolean;
+            /** Hsn Code */
+            hsn_code: string | null;
             match?: components["schemas"]["MatchOut"] | null;
-            /** Name */
-            name: string;
-            /** Sku */
-            sku: string | null;
-            stock: components["schemas"]["StockOut"] | null;
-            unit: components["schemas"]["UnitOut"];
+            /** Cost Price */
+            cost_price?: string | null;
         };
         /** ProductSearchOut */
         ProductSearchOut: {
@@ -3668,24 +4079,24 @@ export interface components {
         };
         /** ProductUpdateRequest */
         ProductUpdateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Sku */
+            sku?: string | null;
             /** Barcode */
             barcode?: string | null;
+            /** Default Selling Price */
+            default_selling_price?: string | null;
+            /** Cost Price */
+            cost_price?: string | null;
+            /** Reorder Level */
+            reorder_level?: string | null;
+            /** Hsn Code */
+            hsn_code?: string | null;
             /** Brand */
             brand?: string | null;
             /** Category */
             category?: string | null;
-            /** Cost Price */
-            cost_price?: string | null;
-            /** Default Selling Price */
-            default_selling_price?: string | null;
-            /** Hsn Code */
-            hsn_code?: string | null;
-            /** Name */
-            name?: string | null;
-            /** Reorder Level */
-            reorder_level?: string | null;
-            /** Sku */
-            sku?: string | null;
         };
         /** PurchaseConfirmedOut */
         PurchaseConfirmedOut: {
@@ -3694,19 +4105,19 @@ export interface components {
         };
         /** PurchaseCreateRequest */
         PurchaseCreateRequest: {
-            /** Document Date */
-            document_date?: string | null;
-            /** Items */
-            items: components["schemas"]["PurchaseLineIn"][];
-            /** Notes */
-            notes?: string | null;
-            /** Supplier Document Number */
-            supplier_document_number?: string | null;
             /**
              * Supplier Id
              * Format: uuid
              */
             supplier_id: string;
+            /** Items */
+            items: components["schemas"]["PurchaseLineIn"][];
+            /** Supplier Document Number */
+            supplier_document_number?: string | null;
+            /** Document Date */
+            document_date?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** PurchaseCreatedOut */
         PurchaseCreatedOut: {
@@ -3735,21 +4146,11 @@ export interface components {
         };
         /** PurchaseSummaryOut */
         PurchaseSummaryOut: {
-            /** Document Date */
-            document_date?: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Line Count */
-            line_count: number;
-            /** Status */
-            status: string;
-            /** Subtotal */
-            subtotal: string;
-            /** Supplier Document Number */
-            supplier_document_number?: string | null;
             /**
              * Supplier Id
              * Format: uuid
@@ -3757,8 +4158,59 @@ export interface components {
             supplier_id: string;
             /** Supplier Name */
             supplier_name: string;
+            /** Supplier Document Number */
+            supplier_document_number?: string | null;
+            /** Document Date */
+            document_date?: string | null;
+            /** Status */
+            status: string;
+            /** Subtotal */
+            subtotal: string;
             /** Total */
             total: string;
+            /** Line Count */
+            line_count: number;
+        };
+        /** ReminderIn */
+        ReminderIn: {
+            /** Label */
+            label: string;
+            /** Fire Time */
+            fire_time?: string | null;
+            /** Interval Hours */
+            interval_hours?: number | null;
+        };
+        /** ReminderListOut */
+        ReminderListOut: {
+            /** Items */
+            items: components["schemas"]["ReminderOut"][];
+        };
+        /** ReminderOut */
+        ReminderOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Fire Time */
+            fire_time: string | null;
+            /** Interval Hours */
+            interval_hours: number | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Last Fired At */
+            last_fired_at: string | null;
+        };
+        /** ReminderUpdateIn */
+        ReminderUpdateIn: {
+            /** Label */
+            label?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /**
          * ReportOut
@@ -3776,12 +4228,12 @@ export interface components {
              * Format: date-time
              */
             as_of: string;
-            /** Excluded */
-            excluded: {
-                [key: string]: unknown;
-            };
             /** Filters */
             filters: {
+                [key: string]: unknown;
+            };
+            /** Excluded */
+            excluded: {
                 [key: string]: unknown;
             };
         } & {
@@ -3794,11 +4246,6 @@ export interface components {
         };
         /** ReturnCreateRequest */
         ReturnCreateRequest: {
-            /**
-             * Credit Handling
-             * @default allocate_to_invoice
-             */
-            credit_handling: string;
             /**
              * Invoice Id
              * Format: uuid
@@ -3813,14 +4260,14 @@ export interface components {
              * @default true
              */
             restock: boolean;
+            /**
+             * Credit Handling
+             * @default allocate_to_invoice
+             */
+            credit_handling: string;
         };
         /** ReturnLineIn */
         ReturnLineIn: {
-            /**
-             * Condition
-             * @default resalable
-             */
-            condition: string;
             /**
              * Invoice Item Id
              * Format: uuid
@@ -3828,6 +4275,11 @@ export interface components {
             invoice_item_id: string;
             /** Quantity */
             quantity: number | string;
+            /**
+             * Condition
+             * @default resalable
+             */
+            condition: string;
         };
         /** ReversalOut */
         ReversalOut: {
@@ -3852,30 +4304,23 @@ export interface components {
          * @description Optional for **both** sale types, and persisted when present (FR-CREDIT-012).
          */
         SaleHeaderIn: {
-            /** Customer Business Name */
-            customer_business_name?: string | null;
             /** Customer Name */
             customer_name?: string | null;
-            /** Due Date */
-            due_date?: string | null;
-            /** Mechanic Name */
-            mechanic_name?: string | null;
-            /** Notes */
-            notes?: string | null;
-            /** Phone */
-            phone?: string | null;
+            /** Customer Business Name */
+            customer_business_name?: string | null;
             /** Vehicle Number */
             vehicle_number?: string | null;
+            /** Mechanic Name */
+            mechanic_name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Due Date */
+            due_date?: string | null;
         };
         /** SaleLineIn */
         SaleLineIn: {
-            /** Discount Percent */
-            discount_percent?: number | string | null;
-            /**
-             * Price Source
-             * @default catalog
-             */
-            price_source: string;
             /**
              * Product Id
              * Format: uuid
@@ -3885,23 +4330,30 @@ export interface components {
             quantity: number | string;
             /** Unit Price */
             unit_price: number | string;
+            /**
+             * Price Source
+             * @default catalog
+             */
+            price_source: string;
+            /** Discount Percent */
+            discount_percent?: number | string | null;
         };
         /** SelectBranchOut */
         SelectBranchOut: {
             /** Access Token */
             access_token: string;
             /**
-             * Active Branch Id
-             * Format: uuid
-             */
-            active_branch_id: string;
-            /** Expires In */
-            expires_in: number;
-            /**
              * Token Type
              * @default bearer
              */
             token_type: string;
+            /** Expires In */
+            expires_in: number;
+            /**
+             * Active Branch Id
+             * Format: uuid
+             */
+            active_branch_id: string;
         };
         /** SelectBranchRequest */
         SelectBranchRequest: {
@@ -3915,99 +4367,166 @@ export interface components {
         SessionOut: {
             /** Access Token */
             access_token: string;
-            /** Active Branch Id */
-            active_branch_id: string | null;
-            /** Branches */
-            branches: components["schemas"]["BranchOut"][];
-            business: components["schemas"]["BusinessOut"];
-            /** Expires In */
-            expires_in: number;
-            /** Permissions */
-            permissions: string[];
-            /** Role */
-            role: string;
-            /**
-             * Server Time
-             * Format: date-time
-             */
-            server_time: string;
             /**
              * Token Type
              * @default bearer
              */
             token_type: string;
+            /** Expires In */
+            expires_in: number;
             user: components["schemas"]["bm__api__v1__auth__UserOut"];
+            business: components["schemas"]["BusinessOut"];
+            /** Branches */
+            branches: components["schemas"]["BranchOut"][];
+            /** Active Branch Id */
+            active_branch_id: string | null;
+            /** Role */
+            role: string;
+            /** Permissions */
+            permissions: string[];
+            /**
+             * Server Time
+             * Format: date-time
+             */
+            server_time: string;
         };
         /** SettingOut */
         SettingOut: {
-            /** Allowed */
-            allowed: string[] | null;
-            /** Description */
-            description: string;
-            /** Is Default */
-            is_default: boolean;
             /** Key */
             key: string;
             /** Value */
             value: unknown;
             /** Value Type */
             value_type: string;
+            /** Description */
+            description: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Allowed */
+            allowed: string[] | null;
         };
         /** SettingUpdateRequest */
         SettingUpdateRequest: {
             /** Value */
             value: unknown;
         };
+        /** SnoozeIn */
+        SnoozeIn: {
+            /** Minutes */
+            minutes: number;
+        };
         /** StockBalanceOut */
         StockBalanceOut: {
-            /** Default Selling Price */
-            default_selling_price?: string | null;
-            /** Name */
-            name: string;
             /**
              * Product Id
              * Format: uuid
              */
             product_id: string;
+            /** Name */
+            name: string;
             /** Quantity */
             quantity: string;
             /** Reorder Level */
             reorder_level?: string | null;
             /** Sku */
             sku?: string | null;
+            /** Default Selling Price */
+            default_selling_price?: string | null;
         };
         /** StockBalancesOut */
         StockBalancesOut: {
+            /** Items */
+            items: components["schemas"]["StockBalanceOut"][];
             /**
              * As Of
              * Format: date-time
              */
             as_of: string;
+        };
+        /** StockCountFinalizeOut */
+        StockCountFinalizeOut: {
+            /** Movements */
+            movements: number;
+            /** Counted */
+            counted: number;
+        };
+        /** StockCountItemIn */
+        StockCountItemIn: {
+            /** Counted Quantity */
+            counted_quantity: number | string;
+        };
+        /** StockCountItemOut */
+        StockCountItemOut: {
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
+            /** Name */
+            name: string;
+            /** Sku */
+            sku: string | null;
+            /** System Quantity */
+            system_quantity: string;
+            /** Counted Quantity */
+            counted_quantity: string | null;
+            /** Discrepancy */
+            discrepancy: string | null;
+        };
+        /** StockCountReviewOut */
+        StockCountReviewOut: {
+            session: components["schemas"]["StockCountSessionOut"];
             /** Items */
-            items: components["schemas"]["StockBalanceOut"][];
+            items: components["schemas"]["StockCountItemOut"][];
+        };
+        /** StockCountSessionListOut */
+        StockCountSessionListOut: {
+            /** Items */
+            items: components["schemas"]["StockCountSessionOut"][];
+        };
+        /** StockCountSessionOut */
+        StockCountSessionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Notes */
+            notes: string | null;
+            /** Created At */
+            created_at: string;
+            /** Applied At */
+            applied_at: string | null;
+        };
+        /** StockCountStartIn */
+        StockCountStartIn: {
+            /** Notes */
+            notes?: string | null;
         };
         /** StockEntriesOut */
         StockEntriesOut: {
+            /** Items */
+            items: components["schemas"]["StockEntryResultOut"][];
             /**
              * As Of
              * Format: date-time
              */
             as_of: string;
-            /** Items */
-            items: components["schemas"]["StockEntryResultOut"][];
         };
         /**
          * StockEntryCandidateOut
          * @description One of several products sharing a normalised name, for the user to choose between.
          */
         StockEntryCandidateOut: {
-            /** Name */
-            name: string;
             /**
              * Product Id
              * Format: uuid
              */
             product_id: string;
+            /** Name */
+            name: string;
         };
         /**
          * StockEntryMatchOut
@@ -4023,20 +4542,20 @@ export interface components {
          *     | `inactive` | The match is withdrawn from the catalog; reactivate it first |
          */
         StockEntryMatchOut: {
-            /** Candidates */
-            candidates?: components["schemas"]["StockEntryCandidateOut"][];
-            /** Current Min Qty */
-            current_min_qty?: string | null;
-            /** Current Price */
-            current_price?: string | null;
-            /** Current Quantity */
-            current_quantity?: string | null;
             /** Kind */
             kind: string;
             /** Product Id */
             product_id?: string | null;
             /** Product Name */
             product_name?: string | null;
+            /** Current Quantity */
+            current_quantity?: string | null;
+            /** Current Price */
+            current_price?: string | null;
+            /** Current Min Qty */
+            current_min_qty?: string | null;
+            /** Candidates */
+            candidates?: components["schemas"]["StockEntryCandidateOut"][];
         };
         /** StockEntryRequest */
         StockEntryRequest: {
@@ -4045,26 +4564,26 @@ export interface components {
         };
         /** StockEntryResultOut */
         StockEntryResultOut: {
-            /** Created */
-            created: boolean;
             /** Item */
             item: string;
-            /**
-             * Movement Id
-             * Format: uuid
-             */
-            movement_id: string;
             /**
              * Product Id
              * Format: uuid
              */
             product_id: string;
+            /** Created */
+            created: boolean;
             /** Quantity Added */
             quantity_added: string;
-            /** Quantity After */
-            quantity_after: string;
             /** Quantity Before */
             quantity_before: string;
+            /** Quantity After */
+            quantity_after: string;
+            /**
+             * Movement Id
+             * Format: uuid
+             */
+            movement_id: string;
             /** Reason */
             reason: string;
         };
@@ -4075,31 +4594,20 @@ export interface components {
         StockEntryRow: {
             /** Item */
             item: string;
-            /** Min Qty */
-            min_qty: number | string;
             /** Price */
             price: number | string;
+            /** Min Qty */
+            min_qty: number | string;
             /** Stock Qty */
             stock_qty: number | string;
         };
         /** StockMovementOut */
         StockMovementOut: {
-            /** Balance After */
-            balance_after: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Override Reason */
-            override_reason?: string | null;
-            /** Oversell Override */
-            oversell_override: boolean;
             /**
              * Product Id
              * Format: uuid
@@ -4107,34 +4615,45 @@ export interface components {
             product_id: string;
             /** Quantity Delta */
             quantity_delta: string;
+            /** Balance After */
+            balance_after: string;
             /** Reason */
             reason: string;
-            /** Reference */
-            reference?: string | null;
+            /** Source Type */
+            source_type: string;
             /**
              * Source Id
              * Format: uuid
              */
             source_id: string;
-            /** Source Type */
-            source_type: string;
+            /** Oversell Override */
+            oversell_override: boolean;
+            /** Override Reason */
+            override_reason?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Reference */
+            reference?: string | null;
         };
         /** StockMovementsOut */
         StockMovementsOut: {
+            /** Items */
+            items: components["schemas"]["StockMovementOut"][];
             /**
              * As Of
              * Format: date-time
              */
             as_of: string;
-            /** Items */
-            items: components["schemas"]["StockMovementOut"][];
         };
         /** StockOut */
         StockOut: {
-            /** As Of */
-            as_of: string;
             /** Branch Quantity */
             branch_quantity: string;
+            /** As Of */
+            as_of: string;
         };
         /** SupplierListOut */
         SupplierListOut: {
@@ -4163,12 +4682,12 @@ export interface components {
         };
         /** SupplierUpsertRequest */
         SupplierUpsertRequest: {
-            /** Business Name */
-            business_name?: string | null;
             /** Name */
             name: string;
             /** Phone */
             phone?: string | null;
+            /** Business Name */
+            business_name?: string | null;
             /** Tax Identifier */
             tax_identifier?: string | null;
         };
@@ -4201,45 +4720,45 @@ export interface components {
         };
         /** SyncOperationIn */
         SyncOperationIn: {
-            /** Base Version */
-            base_version?: number | null;
-            /** Client Created At */
-            client_created_at?: string | null;
+            /**
+             * Op Id
+             * Format: uuid
+             */
+            op_id: string;
             /** Client Seq */
             client_seq: number;
+            /** Type */
+            type: string;
+            /** Entity Type */
+            entity_type: string;
             /**
              * Entity Id
              * Format: uuid
              */
             entity_id: string;
-            /** Entity Type */
-            entity_type: string;
-            /**
-             * Op Id
-             * Format: uuid
-             */
-            op_id: string;
             /** Payload */
             payload?: {
                 [key: string]: unknown;
             };
-            /** Type */
-            type: string;
+            /** Base Version */
+            base_version?: number | null;
+            /** Client Created At */
+            client_created_at?: string | null;
         };
         /** SyncOperationResultOut */
         SyncOperationResultOut: {
-            error?: components["schemas"]["SyncOperationErrorOut"] | null;
             /**
              * Op Id
              * Format: uuid
              */
             op_id: string;
+            /** Status */
+            status: string;
             /** Server State */
             server_state: {
                 [key: string]: unknown;
             } | null;
-            /** Status */
-            status: string;
+            error?: components["schemas"]["SyncOperationErrorOut"] | null;
         };
         /**
          * UnattendedRequest
@@ -4250,10 +4769,15 @@ export interface components {
         };
         /** UnitOut */
         UnitOut: {
-            /** Allows Fraction */
-            allows_fraction: boolean;
             /** Code */
             code: string;
+            /** Allows Fraction */
+            allows_fraction: boolean;
+        };
+        /** UpdatedOut */
+        UpdatedOut: {
+            /** Updated */
+            updated: boolean;
         };
         /** UserUpdateRequest */
         UserUpdateRequest: {
@@ -4264,67 +4788,67 @@ export interface components {
         };
         /** ValidationError */
         ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** WarningOut */
         WarningOut: {
             /** Code */
             code: string;
+            /** Message */
+            message: string;
             /** Details */
             details?: {
                 [key: string]: unknown;
             };
-            /** Message */
-            message: string;
         };
         /** WriteOffRequest */
         WriteOffRequest: {
-            /** Amount */
-            amount: number | string;
             /**
              * Customer Id
              * Format: uuid
              */
             customer_id: string;
+            /** Amount */
+            amount: number | string;
             /** Reason */
             reason: string;
         };
         /** UserOut */
         bm__api__v1__admin__UserOut: {
-            /** Full Name */
-            full_name: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Login At */
-            last_login_at: string | null;
-            /** Must Change Password */
-            must_change_password: boolean;
             /** Username */
             username: string;
+            /** Full Name */
+            full_name: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Must Change Password */
+            must_change_password: boolean;
+            /** Last Login At */
+            last_login_at: string | null;
         };
         /** UserOut */
         bm__api__v1__auth__UserOut: {
-            /** Full Name */
-            full_name: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Full Name */
+            full_name: string;
             /** Must Change Password */
             must_change_password: boolean;
         };
@@ -4337,16 +4861,86 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    list_counters_api_v1_admin_counters_get: {
+    login_api_v1_auth_login_post: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
+                "user-agent"?: string | null;
             };
             path?: never;
             cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unattended_api_v1_auth_unattended_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "user-agent"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnattendedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-device-id"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                bm_refresh?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -4356,7 +4950,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CounterOut"][];
+                    "application/json": components["schemas"]["SessionOut"];
                 };
             };
             /** @description Validation Error */
@@ -4370,135 +4964,16 @@ export interface operations {
             };
         };
     };
-    update_counter_api_v1_admin_counters__counter_id__put: {
+    logout_api_v1_auth_logout_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                counter_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CounterUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CounterOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_devices_api_v1_admin_devices_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
+            header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                bm_refresh?: string | null;
+            };
         };
         requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    assign_device_counter_api_v1_admin_devices__device_id__counter_put: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                device_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssignCounterRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    revoke_device_api_v1_admin_devices__device_id__revoke_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                device_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RevokeDeviceRequest"];
-            };
-        };
         responses: {
             /** @description Successful Response */
             204: {
@@ -4518,7 +4993,7 @@ export interface operations {
             };
         };
     };
-    list_settings_api_v1_admin_settings_get: {
+    me_api_v1_auth_me_get: {
         parameters: {
             query?: never;
             header?: {
@@ -4537,7 +5012,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SettingOut"][];
+                    "application/json": components["schemas"]["MeOut"];
                 };
             };
             /** @description Validation Error */
@@ -4551,7 +5026,7 @@ export interface operations {
             };
         };
     };
-    update_setting_api_v1_admin_settings__key__put: {
+    select_branch_api_v1_auth_select_branch_post: {
         parameters: {
             query?: never;
             header?: {
@@ -4559,14 +5034,12 @@ export interface operations {
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
             };
-            path: {
-                key: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SettingUpdateRequest"];
+                "application/json": components["schemas"]["SelectBranchRequest"];
             };
         };
         responses: {
@@ -4576,8 +5049,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SettingOut"];
+                    "application/json": components["schemas"]["SelectBranchOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_password_api_v1_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -4699,7 +5207,7 @@ export interface operations {
             };
         };
     };
-    change_password_api_v1_auth_change_password_post: {
+    list_devices_api_v1_admin_devices_get: {
         parameters: {
             query?: never;
             header?: {
@@ -4710,9 +5218,44 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_device_api_v1_admin_devices__device_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ChangePasswordRequest"];
+                "application/json": components["schemas"]["RevokeDeviceRequest"];
             };
         };
         responses: {
@@ -4734,18 +5277,22 @@ export interface operations {
             };
         };
     };
-    login_api_v1_auth_login_post: {
+    assign_device_counter_api_v1_admin_devices__device_id__counter_put: {
         parameters: {
             query?: never;
             header?: {
-                "user-agent"?: string | null;
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
             };
-            path?: never;
+            path: {
+                device_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LoginRequest"];
+                "application/json": components["schemas"]["AssignCounterRequest"];
             };
         };
         responses: {
@@ -4755,7 +5302,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionOut"];
+                    "application/json": components["schemas"]["DeviceOut"];
                 };
             };
             /** @description Validation Error */
@@ -4769,14 +5316,345 @@ export interface operations {
             };
         };
     };
-    logout_api_v1_auth_logout_post: {
+    list_counters_api_v1_admin_counters_get: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                bm_refresh?: string | null;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
             };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CounterOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_counter_api_v1_admin_counters__counter_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                counter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CounterUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CounterOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_settings_api_v1_admin_settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_setting_api_v1_admin_settings__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_products_api_v1_products_search_get: {
+        parameters: {
+            query: {
+                query: string;
+                limit?: number;
+                include_inactive?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSearchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lookup_barcode_api_v1_products_lookup_barcode_get: {
+        parameters: {
+            query: {
+                code: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_product_api_v1_products__product_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_product_api_v1_products__product_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_product_api_v1_products_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_product_api_v1_products__product_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -4798,7 +5676,119 @@ export interface operations {
             };
         };
     };
-    me_api_v1_auth_me_get: {
+    list_aliases_api_v1_products__product_id__aliases_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_alias_api_v1_products__product_id__aliases_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AliasCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_alias_api_v1_products__product_id__aliases__alias_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                product_id: string;
+                alias_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_units_api_v1_units_get: {
         parameters: {
             query?: never;
             header?: {
@@ -4817,7 +5807,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeOut"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
             /** @description Validation Error */
@@ -4831,40 +5823,7 @@ export interface operations {
             };
         };
     };
-    refresh_api_v1_auth_refresh_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-device-id"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                bm_refresh?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    select_branch_api_v1_auth_select_branch_post: {
+    ensure_default_units_api_v1_units_ensure_defaults_post: {
         parameters: {
             query?: never;
             header?: {
@@ -4875,11 +5834,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SelectBranchRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -4887,42 +5842,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SelectBranchOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    unattended_api_v1_auth_unattended_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "user-agent"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UnattendedRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionOut"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
             /** @description Validation Error */
@@ -5002,7 +5924,370 @@ export interface operations {
             };
         };
     };
-    allocate_credit_note_api_v1_credit_notes__note_id__allocations_post: {
+    list_balances_api_v1_inventory_balances_get: {
+        parameters: {
+            query?: {
+                low_stock_only?: boolean;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockBalancesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_movements_api_v1_inventory_movements_get: {
+        parameters: {
+            query?: {
+                product_id?: string | null;
+                limit?: number;
+                oldest_first?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockMovementsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    movement_report_api_v1_inventory_movements_report_get: {
+        parameters: {
+            query: {
+                /** @description Business-local start date, YYYY-MM-DD */
+                on_date: string;
+                kind?: string;
+                /** @description Business-local end date, inclusive. Defaults to on_date. */
+                end_date?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_stock_entry_api_v1_inventory_stock_entries_resolve_get: {
+        parameters: {
+            query: {
+                item: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockEntryMatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_stock_entries_api_v1_inventory_stock_entries_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockEntriesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_adjustment_api_v1_inventory_adjustments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdjustmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_reconciliation_api_v1_inventory_reconciliation_latest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_reconciliation_api_v1_inventory_reconciliation_run_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_stock_counts_api_v1_inventory_stock_counts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSessionListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_stock_count_api_v1_inventory_stock_counts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountStartIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_stock_count_api_v1_inventory_stock_counts__session_id__get: {
         parameters: {
             query?: never;
             header?: {
@@ -5011,15 +6296,11 @@ export interface operations {
                 "x-counter-id"?: string | null;
             };
             path: {
-                note_id: string;
+                session_id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreditNoteAllocationRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -5027,9 +6308,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["StockCountReviewOut"];
                 };
             };
             /** @description Validation Error */
@@ -5043,7 +6322,7 @@ export interface operations {
             };
         };
     };
-    ageing_summary_api_v1_credit_ageing_summary_get: {
+    record_stock_count_item_api_v1_inventory_stock_counts__session_id__items__product_id__put: {
         parameters: {
             query?: never;
             header?: {
@@ -5051,10 +6330,17 @@ export interface operations {
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
             };
-            path?: never;
+            path: {
+                session_id: string;
+                product_id: string;
+            };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountItemIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -5078,19 +6364,17 @@ export interface operations {
             };
         };
     };
-    credit_customers_api_v1_credit_customers_get: {
+    finalize_stock_count_api_v1_inventory_stock_counts__session_id__finalize_post: {
         parameters: {
-            query?: {
-                include_settled?: boolean;
-                query?: string | null;
-                limit?: number;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
             };
-            path?: never;
+            path: {
+                session_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -5101,7 +6385,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CreditCustomersOut"];
+                    "application/json": components["schemas"]["StockCountFinalizeOut"];
                 };
             };
             /** @description Validation Error */
@@ -5115,18 +6399,17 @@ export interface operations {
             };
         };
     };
-    credit_outstanding_api_v1_credit_outstanding_get: {
+    cancel_stock_count_api_v1_inventory_stock_counts__session_id__cancel_post: {
         parameters: {
-            query?: {
-                customer_id?: string | null;
-                limit?: number;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
             };
-            path?: never;
+            path: {
+                session_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -5139,45 +6422,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    write_off_api_v1_credit_write_off_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WriteOffRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
                     };
                 };
             };
@@ -5207,45 +6451,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    check_duplicates_api_v1_customers_check_duplicates_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DuplicateCheckRequest"];
-            };
-        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -5385,6 +6590,45 @@ export interface operations {
             };
         };
     };
+    check_duplicates_api_v1_customers_check_duplicates_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     customer_ledger_api_v1_customers__customer_id__ledger_get: {
         parameters: {
             query?: {
@@ -5434,6 +6678,151 @@ export interface operations {
             };
             path: {
                 customer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mechanics_api_v1_mechanics_get: {
+        parameters: {
+            query?: {
+                query?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanicListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ensure_mechanic_api_v1_mechanics_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MechanicEnsureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanicOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_mechanic_api_v1_mechanics__mechanic_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                mechanic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MechanicRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanicOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_mechanic_api_v1_mechanics__mechanic_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                mechanic_id: string;
             };
             cookie?: never;
         };
@@ -5636,6 +7025,1300 @@ export interface operations {
             };
         };
     };
+    finalize_sale_api_v1_sales_finalize_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinalizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinalizeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_payments_api_v1_payments_get: {
+        parameters: {
+            query?: {
+                invoice_id?: string | null;
+                customer_id?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentHistoryListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_payment_api_v1_payments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reverse_payment_api_v1_payments__payment_id__reverse_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                payment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReverseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReversalOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    credit_outstanding_api_v1_credit_outstanding_get: {
+        parameters: {
+            query?: {
+                customer_id?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ageing_summary_api_v1_credit_ageing_summary_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    credit_customers_api_v1_credit_customers_get: {
+        parameters: {
+            query?: {
+                include_settled?: boolean;
+                query?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditCustomersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_off_api_v1_credit_write_off_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteOffRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allocate_credit_note_api_v1_credit_notes__note_id__allocations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreditNoteAllocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_invoices_api_v1_invoices_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                payment_status?: string | null;
+                customer_id?: string | null;
+                counter_id?: string | null;
+                is_credit?: boolean | null;
+                idempotency_key?: string | null;
+                status?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_invoice_api_v1_invoices__invoice_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_print_payload_api_v1_invoices__invoice_id__print_payload_get: {
+        parameters: {
+            query?: {
+                copy?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrintPayloadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_print_event_api_v1_invoices__invoice_id__print_events_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrintEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_invoice_api_v1_invoices__invoice_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    amend_invoice_api_v1_invoices__invoice_id__amend_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AmendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmendOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invoice_revisions_api_v1_invoices__invoice_id__revisions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceRevisionsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    daily_sales_api_v1_reports_daily_sales_get: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                from?: string | null;
+                to?: string | null;
+                counter_id?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailySalesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    credit_outstanding_report_api_v1_reports_credit_outstanding_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconciliation_check_api_v1_reports_reconciliation_check_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stock_position_api_v1_reports_stock_position_get: {
+        parameters: {
+            query?: {
+                low_stock_only?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    item_sales_api_v1_reports_item_sales_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                include_margin?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    counter_reconciliation_api_v1_reports_counter_reconciliation_get: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                counter_id?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_report_api_v1_reports__name__export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+                from?: string | null;
+                to?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_operations_api_v1_sync_operations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncBatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalog_delta_api_v1_sync_catalog_get: {
+        parameters: {
+            query?: {
+                since?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogDeltaOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bootstrap_api_v1_sync_bootstrap_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BootstrapOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operation_types_api_v1_sync_operation_types_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationTypesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_suppliers_api_v1_suppliers_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_supplier_api_v1_suppliers__supplier_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                supplier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierUpsertOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_purchases_api_v1_purchases_get: {
+        parameters: {
+            query?: {
+                supplier_id?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_purchase_api_v1_purchases_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseCreatedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_purchase_api_v1_purchases__purchase_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                purchase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseConfirmedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_purchase_api_v1_purchases__purchase_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                purchase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_returns_api_v1_returns_get: {
+        parameters: {
+            query?: {
+                invoice_id?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_return_api_v1_returns_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReturnCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_imports_api_v1_imports_get: {
         parameters: {
             query?: {
@@ -5731,41 +8414,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportJobOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_report_api_v1_imports__job_id__report_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImportReportOut"];
                 };
             };
             /** @description Validation Error */
@@ -5973,340 +8621,7 @@ export interface operations {
             };
         };
     };
-    create_adjustment_api_v1_inventory_adjustments_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdjustmentRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdjustmentOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_balances_api_v1_inventory_balances_get: {
-        parameters: {
-            query?: {
-                low_stock_only?: boolean;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StockBalancesOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_movements_api_v1_inventory_movements_get: {
-        parameters: {
-            query?: {
-                product_id?: string | null;
-                limit?: number;
-                oldest_first?: boolean;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StockMovementsOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    movement_report_api_v1_inventory_movements_report_get: {
-        parameters: {
-            query: {
-                /** @description Business-local date, YYYY-MM-DD */
-                on_date: string;
-                kind?: string;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MovementReportOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    latest_reconciliation_api_v1_inventory_reconciliation_latest_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    run_reconciliation_api_v1_inventory_reconciliation_run_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_stock_entries_api_v1_inventory_stock_entries_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StockEntryRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StockEntriesOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    resolve_stock_entry_api_v1_inventory_stock_entries_resolve_get: {
-        parameters: {
-            query: {
-                item: string;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StockEntryMatchOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_invoices_api_v1_invoices_get: {
-        parameters: {
-            query?: {
-                from?: string | null;
-                to?: string | null;
-                payment_status?: string | null;
-                customer_id?: string | null;
-                counter_id?: string | null;
-                is_credit?: boolean | null;
-                idempotency_key?: string | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvoiceListOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_invoice_api_v1_invoices__invoice_id__get: {
+    import_report_api_v1_imports__job_id__report_get: {
         parameters: {
             query?: never;
             header?: {
@@ -6315,7 +8630,7 @@ export interface operations {
                 "x-counter-id"?: string | null;
             };
             path: {
-                invoice_id: string;
+                job_id: string;
             };
             cookie?: never;
         };
@@ -6327,376 +8642,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InvoiceOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    record_print_event_api_v1_invoices__invoice_id__print_events_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                invoice_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PrintEventRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_print_payload_api_v1_invoices__invoice_id__print_payload_get: {
-        parameters: {
-            query?: {
-                copy?: string | null;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                invoice_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrintPayloadOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    invoice_revisions_api_v1_invoices__invoice_id__revisions_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                invoice_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvoiceRevisionsOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    amend_invoice_api_v1_invoices__invoice_id__amend_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path: {
-                invoice_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AmendRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AmendOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cancel_invoice_api_v1_invoices__invoice_id__cancel_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path: {
-                invoice_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CancelRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CancelOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_mechanics_api_v1_mechanics_get: {
-        parameters: {
-            query?: {
-                query?: string | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MechanicListOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ensure_mechanic_api_v1_mechanics_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MechanicEnsureRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MechanicOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rename_mechanic_api_v1_mechanics__mechanic_id__patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                mechanic_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MechanicRenameRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MechanicOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    deactivate_mechanic_api_v1_mechanics__mechanic_id__deactivate_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                mechanic_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    meta_api_v1_meta_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportReportOut"];
                 };
             };
             /** @description Validation Error */
@@ -6731,9 +8677,151 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["NotificationListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_notification_read_api_v1_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_notification_api_v1_notifications__notification_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acknowledge_notification_api_v1_notifications__notification_id__acknowledge_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    snooze_notification_api_v1_notifications__notification_id__snooze_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-device-id"?: string | null;
+                "x-counter-id"?: string | null;
+            };
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SnoozeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -6780,50 +8868,9 @@ export interface operations {
             };
         };
     };
-    mark_notification_read_api_v1_notifications__notification_id__read_post: {
+    list_reminders_api_v1_reminders_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                notification_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_payments_api_v1_payments_get: {
-        parameters: {
-            query?: {
-                invoice_id?: string | null;
-                customer_id?: string | null;
-                limit?: number;
-            };
             header?: {
                 authorization?: string | null;
                 "x-device-id"?: string | null;
@@ -6840,7 +8887,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaymentHistoryListOut"];
+                    "application/json": components["schemas"]["ReminderListOut"];
                 };
             };
             /** @description Validation Error */
@@ -6854,85 +8901,7 @@ export interface operations {
             };
         };
     };
-    record_payment_api_v1_payments_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PaymentRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaymentOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reverse_payment_api_v1_payments__payment_id__reverse_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path: {
-                payment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReverseRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReversalOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_product_api_v1_products_post: {
+    create_reminder_api_v1_reminders_post: {
         parameters: {
             query?: never;
             header?: {
@@ -6945,7 +8914,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProductCreateRequest"];
+                "application/json": components["schemas"]["ReminderIn"];
             };
         };
         responses: {
@@ -6955,7 +8924,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProductOut"];
+                    "application/json": components["schemas"]["CreatedIdOut"];
                 };
             };
             /** @description Validation Error */
@@ -6969,79 +8938,7 @@ export interface operations {
             };
         };
     };
-    lookup_barcode_api_v1_products_lookup_barcode_get: {
-        parameters: {
-            query: {
-                code: string;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_products_api_v1_products_search_get: {
-        parameters: {
-            query: {
-                query: string;
-                limit?: number;
-                include_inactive?: boolean;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductSearchOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_product_api_v1_products__product_id__get: {
+    update_reminder_api_v1_reminders__reminder_id__put: {
         parameters: {
             query?: never;
             header?: {
@@ -7050,48 +8947,13 @@ export interface operations {
                 "x-counter-id"?: string | null;
             };
             path: {
-                product_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_product_api_v1_products__product_id__patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                product_id: string;
+                reminder_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProductUpdateRequest"];
+                "application/json": components["schemas"]["ReminderUpdateIn"];
             };
         };
         responses: {
@@ -7101,7 +8963,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProductOut"];
+                    "application/json": components["schemas"]["UpdatedOut"];
                 };
             };
             /** @description Validation Error */
@@ -7115,7 +8977,7 @@ export interface operations {
             };
         };
     };
-    list_aliases_api_v1_products__product_id__aliases_get: {
+    delete_reminder_api_v1_reminders__reminder_id__delete: {
         parameters: {
             query?: never;
             header?: {
@@ -7124,86 +8986,7 @@ export interface operations {
                 "x-counter-id"?: string | null;
             };
             path: {
-                product_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    }[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    add_alias_api_v1_products__product_id__aliases_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                product_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AliasCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_alias_api_v1_products__product_id__aliases__alias_id__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                product_id: string;
-                alias_id: string;
+                reminder_id: string;
             };
             cookie?: never;
         };
@@ -7227,43 +9010,10 @@ export interface operations {
             };
         };
     };
-    deactivate_product_api_v1_products__product_id__deactivate_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                product_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_purchases_api_v1_purchases_get: {
+    list_orders_api_v1_orders_get: {
         parameters: {
             query?: {
-                supplier_id?: string | null;
+                status?: string | null;
                 limit?: number;
             };
             header?: {
@@ -7282,7 +9032,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PurchaseListOut"];
+                    "application/json": components["schemas"]["OrderListOut"];
                 };
             };
             /** @description Validation Error */
@@ -7296,7 +9046,7 @@ export interface operations {
             };
         };
     };
-    create_purchase_api_v1_purchases_post: {
+    create_order_api_v1_orders_post: {
         parameters: {
             query?: never;
             header?: {
@@ -7309,7 +9059,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PurchaseCreateRequest"];
+                "application/json": components["schemas"]["OrderIn"];
             };
         };
         responses: {
@@ -7319,7 +9069,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PurchaseCreatedOut"];
+                    "application/json": components["schemas"]["CreatedIdOut"];
                 };
             };
             /** @description Validation Error */
@@ -7333,7 +9083,7 @@ export interface operations {
             };
         };
     };
-    cancel_purchase_api_v1_purchases__purchase_id__cancel_post: {
+    update_order_api_v1_orders__order_id__put: {
         parameters: {
             query?: never;
             header?: {
@@ -7342,18 +9092,24 @@ export interface operations {
                 "x-counter-id"?: string | null;
             };
             path: {
-                purchase_id: string;
+                order_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderUpdateIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UpdatedOut"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -7366,21 +9122,24 @@ export interface operations {
             };
         };
     };
-    confirm_purchase_api_v1_purchases__purchase_id__confirm_post: {
+    set_order_reminder_api_v1_orders__order_id__reminder_put: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
             };
             path: {
-                purchase_id: string;
+                order_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderReminderIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7388,7 +9147,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PurchaseConfirmedOut"];
+                    "application/json": components["schemas"]["UpdatedOut"];
                 };
             };
             /** @description Validation Error */
@@ -7402,43 +9161,7 @@ export interface operations {
             };
         };
     };
-    counter_reconciliation_api_v1_reports_counter_reconciliation_get: {
-        parameters: {
-            query?: {
-                date?: string | null;
-                counter_id?: string | null;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    credit_outstanding_report_api_v1_reports_credit_outstanding_get: {
+    complete_order_api_v1_orders__order_id__complete_post: {
         parameters: {
             query?: never;
             header?: {
@@ -7446,7 +9169,9 @@ export interface operations {
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
             };
-            path?: never;
+            path: {
+                order_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -7457,7 +9182,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReportOut"];
+                    "application/json": components["schemas"]["LifecycleStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -7471,20 +9196,17 @@ export interface operations {
             };
         };
     };
-    daily_sales_api_v1_reports_daily_sales_get: {
+    discard_order_api_v1_orders__order_id__discard_post: {
         parameters: {
-            query?: {
-                date?: string | null;
-                from?: string | null;
-                to?: string | null;
-                counter_id?: string | null;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
                 "x-device-id"?: string | null;
                 "x-counter-id"?: string | null;
             };
-            path?: never;
+            path: {
+                order_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -7495,7 +9217,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DailySalesOut"];
+                    "application/json": components["schemas"]["LifecycleStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -7509,44 +9231,7 @@ export interface operations {
             };
         };
     };
-    item_sales_api_v1_reports_item_sales_get: {
-        parameters: {
-            query?: {
-                from?: string | null;
-                to?: string | null;
-                include_margin?: boolean;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reconciliation_check_api_v1_reports_reconciliation_check_get: {
+    meta_api_v1_meta_get: {
         parameters: {
             query?: never;
             header?: {
@@ -7568,477 +9253,6 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stock_position_api_v1_reports_stock_position_get: {
-        parameters: {
-            query?: {
-                low_stock_only?: boolean;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    export_report_api_v1_reports__name__export_get: {
-        parameters: {
-            query?: {
-                format?: string;
-                from?: string | null;
-                to?: string | null;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_returns_api_v1_returns_get: {
-        parameters: {
-            query?: {
-                invoice_id?: string | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_return_api_v1_returns_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReturnCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    finalize_sale_api_v1_sales_finalize_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-                "Idempotency-Key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FinalizeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FinalizeOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_suppliers_api_v1_suppliers_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SupplierListOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    upsert_supplier_api_v1_suppliers__supplier_id__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path: {
-                supplier_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SupplierUpsertRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SupplierUpsertOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    bootstrap_api_v1_sync_bootstrap_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BootstrapOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    catalog_delta_api_v1_sync_catalog_get: {
-        parameters: {
-            query?: {
-                since?: string | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogDeltaOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    operation_types_api_v1_sync_operation_types_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OperationTypesOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    apply_operations_api_v1_sync_operations_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SyncBatchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SyncBatchOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_units_api_v1_units_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ensure_default_units_api_v1_units_ensure_defaults_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-device-id"?: string | null;
-                "x-counter-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
                 };
             };
             /** @description Validation Error */

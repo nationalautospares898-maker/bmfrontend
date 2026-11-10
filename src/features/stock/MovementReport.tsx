@@ -43,7 +43,7 @@ export interface MovementReportProps {
   onClose: () => void;
 }
 
-type Kind = 'added' | 'sold';
+type Kind = 'added' | 'sold' | 'adjusted';
 
 /** `2026-11-02T09:10:00Z` → the time of day, in the reader's own locale. */
 function timeOf(iso: string): string {
@@ -52,6 +52,13 @@ function timeOf(iso: string): string {
 
 export function MovementReport({ businessDate, onClose }: MovementReportProps) {
   const [date, setDate] = useState(businessDate);
+  /**
+   * The Stock Report's date range (owner request): both ends default to the same
+   * business date, so a single-day report — this component's original shape — is just
+   * the range where they happen to coincide. Each field clamps the other rather than
+   * letting an invalid range (`end < start`) ever reach the server, which would 422.
+   */
+  const [endDate, setEndDate] = useState(businessDate);
   const [kind, setKind] = useState<Kind>('added');
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +74,7 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
   const latest = useRef(0);
   const inFlight = useRef<AbortController | null>(null);
 
-  const load = useCallback(async (on: string, which: Kind) => {
+  const load = useCallback(async (on: string, end: string, which: Kind) => {
     const sequence = latest.current + 1;
     latest.current = sequence;
     inFlight.current?.abort();
@@ -78,7 +85,7 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
     setError(null);
     try {
       const result = await inventory.movementReport(
-        { on_date: on, kind: which },
+        { on_date: on, end_date: end, kind: which },
         controller.signal,
       );
       if (sequence !== latest.current) return; // a newer question is already out
@@ -99,12 +106,17 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
   }, []);
 
   useEffect(() => {
-    void load(date, kind);
-  }, [date, kind, load]);
+    void load(date, endDate, kind);
+  }, [date, endDate, kind, load]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
   const added = kind === 'added';
+  const sold = kind === 'sold';
+  const adjusted = kind === 'adjusted';
+  // `added` and `adjusted` both carry a meaningful "what kind of movement" per row;
+  // `sold` already has its own Sale Type column instead.
+  const showMovementCol = !sold;
   const lines: readonly MovementReportLine[] = report?.items ?? [];
 
   return (
@@ -119,10 +131,32 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
             label={STOCK.reportDateLabel}
             type="date"
             value={date}
-            onChange={(event) => setDate(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDate(next);
+              // Keep the range valid rather than letting the server reject it: widening
+              // the start past the current end carries the end along with it.
+              if (next > endDate) setEndDate(next);
+            }}
             className="w-44"
           />
-          {/* Two views of one day. `aria-pressed` rather than a tablist: these are
+          <Field
+            label={STOCK.reportEndDateLabel}
+            type="date"
+            value={endDate}
+            min={date}
+            onChange={(event) => {
+              const next = event.target.value;
+              // `next === ''` mid-edit (e.g. right after a clear, before typing the
+              // replacement) must pass through rather than being clamped: an empty
+              // string sorts before every real date, so the naive comparison would
+              // snap a cleared field straight back to the start date and corrupt
+              // whatever gets typed next.
+              setEndDate(next !== '' && next < date ? date : next);
+            }}
+            className="w-44"
+          />
+          {/* Three views of one period. `aria-pressed` rather than a tablist: these are
               toggles that reload a table, and the ARIA tab pattern would promise
               arrow-key navigation between panels that does not exist here. */}
           <Button
@@ -133,13 +167,22 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
             {STOCK.reportAdded}
           </Button>
           <Button
-            variant={added ? 'secondary' : 'primary'}
-            aria-pressed={!added}
+            variant={sold ? 'primary' : 'secondary'}
+            aria-pressed={sold}
             onClick={() => setKind('sold')}
           >
             {STOCK.reportSold}
           </Button>
-          <Button onClick={() => void load(date, kind)}>{STOCK.reportRefresh}</Button>
+          <Button
+            variant={adjusted ? 'primary' : 'secondary'}
+            aria-pressed={adjusted}
+            onClick={() => setKind('adjusted')}
+          >
+            {STOCK.reportAdjusted}
+          </Button>
+          <Button onClick={() => void load(date, endDate, kind)}>
+            {STOCK.reportRefresh}
+          </Button>
           <Button variant="quiet" onClick={onClose}>
             {STOCK.reportClose}
           </Button>
@@ -155,7 +198,11 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
           <Summary label={STOCK.reportSummaryProducts} value={String(report.products)} />
           <Summary
             label={
-              added ? STOCK.reportSummaryQuantityAdded : STOCK.reportSummaryQuantitySold
+              added
+                ? STOCK.reportSummaryQuantityAdded
+                : sold
+                  ? STOCK.reportSummaryQuantitySold
+                  : STOCK.reportSummaryQuantityAdjusted
             }
             value={formatQuantity(parseMoney(report.total_quantity))}
           />
@@ -163,7 +210,7 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
             label={STOCK.reportSummaryMovements}
             value={String(report.movements)}
           />
-          {!added ? (
+          {sold ? (
             <Summary
               label={STOCK.reportSummaryInvoices}
               value={String(report.invoices)}
@@ -178,13 +225,21 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
         <Busy label={COMMON.loading} />
       ) : error ? null : lines.length === 0 ? (
         <Panel tone="info">
-          {added ? STOCK.reportEmptyAdded : STOCK.reportEmptySold}
+          {added
+            ? STOCK.reportEmptyAdded
+            : sold
+              ? STOCK.reportEmptySold
+              : STOCK.reportEmptyAdjusted}
         </Panel>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <caption className="sr-only">
-              {added ? STOCK.reportTableAdded : STOCK.reportTableSold}
+              {added
+                ? STOCK.reportTableAdded
+                : sold
+                  ? STOCK.reportTableSold
+                  : STOCK.reportTableAdjusted}
             </caption>
             <thead>
               <tr className="border-b border-nas-navy text-left">
@@ -195,7 +250,11 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
                   {STOCK.reportColCode}
                 </th>
                 <th scope="col" className="px-2 py-1 text-right">
-                  {added ? STOCK.reportColQtyAdded : STOCK.reportColQtySold}
+                  {added
+                    ? STOCK.reportColQtyAdded
+                    : sold
+                      ? STOCK.reportColQtySold
+                      : STOCK.reportColQtyAdjusted}
                 </th>
                 <th scope="col" className="px-2 py-1 text-right">
                   {STOCK.reportColBefore}
@@ -203,15 +262,20 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
                 <th scope="col" className="px-2 py-1 text-right">
                   {STOCK.reportColAfter}
                 </th>
-                {added ? (
+                {showMovementCol ? (
                   <th scope="col" className="px-2 py-1">
                     {STOCK.reportColMovement}
                   </th>
                 ) : null}
+                {adjusted ? (
+                  <th scope="col" className="px-2 py-1">
+                    {STOCK.reportColSource}
+                  </th>
+                ) : null}
                 <th scope="col" className="px-2 py-1">
-                  {added ? STOCK.reportColReference : STOCK.reportColInvoice}
+                  {sold ? STOCK.reportColInvoice : STOCK.reportColReference}
                 </th>
-                {!added ? (
+                {sold ? (
                   <th scope="col" className="px-2 py-1">
                     {STOCK.reportColSaleType}
                   </th>
@@ -238,8 +302,13 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
                   <td className="px-2 py-1 text-right tabular-nums">
                     {formatQuantity(parseMoney(line.stock_after))}
                   </td>
-                  {added ? (
+                  {showMovementCol ? (
                     <td className="px-2 py-1">{STOCK.reportReason(line.reason)}</td>
+                  ) : null}
+                  {adjusted ? (
+                    <td className="px-2 py-1">
+                      {STOCK.reportSource(line.source_type ?? null)}
+                    </td>
                   ) : null}
                   <td className="px-2 py-1">
                     {line.reference ?? STOCK.noReference}
@@ -253,7 +322,7 @@ export function MovementReport({ businessDate, onClose }: MovementReportProps) {
                       </span>
                     ) : null}
                   </td>
-                  {!added ? (
+                  {sold ? (
                     <td className="px-2 py-1">
                       {line.is_credit === null
                         ? STOCK.noReference

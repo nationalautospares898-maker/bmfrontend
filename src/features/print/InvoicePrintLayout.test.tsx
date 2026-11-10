@@ -376,11 +376,15 @@ describe('dates (T3-11)', () => {
 });
 
 describe('reprints', () => {
-  it('marks a duplicate when the server says so', () => {
+  // Owner decision (2026-11-10): a printed bill never carries a "duplicate" watermark,
+  // reprint or not — every copy handed to a customer is a real invoice. The server
+  // still computes and logs `is_duplicate` for internal audit (FR-PRINT-004); only the
+  // on-paper rendering is gone, in both directions.
+  it('never prints a duplicate watermark, even when the server flags a reprint', () => {
     render(
       <InvoicePrintLayout payload={payload({ is_duplicate: true })} policy={POLICY} />,
     );
-    expect(screen.getByText('DUPLICATE COPY')).toBeInTheDocument();
+    expect(screen.queryByText('DUPLICATE COPY')).not.toBeInTheDocument();
   });
 
   it('does not mark an original', () => {

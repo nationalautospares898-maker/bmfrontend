@@ -207,7 +207,7 @@ export function BillPanel({
   // --- adding and editing lines ---------------------------------------------
 
   const addProduct = useCallback(
-    async (hit: SearchHit, row: number) => {
+    async (hit: SearchHit, row: number, opts?: { stayInRow?: boolean }) => {
       const line: Omit<LocalDraftLine, 'id' | 'line_no'> = {
         product_id: hit.productId,
         product_name: hit.name,
@@ -224,10 +224,13 @@ export function BillPanel({
         stock_as_of: hit.stockAsOf,
       };
       await store.addLine(draft.id, line);
-      // Straight to the next row's Item cell, so the next part can be typed without the
-      // mouse. `row + 1` rather than `lines.length` because a product picked into an
-      // earlier row should still hand over to the row beneath it.
-      focusItemCell(row + 1);
+      // `stayInRow` (Tab, owner request) keeps the cashier on this row — the caller
+      // (`BillGrid`) moves focus to this same row's Quantity cell itself. Everywhere
+      // else (Enter, a click) keeps FR-BILL-001: straight to the next row's Item cell,
+      // so the next part can be typed without the mouse. `row + 1` rather than
+      // `lines.length` because a product picked into an earlier row should still hand
+      // over to the row beneath it.
+      if (!opts?.stayInRow) focusItemCell(row + 1);
     },
     [draft.id, store, focusItemCell],
   );
@@ -495,7 +498,7 @@ export function BillPanel({
           canCreateProduct={canCreateProduct}
           // Said once under all three columns instead of three times over.
           hints={false}
-          onAddProduct={(hit, row) => void addProduct(hit, row)}
+          onAddProduct={(hit, row, opts) => void addProduct(hit, row, opts)}
           onChangeLine={(lineId, patch) => void store.updateLine(draft.id, lineId, patch)}
           onRemoveLine={(lineId) => void store.removeLine(draft.id, lineId)}
         />

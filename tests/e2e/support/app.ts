@@ -237,7 +237,11 @@ export async function stubApi(
     }),
   );
   await page.route(`${API}/imports**`, (route) => json(route, { items: [] }));
-  await page.route(`${API}/notifications**`, (route) => json(route, { items: [] }));
+  // `{ notifications: [] }`, matching the real `GET /notifications` shape
+  // (`api/v1/notifications.py`) — this stub predates the notification bell that
+  // actually reads it, and `{ items: [] }` silently went unexercised until that
+  // screen started parsing the response for real.
+  await page.route(`${API}/notifications**`, (route) => json(route, { notifications: [] }));
 }
 
 /** Boot the built application and wait until the counter is actually usable. */

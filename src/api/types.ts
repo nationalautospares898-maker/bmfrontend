@@ -236,3 +236,26 @@ export type Warning = Schemas['WarningOut'];
 export type Counter = Schemas['CounterOut'];
 export type CounterDevice = Schemas['CounterDeviceOut'];
 export type AdminDevice = Schemas['DeviceOut'];
+
+// --- notifications (Feature A.1/A.2) -------------------------------------------
+
+export type NotificationListResponse = Schemas['NotificationListOut'];
+export type Notification = NotificationListResponse['notifications'][number];
+
+// --- scheduled reminders (Feature A.5) ------------------------------------------
+
+export type ReminderListResponse = Schemas['ReminderListOut'];
+export type Reminder = ReminderListResponse['items'][number];
+
+// --- Chitti orders (Feature B) --------------------------------------------------
+
+export type OrderListResponse = Schemas['OrderListOut'];
+export type Order = OrderListResponse['items'][number];
+
+// --- physical stock count (Feature A.6) -----------------------------------------
+
+export type StockCountSession = Schemas['StockCountSessionOut'];
+export type StockCountSessionListResponse = Schemas['StockCountSessionListOut'];
+export type StockCountReview = Schemas['StockCountReviewOut'];
+export type StockCountItem = StockCountReview['items'][number];
+export type StockCountFinalizeResponse = Schemas['StockCountFinalizeOut'];

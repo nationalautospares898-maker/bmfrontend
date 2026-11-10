@@ -168,7 +168,7 @@ export interface ItemCellProps {
    * `catalog.write` + `inventory.adjust`. Lets the create dialog also ask how many are
    * on the shelf, so the part can be sold immediately — see `NewItemDialog`.
    */
-  onPick: (hit: SearchHit) => void;
+  onPick: (hit: SearchHit, opts?: { stayInRow?: boolean }) => void;
   onFocusCell: () => void;
   onMove: (direction: 'next' | 'previous' | 'up' | 'down') => void;
 }
@@ -347,8 +347,15 @@ export function ItemCell({
     // suppress this and strand the owner with no way to add a genuinely new part.
     !hasExactMatch;
 
-  function pick(hit: SearchHit): void {
-    onPick(hit);
+  function pick(hit: SearchHit, opts?: { stayInRow?: boolean }): void {
+    // `opts` forwarded only when actually set, so `onPick`'s call signature is
+    // unchanged (one argument) for every path except the new `stayInRow` one — several
+    // existing tests assert `onPick` was called with exactly one argument.
+    if (opts) {
+      onPick(hit, opts);
+    } else {
+      onPick(hit);
+    }
     // Cleared so the row can be typed again immediately. The cell is a *cursor*, not the
     // stored value — the product name comes from the line once it exists.
     setQuery('');
@@ -395,6 +402,20 @@ export function ItemCell({
         if (offerCreate) {
           event.preventDefault();
           setCreating(true);
+          return;
+        }
+      }
+      if (event.key === 'Tab') {
+        // The owner's request: `Tab` fills the highlighted suggestion in, same as
+        // `Enter`, but — unlike `Enter`'s FR-BILL-001 handover to the *next* row —
+        // keeps the cashier in *this* row, landing on Quantity so it can be edited
+        // immediately. Only armed when a suggestion is actually highlighted (`↓` first,
+        // or a click); with nothing highlighted this falls through and ordinary browser
+        // tab-navigation is left alone, exactly as it is today.
+        const hit = highlighted >= 0 ? hits[highlighted] : undefined;
+        if (hit) {
+          event.preventDefault();
+          pick(hit, { stayInRow: true });
           return;
         }
       }

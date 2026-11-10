@@ -24,9 +24,10 @@ import { Busy, Button, Dialog, Field, Panel } from '@/components/primitives';
 import { uuidv7 } from '@/lib/ids';
 import { formatQuantity, parseMoney, tryParseMoney } from '@/lib/money';
 import { normalizeName, normalizeSku } from '@/lib/normalize';
-import { COMMON, ERRORS, STOCK } from '@/lib/strings';
+import { COMMON, ERRORS, STOCK, STOCK_COUNT } from '@/lib/strings';
 import { isLow } from './lowStock';
 import { MovementReport } from './MovementReport';
+import { StockCountScreen } from './StockCountScreen';
 import { StockSheet } from './StockSheet';
 
 /** Adjustment reasons, matching the server's closed set (`MovementReason`). */
@@ -97,6 +98,18 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [stockCountOpen, setStockCountOpen] = useState(false);
+  /**
+   * The product currently mid-flight on a `+`/`−` click (owner request, 2026-11-10).
+   *
+   * Keyed by `product_id` rather than a boolean so one row's click cannot disable every
+   * other row, and checked before sending so a second click on the same row while the
+   * first is still in flight cannot fire a duplicate adjustment (the server's
+   * idempotency key would make a true retry safe, but a double-click here is two
+   * *different* adjustments of +1 each, which the key does not and should not collapse).
+   */
+  const [quickAdjustingId, setQuickAdjustingId] = useState<string | null>(null);
+  const [quickAdjustError, setQuickAdjustError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRows(null);
@@ -117,6 +130,40 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * The inline `[ − ] qty [ + ]` control (owner request, 2026-11-10): a one-unit
+   * correction with no popup, no reason prompt and no confirmation, for the everyday
+   * case of nudging a count up or down. It still goes through
+   * `POST /inventory/adjustments` — the one writer of the ledger (FR-INV-002) — with a
+   * fixed, honest reason text, so the movement is exactly as audited as one made
+   * through the Adjust dialog. A bigger or unusual change still belongs in that dialog,
+   * which remains for anyone who wants to state why.
+   */
+  async function quickAdjust(row: StockBalance, direction: 1 | -1): Promise<void> {
+    if (quickAdjustingId !== null) return;
+    setQuickAdjustingId(row.product_id);
+    setQuickAdjustError(null);
+    try {
+      await inventory.adjust(
+        {
+          product_id: row.product_id,
+          quantity_delta: direction === 1 ? '1' : '-1',
+          reason_code:
+            direction === 1 ? 'adjustment_increase' : 'adjustment_decrease',
+          reason_text: STOCK.quickAdjustReason,
+        },
+        uuidv7(),
+      );
+      await load();
+    } catch (caught) {
+      setQuickAdjustError(
+        caught instanceof ApiError ? describeError(caught.code).message : ERRORS.unexpected,
+      );
+    } finally {
+      setQuickAdjustingId(null);
+    }
+  }
 
   /**
    * Filtering happens on the rows already fetched, using the **same normalisation as
@@ -180,6 +227,11 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
           >
             {STOCK.reportAction}
           </Button>
+          {canAdjust ? (
+            <Button variant="secondary" onClick={() => setStockCountOpen(true)}>
+              {STOCK_COUNT.title}
+            </Button>
+          ) : null}
           <Button onClick={() => void load()}>{COMMON.refresh}</Button>
         </div>
       </header>
@@ -190,6 +242,12 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
           onClose={() => setReportOpen(false)}
         />
       ) : null}
+
+      <StockCountScreen
+        open={stockCountOpen}
+        onClose={() => setStockCountOpen(false)}
+        onFinalized={() => void load()}
+      />
 
       {sheetOpen ? (
         <StockSheet
@@ -211,6 +269,7 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
       ) : null}
 
       {error ? <Panel tone="danger">{error}</Panel> : null}
+      {quickAdjustError ? <Panel tone="danger">{quickAdjustError}</Panel> : null}
 
       {/* The low-stock section, always visible rather than behind the filter: the owner
           asked for items below their own minimum to be easy to spot. Driven from the same
@@ -271,7 +330,33 @@ export function StockScreen({ canAdjust, canAddStock, businessDate }: StockScree
                     {reorder === null ? STOCK.noReorderLevel : formatQuantity(reorder)}
                   </td>
                   <td className="py-2 text-right font-medium tabular-nums">
-                    {formatQuantity(quantity)}
+                    {canAdjust ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="secondary"
+                          aria-label={STOCK.quickDecrease(row.name)}
+                          disabled={
+                            quickAdjustingId !== null || quantity.lte(0)
+                          }
+                          onClick={() => void quickAdjust(row, -1)}
+                        >
+                          −
+                        </Button>
+                        <span className="min-w-10 text-center" data-testid="stock-quantity">
+                          {formatQuantity(quantity)}
+                        </span>
+                        <Button
+                          variant="secondary"
+                          aria-label={STOCK.quickIncrease(row.name)}
+                          disabled={quickAdjustingId !== null}
+                          onClick={() => void quickAdjust(row, 1)}
+                        >
+                          +
+                        </Button>
+                      </div>
+                    ) : (
+                      formatQuantity(quantity)
+                    )}
                     {isLow(row) ? (
                       // Words, not just a colour (NFR-FE-UX-007).
                       <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-900">

@@ -29,6 +29,12 @@ const API_URL = process.env.BM_E2E_API_URL;
 const PROXIED = Boolean(process.env.BM_DEV_API_PROXY);
 const USERNAME = process.env.BM_E2E_USERNAME ?? 'e2e-owner';
 const PASSWORD = process.env.BM_E2E_PASSWORD ?? 'e2e-only-not-a-real-password-01';
+// Matches `full-stack.spec.ts`'s own `BASE`: under `BM_E2E_API_URL` (not proxied), the
+// built app's own API calls go to an **absolute** URL (`vite.config.ts` bakes
+// `VITE_API_BASE_URL` in at build time) — a relative `/api/v1` fetch from this helper
+// has no proxy to reach it under that mode and would silently hit the preview server's
+// own SPA fallback instead, parsing its HTML as JSON and failing with a null body.
+const BASE = PROXIED ? '/api/v1' : `${API_URL ?? ''}/api/v1`;
 
 test.skip(
   !API_URL && !PROXIED,
@@ -77,8 +83,8 @@ async function api<T>(
   init?: { method?: string; body?: unknown },
 ): Promise<{ status: number; body: T }> {
   return page.evaluate(
-    async ({ p, bearer, method, body }) => {
-      const response = await fetch(`/api/v1${p}`, {
+    async ({ base, p, bearer, method, body }) => {
+      const response = await fetch(`${base}${p}`, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -94,7 +100,13 @@ async function api<T>(
         body: (await response.json().catch(() => null)) as never,
       };
     },
-    { p: path, bearer: token, method: init?.method ?? 'GET', body: init?.body ?? null },
+    {
+      base: BASE,
+      p: path,
+      bearer: token,
+      method: init?.method ?? 'GET',
+      body: init?.body ?? null,
+    },
   );
 }
 
@@ -203,8 +215,24 @@ async function openReport(page: Page): Promise<void> {
   ).toBeVisible();
 }
 
+/**
+ * Choose a single day — the whole suite's original semantics, before the date range
+ * existed. Sets **both** fields to the same value rather than leaving End date at
+ * whatever it was, because this tenant is shared across every test in this file: an
+ * isolated single day (e.g. `chooseDate(page, '2019-01-01')`, meant to find nothing)
+ * would otherwise silently widen into a range ending today and pick up every other
+ * test's activity. A test that wants an actual range calls `chooseEndDate` afterwards
+ * to override just the end.
+ */
 async function chooseDate(page: Page, date: string): Promise<void> {
-  await panel(page).getByLabel('Date').fill(date);
+  // Exact match: the panel also has an "End date" field (owner request, 2026-11-11),
+  // and `getByLabel('Date')` would otherwise resolve to both.
+  await panel(page).getByLabel('Start date', { exact: true }).fill(date);
+  await panel(page).getByLabel('End date', { exact: true }).fill(date);
+}
+
+async function chooseEndDate(page: Page, date: string): Promise<void> {
+  await panel(page).getByLabel('End date', { exact: true }).fill(date);
 }
 
 /**
@@ -331,7 +359,7 @@ test.describe('A. stock added', () => {
     await chooseDate(page, '2019-01-01');
     await panel(page).getByRole('button', { name: 'Stock Added' }).click();
 
-    await expect(panel(page).getByText(/No stock was added on this date/)).toBeVisible({
+    await expect(panel(page).getByText(/No stock was added in this period/)).toBeVisible({
       timeout: 15_000,
     });
     // An empty day is not an empty table — the report shows none at all.
@@ -350,7 +378,7 @@ test.describe('A. stock added', () => {
 
     // A day the movement cannot be on.
     await chooseDate(page, '2019-01-02');
-    await expect(panel(page).getByText(/No stock was added on this date/)).toBeVisible({
+    await expect(panel(page).getByText(/No stock was added in this period/)).toBeVisible({
       timeout: 15_000,
     });
 
@@ -600,24 +628,31 @@ test.describe('C. the Stock screen still works', () => {
     await openReport(page);
 
     /**
-     * The date, both views, refresh and close, in that order.
+     * Both dates, the three views, refresh and close, in that order.
      *
      * Stops with no label are skipped deliberately: `<input type="date">` is a composite
      * control, and Chromium gives its day, month and year segments their own tab stops
-     * before focus leaves the field. That is the platform's behaviour for every date
+     * before focus leaves the field — true of **both** date fields now (owner request,
+     * 2026-11-11: a start and an end). That is the platform's behaviour for every date
      * field on the web, so the assertion is about the **order of the panel's controls**,
-     * not about how many presses the browser spends inside its own widget.
+     * not about how many presses the browser spends inside either widget.
      */
-    await panel(page).getByLabel('Date').focus();
+    await panel(page).getByLabel('Start date', { exact: true }).focus();
     const seen: string[] = [];
-    for (let step = 0; step < 12 && seen.length < 4; step += 1) {
+    for (let step = 0; step < 20 && seen.length < 5; step += 1) {
       await page.keyboard.press('Tab');
       const label = await page.evaluate(() =>
         (document.activeElement?.textContent ?? '').trim().slice(0, 24),
       );
       if (label) seen.push(label);
     }
-    expect(seen).toEqual(['Stock Added', 'Stock Sold', 'Refresh report', 'Close report']);
+    expect(seen).toEqual([
+      'Stock Added',
+      'Stock Sold',
+      'Adjustments',
+      'Refresh report',
+      'Close report',
+    ]);
 
     // And Enter on a focused view actually loads it.
     await panel(page).getByRole('button', { name: 'Stock Sold' }).focus();
@@ -626,5 +661,76 @@ test.describe('C. the Stock screen still works', () => {
       'aria-pressed',
       'true',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario D — the date range and Adjustments (owner request, 2026-11-11)
+// ---------------------------------------------------------------------------
+
+test.describe('D. the date range and adjustments', () => {
+  test('widening the end date includes a movement the single day would miss', async ({
+    page,
+  }) => {
+    await signIn(page);
+    const product = await newProduct(page, 'RANGE');
+    await receive(page, product.id, '6.000', 'SUP/RANGE/1');
+
+    await openReport(page);
+    await chooseDate(page, businessDate);
+    await panel(page).getByRole('button', { name: 'Stock Added' }).click();
+    await expect(reportRows(page, product.name)).toBeVisible({ timeout: 15_000 });
+
+    // A single day ahead of today: nothing in range, so the movement disappears —
+    // proving the end date is actually read, not ignored.
+    const tomorrow = new Date(`${businessDate}T00:00:00Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+    await chooseDate(page, tomorrowStr);
+    await chooseEndDate(page, tomorrowStr);
+    await expect(panel(page).getByText(/No stock was added in this period/)).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Widen the range back to cover today: the same movement is visible again.
+    await chooseDate(page, businessDate);
+    await chooseEndDate(page, tomorrowStr);
+    await expect(reportRows(page, product.name)).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('a downward correction appears under Adjustments, not Stock Added or Stock Sold', async ({
+    page,
+  }) => {
+    await signIn(page);
+    const product = await newProduct(page, 'ADJ');
+    await receive(page, product.id, '10.000', 'SUP/ADJ/1');
+    const adjust = await api(page, '/inventory/adjustments', {
+      method: 'POST',
+      body: {
+        product_id: product.id,
+        quantity_delta: '-4.000',
+        reason_code: 'adjustment_decrease',
+        reason_text: 'E2E: damaged in the stockroom',
+      },
+    });
+    expect([200, 201]).toContain(adjust.status);
+
+    await openReport(page);
+    await chooseDate(page, businessDate);
+
+    await panel(page).getByRole('button', { name: 'Stock Added' }).click();
+    const added = await rowCells(page, product.name);
+    expect(added[1]).toBe('10'); // only the receipt, not the correction
+
+    await panel(page).getByRole('button', { name: 'Stock Sold' }).click();
+    await expect(reportRows(page, product.name)).toHaveCount(0);
+
+    await panel(page).getByRole('button', { name: 'Adjustments' }).click();
+    const adjusted = await rowCells(page, product.name);
+    // code, quantity adjusted, before, after, movement type, source, reference, time
+    expect(adjusted[1]).toBe('4');
+    expect(adjusted[2]).toBe('10');
+    expect(adjusted[3]).toBe('6');
+    expect(adjusted[4]).toBe('Correction (less)');
   });
 });

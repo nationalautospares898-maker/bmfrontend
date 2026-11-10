@@ -71,8 +71,10 @@ export const NAV = {
   billing: 'Billing',
   dailyBills: 'Daily Bills',
   creditBills: 'Credit Bills',
+  canceledBills: 'Canceled Bills',
   stock: 'Stock',
   customers: 'Customers',
+  orders: 'Orders',
   sync: 'Saving and syncing',
 } as const;
 
@@ -399,6 +401,10 @@ export const STOCK = {
   filterHint: 'Part code or name. Separators do not matter.',
   lowStockOnly: 'Only what is running low',
   tableCaption: 'Stock on hand, with reorder levels',
+  // --- the inline +/- control (owner request, 2026-11-10) ---------------------
+  quickAdjustReason: 'Quick adjustment from the Stock page',
+  quickIncrease: (name: string) => `Increase stock of ${name} by one`,
+  quickDecrease: (name: string) => `Decrease stock of ${name} by one`,
   colItem: 'Item',
   colQuantity: 'In stock',
   colReorder: 'Reorder at',
@@ -490,20 +496,30 @@ export const STOCK = {
    * found the collision.
    */
   reportRefresh: 'Refresh report',
-  reportDateLabel: 'Date',
+  reportDateLabel: 'Start date',
+  /** Owner request (2026-11-11): a date range, not only one day. Defaults to Start date. */
+  reportEndDateLabel: 'End date',
   reportAdded: 'Stock Added',
   reportSold: 'Stock Sold',
-  reportTableAdded: 'Stock added on the chosen day',
-  reportTableSold: 'Stock sold on the chosen day',
-  reportEmptyAdded: 'No stock was added on this date.',
-  reportEmptySold: 'Nothing was sold on this date.',
+  /** `adjusted`: every decrease that is not a sale — a correction, scrap, a transfer out. */
+  reportAdjusted: 'Adjustments',
+  reportTableAdded: 'Stock added in the chosen period',
+  reportTableSold: 'Stock sold in the chosen period',
+  reportTableAdjusted: 'Stock adjustments in the chosen period',
+  reportEmptyAdded: 'No stock was added in this period.',
+  reportEmptySold: 'Nothing was sold in this period.',
+  reportEmptyAdjusted: 'No adjustments in this period.',
   reportColProduct: 'Product',
   reportColCode: 'Product Code',
   reportColQtyAdded: 'Quantity Added',
   reportColQtySold: 'Quantity Sold',
+  reportColQtyAdjusted: 'Quantity Adjusted',
   reportColBefore: 'Stock Before',
   reportColAfter: 'Stock After',
   reportColMovement: 'Movement Type',
+  /** `stock_count`, `purchase`, `manual`, … — distinguishes a count correction from a
+   *  manual one even though both can carry the same `Movement Type`. */
+  reportColSource: 'Source',
   reportColReference: 'Reference',
   reportColInvoice: 'Invoice Number',
   reportColSaleType: 'Sale Type',
@@ -515,8 +531,20 @@ export const STOCK = {
   reportSummaryProducts: 'Products affected',
   reportSummaryQuantityAdded: 'Total quantity added',
   reportSummaryQuantitySold: 'Total quantity sold',
+  reportSummaryQuantityAdjusted: 'Total quantity adjusted',
   reportSummaryMovements: 'Stock movements',
   reportSummaryInvoices: 'Invoices',
+  /** `stock_count`, `purchase`, `invoice`, `stock_sheet`, `manual`, … in the owner's words. */
+  reportSource: (sourceType: string | null): string =>
+    sourceType === null
+      ? '—'
+      : ({
+          stock_count: 'Stock Count',
+          invoice: 'Bill',
+          purchase: 'Purchase',
+          stock_sheet: "Owner's sheet",
+          manual: 'Manual',
+        })[sourceType] ?? sourceType,
   /** Said plainly rather than letting a capped list look complete. */
   reportTruncated:
     'This day had more movements than can be shown at once. The figures above cover the ' +
@@ -537,6 +565,36 @@ export const STOCK = {
       import_apply: 'Imported',
       scrap: 'Scrapped',
     })[reason] ?? reason,
+} as const;
+
+// --- physical stock count (Feature A.6, 2026-11-10) -----------------------------
+export const STOCK_COUNT = {
+  title: 'Stock Count',
+  explanation:
+    'Count what is actually on the shelf. Nothing changes until you finalize — ' +
+    'cancel any time before that and nothing is applied.',
+  progress: (counted: number, total: number) => `${counted} of ${total} counted`,
+  colItem: 'Item',
+  colSystem: 'System Qty',
+  colCounted: 'Counted Qty',
+  colDiscrepancy: 'Discrepancy',
+  countedLabel: (name: string) => `Counted quantity for ${name}`,
+  notCounted: 'Not counted',
+  filterLabel: 'Find an item',
+  filterHint: 'Part code or name. Separators do not matter.',
+  noMatches: 'No items match that search.',
+  save: 'Save',
+  finalize: 'Finalize',
+  cancelCount: 'Cancel Count',
+  confirmFinalizeTitle: 'Apply this stock count?',
+  confirmFinalizeBody: (counted: number, discrepancies: number) =>
+    `${counted} item(s) were counted, ${discrepancies} with a discrepancy. This writes ` +
+    'an adjustment for each discrepancy and cannot be undone — only reversed by ' +
+    'another count or adjustment.',
+  confirmFinalizeAction: 'Yes, apply it',
+  confirmCancelTitle: 'Cancel this stock count?',
+  confirmCancelBody: 'Nothing counted so far will be applied. This cannot be undone.',
+  confirmCancelAction: 'Yes, cancel it',
 } as const;
 
 export const PURCHASES = {
@@ -746,6 +804,108 @@ export const CREDIT_BILLS = {
   historyAmount: 'Amount',
   historyMethod: 'Method',
   historyReference: 'Reference',
+} as const;
+
+// --- Canceled Bills (owner request, 2026-11-10) ---------------------------------
+export const CANCELED_BILLS = {
+  title: 'Canceled Bills',
+  explanation:
+    'A cancelled bill is kept here for the record — it is removed from Daily Bills ' +
+    'and Credit Bills so it never counts as an active sale or an active outstanding ' +
+    'debt, but nothing about it is deleted.',
+  noRows: 'No cancelled bills.',
+  colType: 'Type',
+  typeCash: 'Cash',
+  typeCredit: 'Credit',
+  colInvoice: 'Bill reference (internal)',
+  colCustomer: 'Customer',
+  colAmount: 'Amount',
+  colCancelledAt: 'Cancelled on',
+  colReason: 'Reason',
+  view: 'View',
+  hide: 'Hide',
+} as const;
+
+// --- Chitti orders (Feature B, 2026-11-10) --------------------------------------
+export const ORDERS = {
+  title: 'Orders',
+  pending: 'Pending',
+  completed: 'Completed',
+  newOrder: '+ New Order',
+  emptyPending: 'No pending orders. Click "+ New Order" to write one down.',
+  emptyCompleted: 'No completed orders yet.',
+  bodyPlaceholder: 'Write down the order — items, quantities, anything to remember…',
+  customerName: 'Customer (optional)',
+  phone: 'Phone (optional)',
+  save: 'Save',
+  markComplete: 'Mark Complete',
+  trash: 'Trash',
+  trashConfirm: 'Yes, trash it',
+  confirmTrash: 'Discard this order?',
+  /** Owner request (2026-11-11): a one-time reminder for one order, on top of the
+   *  existing flat ten-minute nudge every pending order already gets. */
+  reminderNone: 'No reminder set',
+  reminderSet: (when: string): string => `Reminder: ${when}`,
+  reminderOverdue: (when: string): string => `Overdue reminder: ${when}`,
+  reminderSetAction: 'Set reminder',
+  reminderChangeAction: 'Change',
+  reminderClearAction: 'Clear',
+  reminderSaveAction: 'Save',
+  reminderCancelAction: 'Cancel',
+  reminderLabel: 'Remind me at',
+  reminderFailed: 'Could not update the reminder. Try again.',
+} as const;
+
+// --- the universal notification bell (Feature A.1/A.2, 2026-11-10) -------------
+export const NOTIFICATIONS = {
+  bellIcon: '🔔',
+  bellLabel: (count: number) =>
+    count > 0 ? `Notifications (${count} active)` : 'Notifications',
+  panelTitle: 'Notifications',
+  manageReminders: 'Manage reminders',
+  close: 'Close',
+  loading: 'Loading…',
+  empty: 'Nothing needs your attention right now.',
+  goTo: 'Go to',
+  acknowledge: 'Acknowledge',
+  snooze: 'Snooze 1 hour',
+  dismiss: 'Dismiss',
+  dismissLabel: (title: string) => `Dismiss: ${title}`,
+  actionFailed: 'Could not update that notification. Try again.',
+  /** Device-style (OS/browser) notifications (owner request, 2026-11-11) — on top of,
+   *  never instead of, this in-app panel, which stays the fallback. */
+  enableDevice: 'Get alerts on this device, even when you are not looking at this tab',
+  enableDeviceAction: 'Enable',
+  deviceEnabled: 'Device alerts are on for this browser.',
+  deviceDenied:
+    'Device alerts are blocked in this browser. In-app alerts (the bell) still work.',
+  deviceUnsupported: 'This browser does not support device alerts. The bell still works.',
+} as const;
+
+// --- reminder management (Feature A.5, 2026-11-10) ------------------------------
+export const REMINDERS = {
+  title: 'Reminders',
+  explanation:
+    'The bill and stock reminders are always here. Add your own for anything else ' +
+    'worth being nudged about.',
+  colLabel: 'Reminder',
+  colWhen: 'When',
+  colStatus: 'Status',
+  enabled: 'On',
+  disabled: 'Off',
+  enable: 'Turn on',
+  disable: 'Turn off',
+  remove: 'Remove',
+  addTitle: 'Add a reminder',
+  fieldLabel: 'What should it say?',
+  triggerKind: 'When should it remind you?',
+  triggerTime: 'At a time of day',
+  triggerInterval: 'Every few hours',
+  fieldTime: 'Time (business-local)',
+  fieldInterval: 'Every how many hours (3-5)',
+  add: 'Add reminder',
+  addFailed: 'Could not add that reminder.',
+  close: 'Close',
 } as const;
 
 /**

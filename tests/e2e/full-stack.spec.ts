@@ -408,7 +408,12 @@ test('a cash bill finalises and deducts stock exactly once', async ({ page }) =>
         total: String(firstBody.invoice?.total ?? ''),
       };
     },
-    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
+    [
+      BASE,
+      productId,
+      process.env.BM_E2E_COUNTER_ID ?? '0192f100-0000-7000-8000-0000000000c1',
+      accessToken,
+    ],
   );
 
   expect([200, 201]).toContain(result.firstStatus);
@@ -481,7 +486,12 @@ test('a credit bill finalises, and recording a payment does not deduct stock aga
         outstanding: String(saleBody.invoice?.outstanding ?? ''),
       };
     },
-    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken],
+    [
+      BASE,
+      productId,
+      process.env.BM_E2E_COUNTER_ID ?? '0192f100-0000-7000-8000-0000000000c1',
+      accessToken,
+    ],
   );
 
   expect([200, 201]).toContain(result.saleStatus);
@@ -567,7 +577,13 @@ test('Daily Bills shows the bill the server just recorded', async ({ page }) => 
       });
       return { status: response.status, body: (await response.text()).slice(0, 400) };
     },
-    [BASE, productId, process.env.BM_E2E_COUNTER_ID ?? '', accessToken, reportedTo],
+    [
+      BASE,
+      productId,
+      process.env.BM_E2E_COUNTER_ID ?? '0192f100-0000-7000-8000-0000000000c1',
+      accessToken,
+      reportedTo,
+    ],
   );
 
   // Asserted, not ignored. This call's status was discarded, so a server refusal

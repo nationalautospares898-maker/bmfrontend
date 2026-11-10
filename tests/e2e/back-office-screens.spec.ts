@@ -276,7 +276,13 @@ test.describe('M25 — the back-office screens load and show real data', () => {
     await open(page);
 
     await page.getByRole('button', { name: 'Stock', exact: true }).click();
-    await expect(page.getByRole('cell', { name: 'Tie Rod End Bolero' })).toBeVisible();
+    // `exact: true`: the quantity cell's own `+`/`-` buttons carry an aria-label
+    // naming the product too ("Increase/Decrease stock of Tie Rod End Bolero", owner
+    // request 2026-11-10), so its *computed* accessible name now also contains this
+    // product's name and an unscoped match is ambiguous between the two cells.
+    await expect(
+      page.getByRole('cell', { name: 'Tie Rod End Bolero', exact: true }),
+    ).toBeVisible();
     // 4 on hand against a reorder level of 10. The badge is words, not just a colour.
     //
     // Scoped to the table: "Only what is running low" is also the filter button's

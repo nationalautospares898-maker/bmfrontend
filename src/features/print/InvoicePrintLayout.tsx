@@ -79,10 +79,11 @@ export function InvoicePrintLayout({ payload, policy }: InvoicePrintLayoutProps)
 
   return (
     <article className={`bill print-profile-${payload.print_profile.toLowerCase()}`}>
-      {/* A reprint says so. The server decides when, from `print.mark_reprints_duplicate`. */}
-      {payload.is_duplicate ? (
-        <div className="bill__duplicate">{PRINT.duplicateCopy}</div>
-      ) : null}
+      {/* The owner's decision (2026-11-10): every printed bill is a real invoice to the
+          customer, original or reprinted, so the sheet never carries a "duplicate" mark.
+          `payload.is_duplicate` still arrives from the server and is still logged to
+          `print_log` for internal audit (FR-PRINT-004) — only the on-paper watermark is
+          gone. */}
 
       <header className="bill__business">
         <div className="bill__business-name">{payload.business.display_name}</div>

@@ -76,6 +76,8 @@ import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
 import { ChangePasswordScreen } from '@/features/auth/ChangePasswordScreen';
 import { UpdateBanner } from './UpdateBanner';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
+import { RemindersSettings } from '@/features/notifications/RemindersSettings';
 
 const DailyBills = lazy(() =>
   import('@/features/reports/DailyBills').then((module) => ({
@@ -85,6 +87,16 @@ const DailyBills = lazy(() =>
 const CreditBills = lazy(() =>
   import('@/features/reports/DailyBills').then((module) => ({
     default: module.CreditBills,
+  })),
+);
+const CanceledBills = lazy(() =>
+  import('@/features/reports/CanceledBills').then((module) => ({
+    default: module.CanceledBills,
+  })),
+);
+const OrdersScreen = lazy(() =>
+  import('@/features/orders/OrdersScreen').then((module) => ({
+    default: module.OrdersScreen,
   })),
 );
 const SyncPanel = lazy(() =>
@@ -112,7 +124,15 @@ const CustomersScreen = lazy(() =>
  * capabilities. `GET`/`PUT /admin/counters` still work for an operator who needs them,
  * and the permission that guards them is unchanged.
  */
-type Screen = 'billing' | 'daily-bills' | 'credit-bills' | 'stock' | 'customers' | 'sync';
+type Screen =
+  | 'billing'
+  | 'daily-bills'
+  | 'credit-bills'
+  | 'canceled-bills'
+  | 'stock'
+  | 'customers'
+  | 'orders'
+  | 'sync';
 
 /** `navigator.onLine` is a hint, not a guarantee — the client still handles failures. */
 function useOnline(): boolean {
@@ -139,6 +159,13 @@ export function AppShell() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [policy, setPolicy] = useState<MoneyPolicy | null>(null);
   const [screen, setScreen] = useState<Screen>('billing');
+  /**
+   * The order a notification's "Go to" pointed at (owner request, 2026-11-11), so
+   * `OrdersScreen` can highlight that one card rather than only opening onto the
+   * general list. Cleared whenever the owner navigates anywhere themselves.
+   */
+  const [highlightOrderId, setHighlightOrderId] = useState<string | null>(null);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const [sessionLost, setSessionLost] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
   /** Bumped to re-run startup after a session loss; see `retriedAfterLoss`. */
@@ -360,8 +387,14 @@ export function AppShell() {
     { key: 'billing', label: NAV.billing },
     ...(canReadSales ? [{ key: 'daily-bills' as Screen, label: NAV.dailyBills }] : []),
     ...(canReadCredit ? [{ key: 'credit-bills' as Screen, label: NAV.creditBills }] : []),
+    ...(canReadSales
+      ? [{ key: 'canceled-bills' as Screen, label: NAV.canceledBills }]
+      : []),
     ...(canReadCatalog ? [{ key: 'stock' as Screen, label: NAV.stock }] : []),
     ...(canReadCredit ? [{ key: 'customers' as Screen, label: NAV.customers }] : []),
+    // No permission gate, matching the server (`route_policy.AUTHENTICATED_ONLY_ROUTES`):
+    // taking down a phoned-in order is exactly the counter hand's job, not a report.
+    { key: 'orders', label: NAV.orders },
     { key: 'sync', label: NAV.sync },
   ];
 
@@ -410,6 +443,13 @@ export function AppShell() {
         </div>
         <div className="flex items-center gap-4">
           <StatusDot state={online ? 'online' : 'offline'} />
+          <NotificationBell
+            onNavigate={(target, entityId) => {
+              setScreen(target);
+              setHighlightOrderId(target === 'orders' ? entityId ?? null : null);
+            }}
+            onManageReminders={() => setRemindersOpen(true)}
+          />
           <Button
             variant="quiet"
             onClick={() => {
@@ -420,6 +460,8 @@ export function AppShell() {
           </Button>
         </div>
       </header>
+
+      <RemindersSettings open={remindersOpen} onClose={() => setRemindersOpen(false)} />
 
       {/* `lg:flex-row` with the nav **last** in the DOM: on a wide screen it sits down
           the right as the owner asked, and on a narrow one it falls below the content
@@ -515,6 +557,13 @@ export function AppShell() {
                   canEdit={canEditBill}
                 />
               ) : null}
+              {screen === 'canceled-bills' && canReadSales ? <CanceledBills /> : null}
+              {screen === 'orders' ? (
+                <OrdersScreen
+                  highlightOrderId={highlightOrderId}
+                  onHighlightSeen={() => setHighlightOrderId(null)}
+                />
+              ) : null}
               {screen === 'stock' && canReadCatalog ? (
                 <StockScreen
                   canAdjust={canAdjustStock}
@@ -547,7 +596,13 @@ export function AppShell() {
             <Button
               key={section.key}
               variant={screen === section.key ? 'primary' : 'secondary'}
-              onClick={() => setScreen(section.key)}
+              onClick={() => {
+                setScreen(section.key);
+                // A notification's highlight is spent the moment the owner navigates
+                // anywhere themselves — it must not reappear on a later, unrelated
+                // visit to Orders.
+                setHighlightOrderId(null);
+              }}
               aria-current={screen === section.key ? 'page' : undefined}
               className="shrink-0 lg:w-full lg:justify-start"
             >
