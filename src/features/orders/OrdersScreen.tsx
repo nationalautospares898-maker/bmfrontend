@@ -11,22 +11,12 @@
  * own fields, which is future work this screen does not block.
  */
 
-import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 
-import { orders as ordersApi } from '@/api/endpoints';
-import { ApiError, describeError } from '@/api/errors';
 import type { Order } from '@/api/types';
 import { Busy, Button, Field, Panel } from '@/components/primitives';
 import { COMMON, ORDERS } from '@/lib/strings';
-import { uuidv7 } from '@/lib/ids';
-
-/** A card still being written, with no server id yet. */
-interface DraftCard {
-  localId: string;
-  body: string;
-  customerName: string;
-  phone: string;
-}
+import { type DraftCard, useOrdersStore } from './ordersStore';
 
 function isDraft(card: DraftCard | Order): card is DraftCard {
   return 'localId' in card;
@@ -46,116 +36,28 @@ export function OrdersScreen({
   highlightOrderId,
   onHighlightSeen,
 }: OrdersScreenProps = {}) {
-  const [orders, setOrders] = useState<Order[] | null>(null);
-  const [drafts, setDrafts] = useState<DraftCard[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const pending = useOrdersStore((s) => s.pending);
+  const completed = useOrdersStore((s) => s.completed);
+  const drafts = useOrdersStore((s) => s.drafts);
+  const error = useOrdersStore((s) => s.error);
+  const busyId = useOrdersStore((s) => s.busyId);
+  const loadPending = useOrdersStore((s) => s.loadPending);
+  const loadCompleted = useOrdersStore((s) => s.loadCompleted);
+  const addDraft = useOrdersStore((s) => s.addDraft);
+  const updateDraft = useOrdersStore((s) => s.updateDraft);
+  const discardDraft = useOrdersStore((s) => s.discardDraft);
+  const saveDraft = useOrdersStore((s) => s.saveDraft);
+  const saveEdit = useOrdersStore((s) => s.saveEdit);
+  const complete = useOrdersStore((s) => s.complete);
+  const discard = useOrdersStore((s) => s.discard);
+  const setReminder = useOrdersStore((s) => s.setReminder);
 
-  const load = useCallback(async (status: 'pending' | 'completed' | 'discarded') => {
-    setOrders(null);
-    setError(null);
-    try {
-      const response = await ordersApi.list({ status });
-      setOrders(response.items);
-    } catch (caught) {
-      setOrders([]);
-      setError(
-        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
-      );
-    }
-  }, []);
+  const orders = showCompleted ? completed : pending;
 
   useEffect(() => {
-    void load(showCompleted ? 'completed' : 'pending');
-  }, [load, showCompleted]);
-
-  function addDraft(): void {
-    setDrafts((prev) => [
-      { localId: uuidv7(), body: '', customerName: '', phone: '' },
-      ...prev,
-    ]);
-  }
-
-  function updateDraft(localId: string, patch: Partial<DraftCard>): void {
-    setDrafts((prev) =>
-      prev.map((d) => (d.localId === localId ? { ...d, ...patch } : d)),
-    );
-  }
-
-  function discardDraft(localId: string): void {
-    setDrafts((prev) => prev.filter((d) => d.localId !== localId));
-  }
-
-  async function saveDraft(draft: DraftCard): Promise<void> {
-    if (!draft.body.trim()) return;
-    setBusyId(draft.localId);
-    setError(null);
-    try {
-      await ordersApi.create({
-        body: draft.body,
-        customer_name: draft.customerName || null,
-        phone: draft.phone || null,
-      });
-      discardDraft(draft.localId);
-      await load('pending');
-    } catch (caught) {
-      setError(
-        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function saveEdit(order: Order, body: string): Promise<void> {
-    setBusyId(order.id);
-    try {
-      await ordersApi.update(order.id, { body });
-      await load('pending');
-    } catch (caught) {
-      setError(
-        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function complete(order: Order): Promise<void> {
-    setBusyId(order.id);
-    try {
-      await ordersApi.complete(order.id);
-      await load(showCompleted ? 'completed' : 'pending');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function discard(order: Order): Promise<void> {
-    setBusyId(order.id);
-    try {
-      await ordersApi.discard(order.id);
-      await load(showCompleted ? 'completed' : 'pending');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function setReminder(order: Order, remindAt: string | null): Promise<void> {
-    setBusyId(order.id);
-    setError(null);
-    try {
-      await ordersApi.setReminder(order.id, remindAt);
-      await load(showCompleted ? 'completed' : 'pending');
-    } catch (caught) {
-      setError(
-        caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
+    void (showCompleted ? loadCompleted() : loadPending());
+  }, [showCompleted, loadPending, loadCompleted]);
 
   // The highlight is a few seconds' pulse, not a permanent mark — long enough to find
   // the card the notification meant, short enough that it reads as "here it is", not

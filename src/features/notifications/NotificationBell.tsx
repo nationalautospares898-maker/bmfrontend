@@ -71,11 +71,21 @@ export interface NotificationBellProps {
   onNavigate?: (screen: 'stock' | 'credit-bills' | 'orders', entityId?: string) => void;
   /** Opens the reminder-management dialog (Feature A.5), if the caller offers one. */
   onManageReminders?: () => void;
+  /**
+   * Mirrors this bell's own `items` up to whoever renders it (NAS-NEW-04), so an
+   * always-on-screen alert banner can show the same active notifications without a
+   * second poll of its own — this bell already has the one poll the whole app needs
+   * (`POLL_INTERVAL_MS`), and the banner is just another view of the same data,
+   * including this component's own optimistic removals on dismiss/acknowledge/snooze.
+   * Called with the same value every time `items` changes, nothing else.
+   */
+  onItemsChanged?: (items: Notification[] | null) => void;
 }
 
 export function NotificationBell({
   onNavigate,
   onManageReminders,
+  onItemsChanged,
 }: NotificationBellProps) {
   const [items, setItems] = useState<Notification[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -135,6 +145,10 @@ export function NotificationBell({
     const timer = window.setInterval(() => void load(), POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [load]);
+
+  useEffect(() => {
+    onItemsChanged?.(items);
+  }, [items, onItemsChanged]);
 
   async function enableDeviceAlerts(): Promise<void> {
     setDevicePermission(await deviceNotifications.requestPermission());

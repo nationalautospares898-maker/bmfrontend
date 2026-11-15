@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Order } from '@/api/types';
 import { OrdersScreen } from './OrdersScreen';
+import { resetOrdersStore } from './ordersStore';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -58,6 +59,9 @@ beforeEach(() => {
   mocks.complete.mockReset();
   mocks.discard.mockReset();
   mocks.setReminder.mockReset();
+  // The orders store (NAS-NEW-01) is a module-wide singleton shared with `OrdersPanel`
+  // — without this, one test's `pending`/`drafts`/`error` would leak into the next.
+  resetOrdersStore();
 });
 
 describe('OrdersScreen', () => {

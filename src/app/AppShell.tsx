@@ -66,17 +66,20 @@ import { BillingCounter } from '@/features/billing/BillingCounter';
 import { scheduler } from '@/features/sync/scheduler';
 import * as catalogCache from '@/db/catalogCache';
 import { ensureDeviceId } from '@/db/meta';
-import type { Bootstrap } from '@/api/types';
+import type { Bootstrap, Notification } from '@/api/types';
 import type { MoneyPolicy } from '@/lib/money';
-import { Busy, Button, Field, Panel, StatusDot } from '@/components/primitives';
+import { Busy, Button, Dialog, Field, Panel, StatusDot } from '@/components/primitives';
 import { navigateWithArrows } from '@/lib/keyboard';
-import { APP, AUTH, COMMON, ERRORS, NAV, OFFLINE } from '@/lib/strings';
+import { APP, AUTH, COMMON, ERRORS, NAV, NOTIFICATIONS, OFFLINE, ORDERS } from '@/lib/strings';
 import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
 import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
 import { ChangePasswordScreen } from '@/features/auth/ChangePasswordScreen';
 import { UpdateBanner } from './UpdateBanner';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
+import { AutoAlertBanner } from '@/features/notifications/AutoAlertBanner';
+import { OrdersPanel } from '@/features/orders/OrdersPanel';
+import { useOrdersStore } from '@/features/orders/ordersStore';
 import { RemindersSettings } from '@/features/notifications/RemindersSettings';
 
 const DailyBills = lazy(() =>
@@ -166,6 +169,17 @@ export function AppShell() {
    */
   const [highlightOrderId, setHighlightOrderId] = useState<string | null>(null);
   const [remindersOpen, setRemindersOpen] = useState(false);
+  /**
+   * `NotificationBell`'s own `items`, mirrored up here (NAS-NEW-04) so
+   * `AutoAlertBanner` can show the same active notifications on every screen without
+   * polling `GET /notifications` a second time — see `AutoAlertBanner`'s own doc for
+   * why this is a banner and not a toast.
+   */
+  const [liveNotifications, setLiveNotifications] = useState<Notification[] | null>(null);
+  /** The narrow-screen dialog that stands in for the persistent panel below `lg`. */
+  const [ordersPanelOpenNarrow, setOrdersPanelOpenNarrow] = useState(false);
+  const ordersPendingCount = useOrdersStore((s) => s.pending?.length ?? 0);
+  const loadPendingOrders = useOrdersStore((s) => s.loadPending);
   const [sessionLost, setSessionLost] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
   /** Bumped to re-run startup after a session loss; see `retriedAfterLoss`. */
@@ -272,6 +286,11 @@ export function AppShell() {
     void catalogCache.refreshFully().catch(() => {
       // A cold cache degrades offline search only; it never blocks billing.
     });
+    // NAS-NEW-01: the persistent Orders panel's one guaranteed load. `OrdersPanel`
+    // itself fetches nothing on mount (see its own doc) specifically so this is the
+    // single place that triggers it, rather than a race between every component that
+    // happens to mount early.
+    void loadPendingOrders();
     return () => {
       scheduler.stop();
       stopSessionRenewal();
@@ -449,6 +468,7 @@ export function AppShell() {
               setHighlightOrderId(target === 'orders' ? (entityId ?? null) : null);
             }}
             onManageReminders={() => setRemindersOpen(true)}
+            onItemsChanged={setLiveNotifications}
           />
           <Button
             variant="quiet"
@@ -492,6 +512,19 @@ export function AppShell() {
           }`}
         >
           <UpdateBanner />
+
+          {/* NAS-NEW-04: automatic, on every screen, no bell click required. Placed
+              here rather than in the header so it never fights `StatusDot`/the bell
+              for header width, and so it scrolls with the content it sits above
+              instead of permanently eating vertical space from the fixed billing
+              workspace. */}
+          <AutoAlertBanner
+            items={liveNotifications}
+            onNavigate={(target, entityId) => {
+              setScreen(target);
+              setHighlightOrderId(target === 'orders' ? (entityId ?? null) : null);
+            }}
+          />
 
           {!storageUsable ? (
             // Blocking, and worded so nobody mistakes it for a minor warning (FE-E-1).
@@ -555,6 +588,10 @@ export function AppShell() {
                   policy={policy}
                   canRecordPayment={canRecordPayment}
                   canEdit={canEditBill}
+                  online={online}
+                  canOverridePrice={canOverridePrice}
+                  canOverrideOversell={canOverrideOversell}
+                  canCreateProduct={canCreateProduct}
                 />
               ) : null}
               {screen === 'canceled-bills' && canReadSales ? <CanceledBills /> : null}
@@ -586,31 +623,91 @@ export function AppShell() {
 
         {/* `lg:overflow-y-auto` rather than `visible`: six items fit any sensible
             window, but a short one (a laptop with the browser's bookmarks bar and a
-            zoom level) must still be able to reach the last section. */}
-        <nav
-          aria-label={NAV.label}
-          className="flex shrink-0 flex-row gap-2 overflow-x-auto border-t border-slate-300 pt-2 lg:w-56 lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0"
-          onKeyDown={navigateWithArrows}
-        >
-          {sections.map((section) => (
+            zoom level) must still be able to reach the last section.
+
+            **NAS-NEW-01**: this used to be the `<nav>` itself, widened to `lg:w-72`
+            to fit the persistent Orders panel directly inside it, below the section
+            buttons. That broke `navigateWithArrows` (bound to `<nav>`'s `onKeyDown`):
+            it walks *every* focusable element inside whatever it is attached to, so
+            the panel's own "+ New Order", "Mark Complete" and "View all orders"
+            buttons started answering to the section-switching arrow keys too,
+            breaking `keyboard-only.spec.ts`'s "ArrowDown moves to the next section"
+            assertion. The panel is a tool, not a navigation item, and `<nav
+            aria-label="Sections">`'s own ARIA semantics say the same — so it now gets
+            its own sibling wrapper instead of sharing the nav's keyboard scope. */}
+        <div className="flex min-h-0 shrink-0 flex-col gap-2 border-t border-slate-300 pt-2 lg:w-72 lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
+          <nav
+            aria-label={NAV.label}
+            className="flex shrink-0 flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-x-visible lg:overflow-y-auto"
+            onKeyDown={navigateWithArrows}
+          >
+            {sections.map((section) => (
+              <Button
+                key={section.key}
+                variant={screen === section.key ? 'primary' : 'secondary'}
+                onClick={() => {
+                  setScreen(section.key);
+                  // A notification's highlight is spent the moment the owner
+                  // navigates anywhere themselves — it must not reappear on a
+                  // later, unrelated visit to Orders.
+                  setHighlightOrderId(null);
+                }}
+                aria-current={screen === section.key ? 'page' : undefined}
+                className="shrink-0 lg:w-full lg:justify-start"
+              >
+                {section.label}
+              </Button>
+            ))}
+
+            {/* Below `lg` the nav above becomes the horizontal strip the owner asked
+                for instead of a left sidebar (see this file's own module doc) — a
+                full panel cannot sensibly sit inside that strip, so narrow screens
+                get one more button that opens the same panel as a dialog instead.
+                Still inside `<nav>`, deliberately: it is itself a section-reaching
+                control, in the same tab order as the six — it is the panel's own
+                *contents*, opened once this is pressed, that must stay out of
+                `navigateWithArrows`'s scope.
+
+                Named "Orders panel", not "Orders": the exact-named section button
+                above already answers to "Orders" (it opens the full screen), and a
+                nav with two controls sharing one accessible name is ambiguous to a
+                screen reader and to anything else addressing it by name — this one
+                opens the compact dialog instead, and says so. */}
             <Button
-              key={section.key}
-              variant={screen === section.key ? 'primary' : 'secondary'}
-              onClick={() => {
-                setScreen(section.key);
-                // A notification's highlight is spent the moment the owner navigates
-                // anywhere themselves — it must not reappear on a later, unrelated
-                // visit to Orders.
-                setHighlightOrderId(null);
-              }}
-              aria-current={screen === section.key ? 'page' : undefined}
-              className="shrink-0 lg:w-full lg:justify-start"
+              variant="quiet"
+              className="shrink-0 lg:hidden"
+              onClick={() => setOrdersPanelOpenNarrow(true)}
             >
-              {section.label}
+              Orders panel
+              {ordersPendingCount > 0 ? ` (${ordersPendingCount})` : ''}
             </Button>
-          ))}
-        </nav>
+          </nav>
+
+          {/* At `lg` and above, the panel itself is always visible and always in the
+              same place: this is what "must not disappear when changing sections"
+              means here — it sits outside every `screen === ...` branch above, so
+              switching screens never unmounts it. */}
+          <div className="hidden min-h-0 lg:flex lg:flex-1 lg:flex-col">
+            <OrdersPanel onOpenOrders={() => setScreen('orders')} />
+          </div>
+        </div>
       </div>
+
+      <Dialog
+        open={ordersPanelOpenNarrow}
+        title={ORDERS.title}
+        onDismiss={() => setOrdersPanelOpenNarrow(false)}
+        actions={
+          <Button onClick={() => setOrdersPanelOpenNarrow(false)}>{NOTIFICATIONS.close}</Button>
+        }
+      >
+        <OrdersPanel
+          onOpenOrders={() => {
+            setScreen('orders');
+            setOrdersPanelOpenNarrow(false);
+          }}
+        />
+      </Dialog>
     </div>
   );
 }

@@ -319,9 +319,25 @@ export const useBillingStore = create<BillingState & BillingActions>((set, get) 
   },
 
   async reload() {
-    const { counterId } = get();
+    const { counterId, activeDraftId } = get();
     if (!counterId) return;
-    set({ drafts: await draftsDb.openDrafts(counterId) });
+    const drafts = await draftsDb.openDrafts(counterId);
+    set({
+      drafts,
+      // Finalising the active bill drops it from the open list; without this,
+      // `activeDraftId` would go on pointing at a bill that no longer exists and no
+      // column would read as active, which is what the keyboard shortcuts bind to.
+      // Same fallback `clearDraft` already uses for the identical situation.
+      activeDraftId: drafts.some((draft) => draft.id === activeDraftId)
+        ? activeDraftId
+        : drafts[0]?.id ?? null,
+    });
+    // Finalising the only open bill leaves none — same gap `clearDraft` already
+    // closes above, and for the same reason (NAS-NEW-03): the grid must already have
+    // a fresh bill ready the instant a sale completes, with no click required to get
+    // one. Only reached when every open bill just finished at once; if any other bill
+    // is still open, it is already there to keep working on and nothing more is done.
+    if (drafts.length === 0) await get().newDraft();
   },
 }));
 

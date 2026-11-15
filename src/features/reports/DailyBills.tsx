@@ -30,6 +30,7 @@ import { Busy, Button, Panel } from '@/components/primitives';
 import { PrintRoot } from '@/features/print/PrintRoot';
 import { AmendBill, type RebuildLine } from './AmendBill';
 import { EditBill, RevisionHistory } from './EditBill';
+import { EditCreditBillGrid } from '@/features/billing/EditCreditBillGrid';
 import {
   FullBillView,
   InvoicePaymentHistory,
@@ -341,12 +342,26 @@ export interface CreditBillsProps {
   canRecordPayment?: boolean | undefined;
   /** `billing.sale.edit`. Gates the Edit Bill action inside the customer folder. */
   canEdit?: boolean | undefined;
+  /**
+   * NAS-NEW-02: Edit Bill opens the real billing grid (`EditCreditBillGrid`), not a
+   * popup — which needs the same permission inputs the grid needs when billing a new
+   * sale. Defaulted rather than required so this stays a backward-compatible prop
+   * addition for anything still constructing `CreditBills` without them.
+   */
+  online?: boolean | undefined;
+  canOverridePrice?: boolean | undefined;
+  canOverrideOversell?: boolean | undefined;
+  canCreateProduct?: boolean | undefined;
 }
 
 export function CreditBills({
   policy,
   canRecordPayment = false,
   canEdit = false,
+  online = true,
+  canOverridePrice = false,
+  canOverrideOversell = false,
+  canCreateProduct = false,
 }: CreditBillsProps) {
   const [customers, setCustomers] = useState<CreditCustomer[]>([]);
   const [overall, setOverall] = useState<Record<string, unknown> | null>(null);
@@ -539,6 +554,30 @@ export function CreditBills({
         caught instanceof ApiError ? describeError(caught.code).message : COMMON.retry,
       );
     }
+  }
+
+  // NAS-NEW-02: Edit Bill opens the real billing grid, full-width, in place of the
+  // folder view — not a popup floating over it. Returning here before the rest of
+  // this function's `useEffect`-driven state (`customers`, `overall`, the open
+  // invoice) renders means none of that is wasted work while the grid is open; it is
+  // exactly as it was the moment `setEditing(null)` brings the folder view back.
+  if (editing) {
+    return (
+      <EditCreditBillGrid
+        invoiceId={editing.id}
+        online={online}
+        canOverridePrice={canOverridePrice}
+        canOverrideOversell={canOverrideOversell}
+        canCreateProduct={canCreateProduct}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          // The folder's aggregates, the row's total and the bill's own detail all
+          // change — and all of them are the server's to recompute.
+          setPaymentsToken((token) => token + 1);
+          void refreshCustomerInvoices(expanded ?? '');
+        }}
+      />
+    );
   }
 
   return (
@@ -805,19 +844,6 @@ export function CreditBills({
           </li>
         ))}
       </ul>
-
-      {editing ? (
-        <EditBill
-          summary={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            // The folder's aggregates, the row's total and the bill's own detail all
-            // change — and all of them are the server's to recompute.
-            setPaymentsToken((token) => token + 1);
-            void refreshCustomerInvoices(expanded ?? '');
-          }}
-        />
-      ) : null}
 
       {/* The same print root Daily Bills uses, so one bill has one printed form
           wherever it is reached from. A reprint creates nothing (FR-PRINT-004). */}

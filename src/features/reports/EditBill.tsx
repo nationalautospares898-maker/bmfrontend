@@ -528,7 +528,9 @@ export function RevisionHistory({ invoiceId, reloadToken }: RevisionHistoryProps
               {revision.edited_by ? ` · ${revision.edited_by}` : ''}
             </span>
           </header>
-          <p className="text-xs text-slate-600">{revision.reason}</p>
+          <p className="text-xs text-slate-600">
+            {revision.reason ?? EDIT_BILL.noReasonGiven}
+          </p>
           <dl className="mt-1 flex flex-wrap gap-4 text-xs">
             <span>
               <dt className="inline text-slate-500">{EDIT_BILL.wasTotal}: </dt>

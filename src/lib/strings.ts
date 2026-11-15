@@ -244,9 +244,6 @@ export const CREDIT = {
   confirmationTitle: 'Credit bill completed',
   outstandingLabel: 'Outstanding',
   dueDateLabel: 'Due',
-  printNow: 'Print now',
-  /** No print dialog opens for a credit bill (OD-21). */
-  printLater: 'You can print this later from Daily Bills.',
 } as const;
 
 export const OFFLINE = {
@@ -944,6 +941,13 @@ export const EDIT_BILL = {
   reason: 'Why is this bill being changed?',
   reasonHint: 'Recorded with the previous version. At least 5 characters.',
   needReason: 'Say why this bill is being changed (at least 5 characters).',
+  /** Credit Bills' own edit (owner correction, 2026-11-14): a reason is optional. */
+  reasonHintOptional:
+    'Optional. Recorded with the previous version if you give one — at least 5 ' +
+    'characters, or leave it blank.',
+  reasonTooShort: 'Say a bit more, or leave it blank (at least 5 characters).',
+  /** Shown in the revision history for an edit saved with no reason (optional, above). */
+  noReasonGiven: 'No reason given.',
   needLines:
     'A bill needs at least one item. To void the whole bill, use the cancel action instead.',
   badQuantity: (name: string) => `Enter a quantity greater than zero for ${name}.`,

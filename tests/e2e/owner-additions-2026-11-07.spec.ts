@@ -380,7 +380,10 @@ async function sellNewZeroStockProduct(
     .getByLabel('Reason (required)')
     .fill('Verified item supplied and owner approved the exception');
   await actionButton.click();
-  await expect(page.getByText(/completed|Print now/i).first()).toBeVisible({
+  // NAS-CORRECTION-02 (owner request, 2026-11-14): no "completed" title and no
+  // "Print now" button any more — the one sentence that still appears, for cash and
+  // credit alike, is "Stock has been updated."
+  await expect(page.getByText('Stock has been updated.').first()).toBeVisible({
     timeout: 30_000,
   });
   await expect.poll(() => lastInvoiceId, { timeout: 20_000 }).not.toBe('');
@@ -543,8 +546,9 @@ test('an advance on a credit bill leaves the total alone and reduces the outstan
   await page
     .getByRole('button', { name: 'Credit Bill Ctrl+Shift+Enter', exact: true })
     .click();
-  // The confirmation card is the proof the sale committed.
-  await expect(page.getByText(/Credit Bills|completed|Print now/i).first()).toBeVisible({
+  // "Stock has been updated." is the proof the sale committed (NAS-CORRECTION-02,
+  // owner request, 2026-11-14) — the confirmation card and its title are gone.
+  await expect(page.getByText('Stock has been updated.').first()).toBeVisible({
     timeout: 30_000,
   });
 

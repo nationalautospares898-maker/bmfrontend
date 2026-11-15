@@ -84,6 +84,16 @@ import { EMPTY_BILL_UI, type BillUiState } from './billUiState';
  */
 export const VISIBLE_BILLS = 3;
 
+/**
+ * How long the post-finalise confirmation stays up before clearing itself.
+ *
+ * `CompletionCard` (NAS-CORRECTION-02) is one short sentence now, not a panel with
+ * figures to read — long enough for that line to register without rushing, short
+ * enough to be well gone before the next bill finishes, so it never piles up behind a
+ * second one. `setCompleted` always replaces it outright regardless.
+ */
+export const COMPLETION_VISIBLE_MS = 4_000;
+
 export interface BillingCounterProps {
   policy: MoneyPolicy;
   online: boolean;
@@ -146,7 +156,7 @@ export function BillingCounter({
   /** A tab the cashier asked to close that still has work on it. */
   const [closing, setClosing] = useState<LocalDraft | null>(null);
   /**
-   * The bill that just completed, if one has and the cashier has not dismissed it.
+   * The bill that just completed, shown briefly and then cleared on its own.
    *
    * Held **here** rather than in the column that finished it, because finalising drops
    * the bill from the open drafts and that unmounts its column. While this was panel
@@ -154,6 +164,19 @@ export function BillingCounter({
    * said "Stock has been updated." — the one sentence FR-CREDIT-013/026 requires,
    * because it is what stops a cashier reading "saved" as "not sold yet" and letting
    * the customer leave with the goods. Found by the keyboard-only browser run.
+   *
+   * NAS-NEW-03 (owner request, 2026-11-14): this used to stay up until the cashier
+   * clicked "Start the next bill", which is exactly the interruption the owner asked
+   * to remove. The sentence above still has to be said — it stays, unclicked — but it
+   * auto-clears itself (`COMPLETION_VISIBLE_MS` below) instead of blocking on a
+   * dismissal, and the grid underneath is never actually blocked by it: a fresh bill
+   * is already open and focused (see `onCompleted` below) the instant this appears.
+   *
+   * NAS-CORRECTION-02 (owner request, same day): the full confirmation panel this once
+   * rendered as — a title, and a Total/Outstanding/Due breakdown — was itself the next
+   * interruption the owner reported, so `CompletionCard` now renders that one sentence
+   * as plain text and nothing else. The state here did not need to change for that; only
+   * what `CompletionCard` does with it did.
    */
   const [completed, setCompleted] = useState<FinalizeResponse | null>(null);
 
@@ -329,6 +352,33 @@ export function BillingCounter({
     onSynced?.();
   }, [closing, store, onSynced]);
 
+  /**
+   * A sale just committed (NAS-NEW-03): show the brief confirmation, and put the
+   * cashier straight into the next bill — never an extra click to get there.
+   *
+   * `store.reload()` (awaited inside `BillPanel.runFinalize`, before this fires) has
+   * already opened a fresh draft if that was the only one open, and re-pointed
+   * `activeDraftId` at whatever bill should now be worked on either way. `focusBill`
+   * then does exactly what choosing a tab already does — land on that bill's next
+   * empty row — so a solo cashier lands in a blank grid, and one running three bills
+   * lands back on whichever of the other two is now active, ready to keep typing.
+   */
+  const handleCompleted = useCallback(
+    (response: FinalizeResponse) => {
+      setCompleted(response);
+      const nextActiveId = useBillingStore.getState().activeDraftId;
+      if (nextActiveId) focusBill(nextActiveId);
+    },
+    [focusBill],
+  );
+
+  /** Clears the confirmation on its own — see `COMPLETION_VISIBLE_MS`. */
+  useEffect(() => {
+    if (!completed) return;
+    const timer = window.setTimeout(() => setCompleted(null), COMPLETION_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [completed]);
+
   if (!store.ready) return <Busy label="Opening your bills" />;
 
   return (
@@ -353,20 +403,9 @@ export function BillingCounter({
       {!online ? <Panel tone="warning">{OFFLINE.banner}</Panel> : null}
 
       {/* Above the columns, full width, because by the time it is shown the column that
-          earned it has gone. */}
-      {completed ? (
-        <CompletionCard
-          response={completed}
-          policy={policy}
-          onPrint={() =>
-            setPrinting({
-              payload: completed.print_payload,
-              invoiceId: completed.invoice.id,
-            })
-          }
-          onDismiss={() => setCompleted(null)}
-        />
-      ) : null}
+          earned it has gone. No buttons (NAS-NEW-03): it clears itself, and the grid
+          beneath it is already a fresh, focused bill — never waiting on this. */}
+      {completed ? <CompletionCard response={completed} /> : null}
 
       {/* The columns. `items-stretch` so three bills of different lengths still line up
           their headers and their buttons, which is what makes them readable as one
@@ -394,7 +433,7 @@ export function BillingCounter({
             onOpenDailyBills={onOpenDailyBills}
             onPrint={setPrinting}
             onPrintSlip={setSlip}
-            onCompleted={setCompleted}
+            onCompleted={handleCompleted}
             ui={billUi[draft.id] ?? EMPTY_BILL_UI}
             onUiChange={patchBillUi}
           />

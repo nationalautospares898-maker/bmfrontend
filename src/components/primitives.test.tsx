@@ -94,6 +94,28 @@ describe('Dialog', () => {
     expect(document.activeElement).not.toBe(behind);
   });
 
+  it('dismisses when the dimmed backdrop is clicked, the same as Escape (NAS-CORRECTION-03)', async () => {
+    const onDismiss = vi.fn();
+    const user = userEvent.setup();
+    openDialog(onDismiss);
+
+    // The backdrop is the dialog's own outer element — found by role, then its parent.
+    const backdrop = screen.getByRole('dialog').parentElement!;
+    await user.click(backdrop);
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it('does not dismiss when a click inside the panel bubbles to the backdrop', async () => {
+    const onDismiss = vi.fn();
+    const user = userEvent.setup();
+    openDialog(onDismiss);
+
+    await user.click(screen.getByRole('button', { name: /Keep it/ }));
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   it('wraps backwards too', async () => {
     const user = userEvent.setup();
     openDialog();

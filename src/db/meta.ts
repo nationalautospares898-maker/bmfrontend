@@ -20,6 +20,7 @@ const KEYS = {
   catalogCursor: 'catalog_cursor',
   catalogSyncedAt: 'catalog_synced_at',
   lastCounterId: 'last_counter_id',
+  hiddenAlertIds: 'hidden_alert_ids',
 } as const;
 
 async function get<T>(key: string, database: CounterDatabase = db): Promise<T | null> {
@@ -97,4 +98,22 @@ export async function setLastCounterId(
   database: CounterDatabase = db,
 ): Promise<void> {
   await set(KEYS.lastCounterId, counterId, database);
+}
+
+/**
+ * Notification ids the owner has hidden from `AutoAlertBanner` (NAS-NEW-04) —
+ * nothing a dismiss/acknowledge endpoint ever sees, just which rows this banner
+ * should skip. IndexedDB, not `localStorage`/`sessionStorage` (rule 3 of §4): this is
+ * not the access token, but the rule is a blanket one and `meta` is where every other
+ * piece of non-secret client state already lives for exactly that reason.
+ */
+export async function getHiddenAlertIds(database: CounterDatabase = db): Promise<string[]> {
+  return (await get<string[]>(KEYS.hiddenAlertIds, database)) ?? [];
+}
+
+export async function setHiddenAlertIds(
+  ids: readonly string[],
+  database: CounterDatabase = db,
+): Promise<void> {
+  await set(KEYS.hiddenAlertIds, [...ids], database);
 }

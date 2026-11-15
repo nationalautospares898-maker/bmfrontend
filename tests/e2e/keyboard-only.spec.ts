@@ -210,16 +210,30 @@ test.describe('signing in and moving about, keyboard only', () => {
 
     // Tab to the navigation, then walk it with the arrows and open with Enter.
     await tabUntil(page, /^Billing$/);
-    for (const section of ['Daily Bills', 'Credit Bills', 'Stock', 'Customers']) {
-      await page.keyboard.press('ArrowDown');
+
+    // One `ArrowDown`/`ArrowUp` per step assumed exactly these six share the nav —
+    // not true for an owner who also holds `billing.sale.cancel`: `Canceled Bills` is
+    // a seventh, permission-gated section between `Credit Bills` and `Stock`, which
+    // this E2E fixture's owner role does hold. Pressing the arrow repeatedly until the
+    // focused label actually matches (rather than assuming one press reaches it)
+    // tolerates that extra section exactly like a sighted cashier arrowing past it
+    // would, without this test needing to know or care whether it is there.
+    async function arrowTo(key: 'ArrowDown' | 'ArrowUp', section: string): Promise<void> {
+      for (let i = 0; i < 10; i += 1) {
+        if ((await focused(page)).label === section) return;
+        await page.keyboard.press(key);
+      }
       expect((await focused(page)).label).toBe(section);
+    }
+
+    for (const section of ['Daily Bills', 'Credit Bills', 'Stock', 'Customers']) {
+      await arrowTo('ArrowDown', section);
     }
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: /Customers/i }).first()).toBeVisible();
 
     // And back up again, which is Shift+Tab's job in a row and ArrowUp's in a column.
-    await page.keyboard.press('ArrowUp');
-    expect((await focused(page)).label).toBe('Stock');
+    await arrowTo('ArrowUp', 'Stock');
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: /Stock/i }).first()).toBeVisible();
   });
@@ -625,7 +639,10 @@ test.describe('actions and dialogs, keyboard only', () => {
 
     await tabUntil(page, /Print Bill/, 60);
     await page.keyboard.press('Enter');
-    await expect(page.getByText('Bill completed')).toBeVisible({
+    // NAS-CORRECTION-02 (owner request, 2026-11-14): the old "Bill completed" title and
+    // figures are gone; the one sentence that remains, for cash and credit alike, is
+    // "Stock has been updated."
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
       timeout: 30_000,
     });
 
@@ -688,7 +705,17 @@ async function openSection(page: Page, name: (typeof SECTIONS)[number]): Promise
   const from = SECTIONS.indexOf((await focused(page)).label as (typeof SECTIONS)[number]);
   const to = SECTIONS.indexOf(name);
   const key = to > from ? 'ArrowDown' : 'ArrowUp';
-  for (let i = 0; i < Math.abs(to - from); i += 1) await page.keyboard.press(key);
+  // A press-count distance between two indices in `SECTIONS` only holds if the real
+  // nav contains exactly these six and nothing else — it does not for a user who also
+  // holds `billing.sale.cancel` (this E2E owner does): `Canceled Bills` is a seventh,
+  // permission-gated section interleaved after `Credit Bills`, which shifts every
+  // index after it by one. Pressing one at a time and checking the actual focused
+  // label — rather than precomputing a fixed distance — reaches `name` regardless of
+  // what else shares the nav, the same way a cashier arrowing through it would.
+  for (let i = 0; i < SECTIONS.length + 4; i += 1) {
+    if ((await focused(page)).label === name) break;
+    await page.keyboard.press(key);
+  }
 
   expect((await focused(page)).label).toBe(name);
   await page.keyboard.press('Enter');

@@ -290,14 +290,28 @@ test.describe('the client redesign, end to end', () => {
     const labels = (await nav.getByRole('button').allInnerTexts()).map((text) =>
       text.trim(),
     );
-    expect(labels, 'exactly the six, in order, and nothing else').toEqual([
+    // These six, in relative order — not "and nothing else" any more, and not
+    // necessarily contiguous: `Canceled Bills` is a seventh, permission-gated section
+    // this E2E owner also holds (`billing.sale.cancel`), asserted separately by
+    // `counter-assignment.spec.ts` and deliberately not this test's concern either way.
+    // NAS-NEW-01 (owner request, 2026-11-14) put the persistent Orders panel directly
+    // below "Saving and syncing" in this same nav, so a `+ New Order` button and
+    // "Open full Orders view" legitimately follow it too. The withdrawn checks above
+    // already prove nothing unwanted snuck back in; filtering down to just these six
+    // is what proves they themselves are unchanged and still in the owner's order,
+    // regardless of what else now shares the nav.
+    const CORE_SIX = [
       'Billing',
       'Daily Bills',
       'Credit Bills',
       'Stock',
       'Customers',
       'Saving and syncing',
-    ]);
+    ];
+    expect(
+      labels.filter((label) => CORE_SIX.includes(label)),
+      'the six sections, in the owner-decided order, wherever else they now share the nav',
+    ).toEqual(CORE_SIX);
 
     // On the right: the nav's left edge is past the middle of a 1366-wide viewport.
     const box = await nav.boundingBox();
@@ -588,7 +602,12 @@ test.describe('the client redesign, end to end', () => {
     await page
       .getByRole('table', { name: /Stock on hand/i })
       .getByRole('row', { name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
-      .getByRole('button', { name: 'History' })
+      // `exact: true`: this test's own fixture is named "History Item …", and
+      // `name: 'History'` without it substring-matches the row's own
+      // "Increase/Decrease stock of History Item … by one" buttons too — a
+      // pre-existing ambiguity in this selector, unrelated to the product name
+      // coincidentally sharing a word with the button it is looking for.
+      .getByRole('button', { name: 'History', exact: true })
       .click();
 
     const history = page.getByRole('dialog');

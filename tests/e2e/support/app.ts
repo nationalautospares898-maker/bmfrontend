@@ -244,6 +244,15 @@ export async function stubApi(
   await page.route(`${API}/notifications**`, (route) =>
     json(route, { notifications: [] }),
   );
+  // NAS-NEW-01: `AppShell` now calls `GET /orders` once per session, for the
+  // persistent sidebar panel — not only when the owner actually opens the Orders
+  // screen, which is the only time this fixture needed to answer it before. Left
+  // unstubbed, the request never resolves (nothing here or on a real backend ever
+  // answers it in this fully-mocked environment), which silently exhausts the
+  // browser's per-origin connection limit: every *other* same-origin request,
+  // including `injectAxe`'s dynamically-added `<script>` tag, queues behind a slot
+  // that never frees and times out looking unrelated to orders entirely.
+  await page.route(`${API}/orders**`, (route) => json(route, { items: [] }));
 }
 
 /** Boot the built application and wait until the counter is actually usable. */

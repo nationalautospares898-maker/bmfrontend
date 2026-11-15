@@ -55,12 +55,7 @@ import type { DirectoryCustomer, FinalizeResponse, PrintPayload } from '@/api/ty
 import type { LocalDraft, LocalDraftLine } from '@/db/schema';
 import { asText } from '@/lib/format';
 import { uuidv7 } from '@/lib/ids';
-import {
-  formatForScreen,
-  parseMoney,
-  tryParseMoney,
-  type MoneyPolicy,
-} from '@/lib/money';
+import { formatForScreen, tryParseMoney, type MoneyPolicy } from '@/lib/money';
 import {
   ACTIONS,
   ACTION_SHORTCUTS,
@@ -330,8 +325,8 @@ export function BillPanel({
           if (outcome.response) {
             onCompleted(outcome.response);
             // Cash prints immediately; credit does **not** open a print dialog
-            // (OD-21). The confirmation card offers "Print now" instead, because a
-            // credit bill is often filed rather than handed over.
+            // (OD-21) — a credit bill is often filed rather than handed over, and can
+            // be printed later from Credit Bills' own Reprint action (FR-PRINT-004).
             if (saleType === 'cash')
               onPrint({
                 payload: outcome.response.print_payload,
@@ -980,74 +975,26 @@ function ConflictPanel({
 // --- the confirmation card ----------------------------------------------------
 
 /**
- * Shown after a sale commits.
+ * Shown after a sale commits — briefly, with nothing to click, and **not as a card**
+ * (NAS-NEW-03, then NAS-CORRECTION-02, owner requests 2026-11-14).
  *
- * For credit it must say **"Stock has been updated."** (FR-CREDIT-013/026). That exact
- * sentence is the one thing that stops a cashier reading "saved" as "not sold yet" and
- * letting the customer leave with the goods while the stock figure is wrong.
+ * The first pass kept the full confirmation panel — title, the exact sentence
+ * FR-CREDIT-013/026 requires, and a `Total`/`Outstanding`/`Due` breakdown — and only
+ * dropped its buttons and auto-cleared it on a timer. The owner tried that and asked
+ * for it gone: no title, no figures, no bordered panel, nothing that reads as a
+ * second screen between one bill and the next. What is kept is the one sentence —
+ * **"Stock has been updated."**, for cash and credit alike, exactly as the panel it
+ * replaces already said it for both — as plain text with no panel, no `role="alert"`
+ * interruption, and no numbers next to it; everything the old panel showed in figures
+ * is already on the bill itself, in Daily/Credit Bills, and in the receipt a cash sale
+ * prints. `BillingCounter` still clears this on `COMPLETION_VISIBLE_MS` and still has a
+ * fresh bill open and focused underneath it the instant it appears.
  */
-export function CompletionCard({
-  response,
-  policy,
-  onPrint,
-  onDismiss,
-}: {
-  response: FinalizeResponse;
-  policy: MoneyPolicy;
-  onPrint: () => void;
-  onDismiss: () => void;
-}) {
-  const invoice = response.invoice;
-  const isCredit = invoice.is_credit;
-
+export function CompletionCard({ response: _response }: { response: FinalizeResponse }) {
   return (
-    <Panel
-      tone="success"
-      title={isCredit ? CREDIT.confirmationTitle : 'Bill completed'}
-      actions={
-        <>
-          {isCredit ? (
-            <Button variant="primary" onClick={onPrint}>
-              {CREDIT.printNow}
-            </Button>
-          ) : null}
-          <Button variant="quiet" onClick={onDismiss}>
-            Start the next bill
-          </Button>
-        </>
-      }
-    >
-      <p>{CREDIT.stockUpdated}</p>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4">
-        <dt>Total</dt>
-        <dd>{formatForScreen(parseMoney(String(invoice.total)))}</dd>
-        {isCredit ? (
-          <>
-            <dt>{CREDIT.outstandingLabel}</dt>
-            <dd>{formatForScreen(parseMoney(String(invoice.outstanding)))}</dd>
-            {invoice.due_date ? (
-              <>
-                <dt>{CREDIT.dueDateLabel}</dt>
-                <dd>{invoice.due_date}</dd>
-              </>
-            ) : null}
-          </>
-        ) : null}
-      </dl>
-      {isCredit ? <p className="mt-2 text-xs">{CREDIT.printLater}</p> : null}
-      {response.warnings.map((warning) => (
-        // Warnings are rendered from their `message` and never block: the sale
-        // committed, and an unknown warning code must not break a completed sale.
-        <p key={warning.code} className="mt-2 text-xs text-amber-800">
-          {warning.message}
-        </p>
-      ))}
-      {/*
-        No invoice number is shown. There is none to show (OD-3): the internal
-        reference stays on the invoice resource for the owner and support.
-      */}
-      <p className="sr-only">{policy.currency}</p>
-    </Panel>
+    <p role="status" className="px-1 text-sm text-slate-600">
+      {CREDIT.stockUpdated}
+    </p>
   );
 }
 

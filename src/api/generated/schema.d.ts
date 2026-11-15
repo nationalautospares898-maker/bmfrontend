@@ -2463,7 +2463,7 @@ export interface components {
             /** Expected Version */
             expected_version: number;
             /** Reason */
-            reason: string;
+            reason?: string | null;
             /** Lines */
             lines: components["schemas"]["AmendLineIn"][];
             header?: components["schemas"]["AmendHeaderIn"] | null;
@@ -3416,7 +3416,7 @@ export interface components {
             /** Revision Number */
             revision_number: number;
             /** Reason */
-            reason: string;
+            reason: string | null;
             /** Created At */
             created_at: string;
             /** Edited By */

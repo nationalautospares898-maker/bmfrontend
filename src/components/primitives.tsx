@@ -274,7 +274,18 @@ export function Dialog({ open, title, children, actions, onDismiss }: DialogProp
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      // Clicking the dimmed backdrop closes the dialog the same way `Escape` does —
+      // standard modal behaviour, and every caller already treats `onDismiss` as
+      // "closed without deciding" (NAS-CORRECTION-03, owner request, 2026-11-14).
+      // Checked against `currentTarget` so a click that merely bubbles up from
+      // something inside the panel — an action button, a scrollbar drag — never
+      // closes it; only a press that actually lands on the backdrop itself does.
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onDismiss?.();
+      }}
+    >
       <div
         ref={panel}
         role="dialog"
