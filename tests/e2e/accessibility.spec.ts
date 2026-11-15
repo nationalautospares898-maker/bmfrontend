@@ -157,8 +157,15 @@ test.describe('axe, in Chromium, on every screen', () => {
       if (screen !== 'Billing') {
         await page.getByRole('button', { name: screen, exact: true }).click();
       }
-      // Let the screen's first fetch settle, or axe inspects a spinner.
-      await page.waitForLoadState('networkidle');
+      // Let the screen's first fetch settle, or axe inspects a spinner. Not
+      // `networkidle`: the notification bell polls every 30s for the life of the
+      // page, which this suite's own total runtime comfortably exceeds, so by the
+      // time a later screen in the sweep is reached the network is never reliably
+      // idle for the 500ms `networkidle` wants — the exact, reproducible cause of
+      // this suite's own CI flakiness. Waiting for the loading spinner specifically
+      // to be gone is what "has this screen finished loading" actually means, and
+      // is unaffected by an unrelated background poll.
+      await expect(page.getByRole('status')).toHaveCount(0);
 
       const run = await analyse(page);
       const serious = blocking(run);
@@ -219,7 +226,8 @@ test.describe('colour contrast is genuinely evaluated, not skipped', () => {
 
     for (const screen of ['Stock', 'Saving and syncing'] as const) {
       await page.getByRole('button', { name: screen, exact: true }).click();
-      await page.waitForLoadState('networkidle');
+      // Not `networkidle` — see the identical comment in the sweep above.
+      await expect(page.getByRole('status')).toHaveCount(0);
       await injectAxe(page);
       const run = await page.evaluate(async () =>
         window.axe.run(document, {
@@ -264,7 +272,8 @@ test.describe('names, structure and the keyboard', () => {
     for (const screen of SCREENS) {
       if (screen !== 'Billing') {
         await page.getByRole('button', { name: screen, exact: true }).click();
-        await page.waitForLoadState('networkidle');
+        // Not `networkidle` — see the identical comment in the sweep above.
+        await expect(page.getByRole('status')).toHaveCount(0);
       }
       await injectAxe(page);
       const run = await page.evaluate(async () =>
