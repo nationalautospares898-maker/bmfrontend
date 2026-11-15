@@ -24,7 +24,16 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: 0,
+  // 0 locally: a real failure should show up on the first try while developing, not
+  // get masked by a retry. 2 on CI: `full-stack.spec.ts` and `counter-assignment.spec.ts`
+  // boot a real backend against a real Postgres service container, and both have now
+  // shown the same failure shape on shared runners — a `getByRole(...).toBeVisible()`
+  // timeout after a slow cold start, on an unrelated commit each time (2026-11-10,
+  // 2026-11-15), never reproducing locally against the identical command and a fresh
+  // database. That is runner contention, not a defect these tests exist to catch, and
+  // a retry is the standard mitigation for exactly this class of flake rather than a
+  // CI run that cries wolf on an unrelated release.
+  retries: process.env.CI ? 2 : 0,
   // `github` on CI emits `::error` annotations carrying the actual assertion text, so a
   // failure is diagnosable from the run summary alone. Without it a failing job reports
   // only "Process completed with exit code 1", and the HTML report needs credentials to
