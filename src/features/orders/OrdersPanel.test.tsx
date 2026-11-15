@@ -154,9 +154,7 @@ describe('OrdersPanel', () => {
     mocks.list.mockResolvedValue({ items: [] });
     await useOrdersStore.getState().complete(order());
 
-    await waitFor(() =>
-      expect(useOrdersStore.getState().pending).toEqual([]),
-    );
+    await waitFor(() => expect(useOrdersStore.getState().pending).toEqual([]));
   });
 
   it('"View all orders" calls back out rather than navigating itself', async () => {

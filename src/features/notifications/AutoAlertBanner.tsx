@@ -147,7 +147,10 @@ export function AutoAlertBanner({ items, onNavigate }: AutoAlertBannerProps) {
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 {target ? (
-                  <Button variant="quiet" onClick={() => onNavigate?.(target, n.entity_id ?? undefined)}>
+                  <Button
+                    variant="quiet"
+                    onClick={() => onNavigate?.(target, n.entity_id ?? undefined)}
+                  >
                     Go to
                   </Button>
                 ) : null}

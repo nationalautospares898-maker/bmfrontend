@@ -107,7 +107,9 @@ export async function setLastCounterId(
  * not the access token, but the rule is a blanket one and `meta` is where every other
  * piece of non-secret client state already lives for exactly that reason.
  */
-export async function getHiddenAlertIds(database: CounterDatabase = db): Promise<string[]> {
+export async function getHiddenAlertIds(
+  database: CounterDatabase = db,
+): Promise<string[]> {
   return (await get<string[]>(KEYS.hiddenAlertIds, database)) ?? [];
 }
 

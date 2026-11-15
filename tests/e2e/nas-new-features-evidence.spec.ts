@@ -36,11 +36,22 @@ function unique(stem: string): string {
   return `${stem} ${RUN}${sequence}`;
 }
 
-const EVIDENCE_DIR = path.join(__dirname, '..', '..', '..', 'docs', 'testing', 'NAS-NEW-FEATURES');
+const EVIDENCE_DIR = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'docs',
+  'testing',
+  'NAS-NEW-FEATURES',
+);
 mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 async function shot(page: Page, name: string): Promise<void> {
-  await page.screenshot({ path: path.join(EVIDENCE_DIR, `${name}.png`), fullPage: false });
+  await page.screenshot({
+    path: path.join(EVIDENCE_DIR, `${name}.png`),
+    fullPage: false,
+  });
 }
 
 let accessToken = '';
@@ -48,7 +59,8 @@ let accessToken = '';
 async function provisionDevice(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForFunction(
-    async () => ((await indexedDB.databases?.()) ?? []).some((d) => d.name === 'nas-counter'),
+    async () =>
+      ((await indexedDB.databases?.()) ?? []).some((d) => d.name === 'nas-counter'),
     null,
     { timeout: 30_000 },
   );
@@ -56,7 +68,8 @@ async function provisionDevice(page: Page): Promise<void> {
     (deviceId) =>
       new Promise<void>((resolve, reject) => {
         const open = indexedDB.open('nas-counter');
-        open.onerror = () => reject(new Error(`indexedDB.open failed: ${String(open.error)}`));
+        open.onerror = () =>
+          reject(new Error(`indexedDB.open failed: ${String(open.error)}`));
         open.onsuccess = () => {
           const database = open.result;
           if (!database.objectStoreNames.contains('meta')) {
@@ -89,7 +102,9 @@ async function signIn(page: Page): Promise<void> {
   await page.getByLabel('Username').fill(USERNAME);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({
+    timeout: 30_000,
+  });
   expect(accessToken).not.toBe('');
 }
 
@@ -133,7 +148,9 @@ async function addStock(
   await page.getByLabel('Min Qty, row 1', { exact: true }).fill(values.min);
   await page.getByLabel('Stock Qty, row 1', { exact: true }).fill(values.qty);
   await page.getByRole('button', { name: 'Save these items' }).click();
-  await expect(page.getByRole('table', { name: /Add stock/i })).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole('table', { name: /Add stock/i })).toHaveCount(0, {
+    timeout: 30_000,
+  });
   await goTo(page, 'Billing');
 }
 
@@ -144,16 +161,22 @@ async function addToBill(page: Page, name: string, column = 0): Promise<void> {
   await cell.fill(name.slice(0, 12));
   await expect(bill.getByRole('listbox')).toBeVisible({ timeout: 15_000 });
   await bill
-    .getByRole('option', { name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
+    .getByRole('option', {
+      name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    })
     .first()
     .click();
-  await expect(bill.getByLabel('Quantity, row 1', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(bill.getByLabel('Quantity, row 1', { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 test.describe('NAS-NEW-01..06 — real browser evidence', () => {
   test.skip(!API_URL && !PROXIED, SKIP_REASON);
 
-  test('Scenario 1 — persistent Orders panel survives every section change', async ({ page }) => {
+  test('Scenario 1 — persistent Orders panel survives every section change', async ({
+    page,
+  }) => {
     await signIn(page);
     await expect(page.getByRole('complementary', { name: 'Orders' })).toBeVisible();
     await shot(page, '01-orders-panel-on-billing');
@@ -196,7 +219,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Print Bill Ctrl+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
     await shot(page, '03-print-bill-confirmation-non-blocking');
 
     // The grid is already fresh and typeable — no click needed to get there.
@@ -223,7 +248,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Credit Bill Ctrl+Shift+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
     await shot(page, '04-credit-bill-confirmation-non-blocking');
 
     await goTo(page, 'Credit Bills');
@@ -233,7 +260,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
     await shot(page, '04-credit-bill-in-credit-bills-screen');
   });
 
-  test('Scenario 2 — Credit Bill edit opens the real billing grid, prefilled', async ({ page }) => {
+  test('Scenario 2 — Credit Bill edit opens the real billing grid, prefilled', async ({
+    page,
+  }) => {
     await signIn(page);
     const name = unique('Evidence Edit Item');
     const customer = unique('Evidence Edit Customer');
@@ -248,7 +277,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Credit Bill Ctrl+Shift+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
 
     await goTo(page, 'Credit Bills');
     const folder = page.getByRole('button', { name: new RegExp(customer) });
@@ -283,11 +314,17 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Print Bill Ctrl+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
 
     // The banner, not the bell: visible without any click.
-    await expect(page.getByRole('group', { name: 'Alerts' })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole('group', { name: 'Alerts' }).getByText(name)).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Alerts' })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByRole('group', { name: 'Alerts' }).getByText(name),
+    ).toBeVisible();
     await shot(page, '05-automatic-alert-banner-no-bell-click');
 
     // The bell/history still has it too.
@@ -312,7 +349,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
     // and form-fill steps eat into that window unpredictably. 20s was tight enough
     // against a 30s cadence to fail on nothing more than ordinary machine variance;
     // comfortably clearing one full cycle is the honest fix, not a product change.
-    await expect(page.getByRole('group', { name: 'Alerts' })).toBeVisible({ timeout: 35_000 });
+    await expect(page.getByRole('group', { name: 'Alerts' })).toBeVisible({
+      timeout: 35_000,
+    });
     await expect(
       page.getByRole('group', { name: 'Alerts' }).getByText(/New order/),
     ).toBeVisible({ timeout: 10_000 });
@@ -323,10 +362,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
     page,
   }) => {
     await signIn(page);
-    const schedules = await apiGet<{ items: { kind: string; interval_hours: number | null }[] }>(
-      page,
-      '/reminders',
-    );
+    const schedules = await apiGet<{
+      items: { kind: string; interval_hours: number | null }[];
+    }>(page, '/reminders');
     const billReminder = schedules.items.find((s) => s.kind === 'bill_reminder');
     expect(billReminder?.interval_hours).toBe(1);
 
@@ -337,7 +375,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
     await shot(page, '06-hourly-pending-bill-reminder-schedule');
   });
 
-  test('Scenario 8 — regression: core screens and layout remain intact', async ({ page }) => {
+  test('Scenario 8 — regression: core screens and layout remain intact', async ({
+    page,
+  }) => {
     await signIn(page);
     for (const section of [
       'Daily Bills',
@@ -349,7 +389,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
       'Saving and syncing',
     ]) {
       await goTo(page, section);
-      await expect(page.getByRole('heading', { name: new RegExp(section, 'i') }).first()).toBeVisible({
+      await expect(
+        page.getByRole('heading', { name: new RegExp(section, 'i') }).first(),
+      ).toBeVisible({
         timeout: 15_000,
       });
     }
@@ -357,7 +399,9 @@ test.describe('NAS-NEW-01..06 — real browser evidence', () => {
 
     await goTo(page, 'Billing');
     await page.reload();
-    await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({
+      timeout: 30_000,
+    });
     await shot(page, '08-regression-survives-reload');
 
     // Narrow viewport: the persistent panel becomes the compact nav toggle instead of

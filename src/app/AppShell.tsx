@@ -70,7 +70,16 @@ import type { Bootstrap, Notification } from '@/api/types';
 import type { MoneyPolicy } from '@/lib/money';
 import { Busy, Button, Dialog, Field, Panel, StatusDot } from '@/components/primitives';
 import { navigateWithArrows } from '@/lib/keyboard';
-import { APP, AUTH, COMMON, ERRORS, NAV, NOTIFICATIONS, OFFLINE, ORDERS } from '@/lib/strings';
+import {
+  APP,
+  AUTH,
+  COMMON,
+  ERRORS,
+  NAV,
+  NOTIFICATIONS,
+  OFFLINE,
+  ORDERS,
+} from '@/lib/strings';
 import { startSessionRenewal, stopSessionRenewal } from '@/api/renewal';
 import type { RebuildLine } from '@/features/reports/AmendBill';
 import { signIn, signOut, startApplication } from './bootstrap';
@@ -698,7 +707,9 @@ export function AppShell() {
         title={ORDERS.title}
         onDismiss={() => setOrdersPanelOpenNarrow(false)}
         actions={
-          <Button onClick={() => setOrdersPanelOpenNarrow(false)}>{NOTIFICATIONS.close}</Button>
+          <Button onClick={() => setOrdersPanelOpenNarrow(false)}>
+            {NOTIFICATIONS.close}
+          </Button>
         }
       >
         <OrdersPanel

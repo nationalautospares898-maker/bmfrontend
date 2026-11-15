@@ -197,7 +197,10 @@ export function EditCreditBillGrid({
     }
     for (const line of lines) {
       if (tryParseMoney(line.quantity) === null || parseMoney(line.quantity).lte(0)) {
-        setError({ code: 'VALIDATION', message: EDIT_BILL.badQuantity(line.product_name) });
+        setError({
+          code: 'VALIDATION',
+          message: EDIT_BILL.badQuantity(line.product_name),
+        });
         return;
       }
       if (tryParseMoney(line.unit_price) === null) {
@@ -205,10 +208,7 @@ export function EditCreditBillGrid({
         return;
       }
     }
-    if (
-      oversellApproved &&
-      (!canOverrideOversell || oversellReason.trim().length < 10)
-    ) {
+    if (oversellApproved && (!canOverrideOversell || oversellReason.trim().length < 10)) {
       return;
     }
 
@@ -311,7 +311,11 @@ export function EditCreditBillGrid({
               value={vehicle}
               onChange={(e) => setVehicle(e.target.value)}
             />
-            <Field label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Field
+              label="Phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
           </div>
           <Field label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
@@ -334,9 +338,13 @@ export function EditCreditBillGrid({
             <dt className="text-slate-500">{EDIT_BILL.previewTotal}</dt>
             <dd className="text-right font-semibold">{formatForScreen(total)}</dd>
             <dt className="text-slate-500">{EDIT_BILL.alreadyPaid}</dt>
-            <dd className="text-right">{formatForScreen(parseMoney(invoice.amount_paid))}</dd>
+            <dd className="text-right">
+              {formatForScreen(parseMoney(invoice.amount_paid))}
+            </dd>
             <dt className="text-slate-500">{CREDIT.outstandingLabel}</dt>
-            <dd className="text-right">{formatForScreen(parseMoney(invoice.outstanding))}</dd>
+            <dd className="text-right">
+              {formatForScreen(parseMoney(invoice.outstanding))}
+            </dd>
           </dl>
 
           {parseMoney(invoice.amount_paid).greaterThan(0) ? (

@@ -88,7 +88,10 @@ export function OrdersPanel({ onOpenOrders }: OrdersPanelProps) {
         </Panel>
       ) : null}
 
-      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto" style={{ maxHeight: '40vh' }}>
+      <div
+        className="flex min-h-0 flex-col gap-2 overflow-y-auto"
+        style={{ maxHeight: '40vh' }}
+      >
         {drafts.map((draft) => (
           <CompactDraftCard
             key={draft.localId}
@@ -204,7 +207,9 @@ function CompactOrderRow({
     <div className="flex flex-col gap-1 rounded border border-slate-300 bg-white p-2 text-sm">
       <div className="flex items-baseline justify-between gap-2 text-xs text-slate-500">
         <span className="truncate">
-          {order.customer_name ? order.customer_name : new Date(order.created_at).toLocaleDateString()}
+          {order.customer_name
+            ? order.customer_name
+            : new Date(order.created_at).toLocaleDateString()}
         </span>
         {order.remind_at ? (
           <span className={overdue ? 'font-medium text-red-700' : 'text-amber-700'}>

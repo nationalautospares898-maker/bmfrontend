@@ -20,15 +20,18 @@ describe('CompletionCard', () => {
   it.each([
     ['a credit bill', true],
     ['a cash bill', false],
-  ])('says stock has been updated for %s, as plain text with no panel', (_label, isCredit) => {
-    render(<CompletionCard response={response(isCredit)} />);
+  ])(
+    'says stock has been updated for %s, as plain text with no panel',
+    (_label, isCredit) => {
+      render(<CompletionCard response={response(isCredit)} />);
 
-    expect(screen.getByText('Stock has been updated.')).toBeInTheDocument();
-    // Not the old confirmation panel: no title, no alert role, no figures.
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.queryByText('Credit bill completed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Bill completed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Total')).not.toBeInTheDocument();
-    expect(screen.queryByText('Outstanding')).not.toBeInTheDocument();
-  });
+      expect(screen.getByText('Stock has been updated.')).toBeInTheDocument();
+      // Not the old confirmation panel: no title, no alert role, no figures.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText('Credit bill completed')).not.toBeInTheDocument();
+      expect(screen.queryByText('Bill completed')).not.toBeInTheDocument();
+      expect(screen.queryByText('Total')).not.toBeInTheDocument();
+      expect(screen.queryByText('Outstanding')).not.toBeInTheDocument();
+    },
+  );
 });

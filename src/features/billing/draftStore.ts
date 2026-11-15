@@ -330,7 +330,7 @@ export const useBillingStore = create<BillingState & BillingActions>((set, get) 
       // Same fallback `clearDraft` already uses for the identical situation.
       activeDraftId: drafts.some((draft) => draft.id === activeDraftId)
         ? activeDraftId
-        : drafts[0]?.id ?? null,
+        : (drafts[0]?.id ?? null),
     });
     // Finalising the only open bill leaves none — same gap `clearDraft` already
     // closes above, and for the same reason (NAS-NEW-03): the grid must already have

@@ -169,7 +169,10 @@ describe('EditCreditBillGrid', () => {
     await userEvent.click(screen.getByRole('button', { name: SAVE_LABEL }));
 
     await waitFor(() => expect(mocks.amend).toHaveBeenCalled());
-    const [invoiceId, body] = mocks.amend.mock.calls[0] as [string, Record<string, unknown>];
+    const [invoiceId, body] = mocks.amend.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
     expect(invoiceId).toBe('inv-1');
     expect(body.expected_version).toBe(3);
     expect(body.reason).toBe('Owner corrected the quantity after a phone call');

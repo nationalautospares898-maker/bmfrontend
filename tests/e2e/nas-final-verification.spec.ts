@@ -41,19 +41,38 @@ function unique(stem: string): string {
   return `${stem} ${RUN}${sequence}`;
 }
 
-const EVIDENCE_ROOT = path.join(__dirname, '..', '..', '..', 'docs', 'testing', 'NAS-FINAL-VERIFICATION');
-for (const sub of ['credit-amendment', 'print-bill', 'credit-bill', 'notifications', 'orders', 'regression']) {
+const EVIDENCE_ROOT = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'docs',
+  'testing',
+  'NAS-FINAL-VERIFICATION',
+);
+for (const sub of [
+  'credit-amendment',
+  'print-bill',
+  'credit-bill',
+  'notifications',
+  'orders',
+  'regression',
+]) {
   mkdirSync(path.join(EVIDENCE_ROOT, sub), { recursive: true });
 }
 
 async function shot(page: Page, relativeName: string): Promise<void> {
-  await page.screenshot({ path: path.join(EVIDENCE_ROOT, `${relativeName}.png`), fullPage: false });
+  await page.screenshot({
+    path: path.join(EVIDENCE_ROOT, `${relativeName}.png`),
+    fullPage: false,
+  });
 }
 
 async function provisionDevice(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForFunction(
-    async () => ((await indexedDB.databases?.()) ?? []).some((d) => d.name === 'nas-counter'),
+    async () =>
+      ((await indexedDB.databases?.()) ?? []).some((d) => d.name === 'nas-counter'),
     null,
     { timeout: 30_000 },
   );
@@ -61,7 +80,8 @@ async function provisionDevice(page: Page): Promise<void> {
     (deviceId) =>
       new Promise<void>((resolve, reject) => {
         const open = indexedDB.open('nas-counter');
-        open.onerror = () => reject(new Error(`indexedDB.open failed: ${String(open.error)}`));
+        open.onerror = () =>
+          reject(new Error(`indexedDB.open failed: ${String(open.error)}`));
         open.onsuccess = () => {
           const database = open.result;
           if (!database.objectStoreNames.contains('meta')) {
@@ -84,7 +104,9 @@ async function signIn(page: Page): Promise<void> {
   await page.getByLabel('Username').fill(USERNAME);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 async function goTo(page: Page, section: string): Promise<void> {
@@ -105,7 +127,9 @@ async function addStock(
   await page.getByLabel('Min Qty, row 1', { exact: true }).fill(values.min);
   await page.getByLabel('Stock Qty, row 1', { exact: true }).fill(values.qty);
   await page.getByRole('button', { name: 'Save these items' }).click();
-  await expect(page.getByRole('table', { name: /Add stock/i })).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole('table', { name: /Add stock/i })).toHaveCount(0, {
+    timeout: 30_000,
+  });
   await goTo(page, 'Billing');
 }
 
@@ -116,10 +140,14 @@ async function addToBill(page: Page, name: string, column = 0): Promise<void> {
   await cell.fill(name.slice(0, 12));
   await expect(bill.getByRole('listbox')).toBeVisible({ timeout: 15_000 });
   await bill
-    .getByRole('option', { name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
+    .getByRole('option', {
+      name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    })
     .first()
     .click();
-  await expect(bill.getByLabel('Quantity, row 1', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(bill.getByLabel('Quantity, row 1', { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
@@ -146,7 +174,9 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Credit Bill Ctrl+Shift+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
 
     await goTo(page, 'Credit Bills');
     const folder = page.getByRole('button', { name: new RegExp(customer) });
@@ -202,17 +232,25 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
     // Refresh the browser, reopen the bill: the amendment persisted server-side,
     // not merely in this tab's in-memory state.
     await page.reload();
-    await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({
+      timeout: 30_000,
+    });
     await goTo(page, 'Credit Bills');
     await page.getByRole('button', { name: new RegExp(customer) }).click();
-    await page.getByRole('button', { name: new RegExp(reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).click();
+    await page
+      .getByRole('button', {
+        name: new RegExp(reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      })
+      .click();
     await expect(page.getByText('3.000').first()).toBeVisible({ timeout: 15_000 });
     // 3 × 1000 = 3000, still fully outstanding — no payment was ever recorded.
     await expect(page.getByText(/3,?000/).first()).toBeVisible();
     await shot(page, 'credit-amendment/06-persisted-after-refresh');
   });
 
-  test('Mission A — a reason, when given, is still kept on the record', async ({ page }) => {
+  test('Mission A — a reason, when given, is still kept on the record', async ({
+    page,
+  }) => {
     // `EditCreditBillGrid` has no revision-history panel of its own — unlike
     // `EditBill.tsx`'s `RevisionHistory`, which Credit Bills no longer uses once a
     // bill opens the real billing grid instead (NAS-NEW-02). That is a genuine, honest
@@ -245,7 +283,9 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Credit Bill Ctrl+Shift+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
 
     await goTo(page, 'Credit Bills');
     await page.getByRole('button', { name: new RegExp(customer) }).click();
@@ -266,7 +306,12 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
       async ([base, token, ref]) => {
         const list = await fetch(`${base}/invoices?limit=50`, {
           headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => r.json() as Promise<{ items: Array<{ id: string; internal_reference: string }> }>);
+        }).then(
+          (r) =>
+            r.json() as Promise<{
+              items: Array<{ id: string; internal_reference: string }>;
+            }>,
+        );
         return list.items.find((i) => i.internal_reference === ref)?.id ?? '';
       },
       [PROXIED ? '/api/v1' : `${API_URL ?? ''}/api/v1`, accessToken, reference],
@@ -303,15 +348,21 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
 
     // Finalisation succeeded (the one sentence that remains), and nothing resembling
     // the old title/figures card appeared.
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText(/Bill completed|Credit bill completed/)).toHaveCount(0);
-    await expect(page.getByText('Total').and(page.getByText('Outstanding'))).toHaveCount(0);
+    await expect(page.getByText('Total').and(page.getByText('Outstanding'))).toHaveCount(
+      0,
+    );
     await shot(page, 'print-bill/02-immediately-after-finalisation-no-popup');
 
     // The grid is already fresh and typeable — no click needed to get there.
     const bill = page.getByRole('region').first();
     await expect(bill.getByLabel('Item, row 1', { exact: true })).toBeVisible();
-    await bill.getByLabel('Item, row 1', { exact: true }).fill('ready for the next customer');
+    await bill
+      .getByLabel('Item, row 1', { exact: true })
+      .fill('ready for the next customer');
     await shot(page, 'print-bill/03-fresh-grid-ready-for-next-bill');
   });
 
@@ -336,7 +387,9 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
       .getByRole('main')
       .getByRole('button', { name: 'Credit Bill Ctrl+Shift+Enter', exact: true })
       .click();
-    await expect(page.getByText('Stock has been updated.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Stock has been updated.')).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText(/Bill completed|Credit bill completed/)).toHaveCount(0);
     await shot(page, 'credit-bill/02-immediately-after-finalisation-no-popup');
 
@@ -436,7 +489,9 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
 
     // The persistent on-screen alert banner (NAS-NEW-04) is a separate system and
     // still works without the bell being touched at all.
-    await expect(page.getByRole('group', { name: 'Alerts' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('group', { name: 'Alerts' })).toBeVisible({
+      timeout: 10_000,
+    });
     await shot(page, 'notifications/07-persistent-alert-banner-independent-of-bell');
   });
 
@@ -478,7 +533,9 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
     await shot(page, 'orders/03-same-order-in-full-screen');
 
     // Set a reminder from the full screen.
-    const fullCard = ordersSection.getByText(note).locator('xpath=ancestor::*[self::li or self::div][1]');
+    const fullCard = ordersSection
+      .getByText(note)
+      .locator('xpath=ancestor::*[self::li or self::div][1]');
     const setReminder = fullCard.getByRole('button', { name: /reminder/i }).first();
     if (await setReminder.isVisible().catch(() => false)) {
       await setReminder.click();
@@ -499,7 +556,10 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
 
     // Keyboard navigation of the section list is still intact — the panel never
     // became part of `<nav>`'s own arrow-key cycle.
-    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Billing', exact: true }).focus();
+    await page
+      .getByRole('navigation', { name: 'Sections' })
+      .getByRole('button', { name: 'Billing', exact: true })
+      .focus();
     await page.keyboard.press('ArrowDown');
     const focused = await page.evaluate(() => document.activeElement?.textContent ?? '');
     expect(focused.trim().length).toBeGreaterThan(0);
@@ -534,7 +594,10 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
     ]) {
       await goTo(page, section);
       await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
-      await shot(page, `regression/04-screen-${section.toLowerCase().replace(/\s+/g, '-')}`);
+      await shot(
+        page,
+        `regression/04-screen-${section.toLowerCase().replace(/\s+/g, '-')}`,
+      );
     }
 
     await goTo(page, 'Billing');
@@ -547,7 +610,9 @@ test.describe('NAS-CORRECTION-01..03 — final verification evidence', () => {
     await page.getByLabel('Username').fill(USERNAME);
     await page.getByLabel('Password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /Print Bill/ })).toBeVisible({
+      timeout: 30_000,
+    });
     await shot(page, 'regression/06-signed-back-in');
   });
 });
