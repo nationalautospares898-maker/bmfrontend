@@ -34,8 +34,7 @@ import type { Notification } from '@/api/types';
 import { Busy, Button, Dialog, Panel } from '@/components/primitives';
 import * as deviceNotifications from '@/lib/deviceNotifications';
 import { NOTIFICATIONS } from '@/lib/strings';
-
-const POLL_INTERVAL_MS = 30_000;
+import { subscribeToNotifications } from './notificationsPoller';
 
 /** Which screen a notification's own "Go to" action should open, if any. */
 function screenFor(kind: string): 'stock' | 'credit-bills' | 'orders' | null {
@@ -115,69 +114,52 @@ export function NotificationBell({
   /**
    * `AppShell` passes `onNavigate` as a fresh inline function on every one of its own
    * renders (it is not memoised, and must not need to be just to satisfy this
-   * component). `load` used to list `onNavigate` as a dependency, which meant it was
-   * recreated on every such render; the poll effect below depended on `load` itself,
-   * so it tore down and restarted its `setInterval` — and fired an immediate,
-   * unscheduled `load()` — every single time. Because this bell's own `onItemsChanged`
-   * callback feeds the result of every poll straight back into `AppShell`'s state,
-   * every successful poll caused exactly the re-render that triggered the next one:
-   * a request loop bounded only by network latency, not by `POLL_INTERVAL_MS`. A ref
-   * breaks that cycle — `load` reads the latest callback without needing to change
-   * identity when it does.
+   * component), so nothing this component schedules may depend on its identity. The
+   * original defect was exactly that: the poll's `useEffect` depended on a callback
+   * rebuilt from `onNavigate`, so every parent re-render tore the interval down and
+   * fired an immediate, unscheduled request — and since every poll fed its result back
+   * to `AppShell` via `onItemsChanged`, every poll caused the re-render that triggered
+   * the next one. A ref breaks that cycle: the latest callback is readable without
+   * anything needing to change identity when it does.
    */
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
 
-  const load = useCallback(async () => {
-    try {
-      const response = await notificationsApi.list();
-      setItems(response.notifications);
-      setError(null);
+  /**
+   * Handle one polled payload. Stable identity (no dependencies) so the subscription
+   * effect below runs exactly once per mount, whatever the parent re-renders.
+   *
+   * *When* a request happens is not this component's decision — `notificationsPoller`
+   * owns the timer, the visibility trigger, single-flight and the floor between
+   * requests, at module scope where a remount cannot reset them. This component only
+   * renders what arrives.
+   */
+  const receive = useCallback((incoming: Notification[]) => {
+    setItems(incoming);
+    setError(null);
 
-      if (hasLoadedOnce.current) {
-        for (const n of response.notifications) {
-          if (deviceShown.current.has(n.id)) continue;
-          if (deviceNotifications.currentPermission() === 'granted') {
-            const target = screenFor(n.kind);
-            deviceNotifications.show(n.id, n.title, {
-              ...(n.body ? { body: n.body } : {}),
-              ...(target
-                ? {
-                    onClick: () =>
-                      onNavigateRef.current?.(target, n.entity_id ?? undefined),
-                  }
-                : {}),
-            });
-          }
+    if (hasLoadedOnce.current) {
+      for (const n of incoming) {
+        if (deviceShown.current.has(n.id)) continue;
+        if (deviceNotifications.currentPermission() === 'granted') {
+          const target = screenFor(n.kind);
+          deviceNotifications.show(n.id, n.title, {
+            ...(n.body ? { body: n.body } : {}),
+            ...(target
+              ? {
+                  onClick: () =>
+                    onNavigateRef.current?.(target, n.entity_id ?? undefined),
+                }
+              : {}),
+          });
         }
       }
-      for (const n of response.notifications) deviceShown.current.add(n.id);
-      hasLoadedOnce.current = true;
-    } catch {
-      // A failed poll must not spam the owner with an error every 30 seconds — it
-      // just tries again next tick, and keeps whatever list was last shown.
     }
+    for (const n of incoming) deviceShown.current.add(n.id);
+    hasLoadedOnce.current = true;
   }, []);
 
-  useEffect(() => {
-    // Hidden tabs never poll — a counter PC that is never closed should not keep
-    // spending a request every 30 seconds on a tab nobody is looking at (and on this
-    // app's single-counter shape, "nobody looking" usually means "another tab, or the
-    // till itself, is the one actually in front of the cashier"). Becoming visible
-    // again loads immediately rather than waiting out whatever was left of the
-    // previous interval, so the bell is never stale for longer than a glance back at
-    // the tab.
-    const tick = () => {
-      if (document.visibilityState === 'visible') void load();
-    };
-    tick();
-    const timer = window.setInterval(tick, POLL_INTERVAL_MS);
-    document.addEventListener('visibilitychange', tick);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', tick);
-    };
-  }, [load]);
+  useEffect(() => subscribeToNotifications(receive), [receive]);
 
   useEffect(() => {
     onItemsChanged?.(items);

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Notification } from '@/api/types';
 import { NotificationBell } from './NotificationBell';
+import { resetNotificationsPoller } from './notificationsPoller';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -50,6 +51,13 @@ beforeEach(() => {
   mocks.dismiss.mockReset();
   mocks.acknowledge.mockReset();
   mocks.snooze.mockReset();
+  // The poller's single-flight guard and its floor between requests live at module
+  // scope deliberately — that is what a remount cannot reset, and therefore what a
+  // remount storm cannot defeat. The same property means one test's poll history would
+  // otherwise suppress the next test's first fetch, so each test starts from a clean
+  // poller, exactly as `swUpdate`'s `resetUpdateState` and the API client's
+  // `resetAuthState` already do for their own module-level state.
+  resetNotificationsPoller();
 });
 
 describe('NotificationBell', () => {
