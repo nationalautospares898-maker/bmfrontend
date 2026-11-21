@@ -59,7 +59,8 @@ describe('swUpdate', () => {
     vi.useFakeTimers();
     const update = vi.fn().mockResolvedValue(undefined);
     const registration = { update } as unknown as ServiceWorkerRegistration;
-    let onRegistered: ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
+    let onRegistered:
+      ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
     initUpdatePrompt((options) => {
       onRegistered = options?.onRegistered;
       return vi.fn();
@@ -79,7 +80,8 @@ describe('swUpdate', () => {
 
   it('does not schedule a check, and does not throw, when no registration is available', () => {
     vi.useFakeTimers();
-    let onRegistered: ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
+    let onRegistered:
+      ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
     initUpdatePrompt((options) => {
       onRegistered = options?.onRegistered;
       return vi.fn();
@@ -97,7 +99,8 @@ describe('swUpdate', () => {
     vi.useFakeTimers();
     const update = vi.fn().mockResolvedValue(undefined);
     const registration = { update } as unknown as ServiceWorkerRegistration;
-    let onRegistered: ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
+    let onRegistered:
+      ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
     initUpdatePrompt((options) => {
       onRegistered = options?.onRegistered;
       return vi.fn();
@@ -114,7 +117,8 @@ describe('swUpdate', () => {
     vi.useFakeTimers();
     const update = vi.fn().mockResolvedValue(undefined);
     const registration = { update } as unknown as ServiceWorkerRegistration;
-    let onRegistered: ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
+    let onRegistered:
+      ((registration: ServiceWorkerRegistration | undefined) => void) | undefined;
     initUpdatePrompt((options) => {
       onRegistered = options?.onRegistered;
       return vi.fn();
