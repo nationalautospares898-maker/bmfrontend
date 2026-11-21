@@ -20,14 +20,10 @@
     "api:types": "openapi-typescript ../bmbackend/openapi.json -o src/api/generated/schema.d.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.62.0",
     "decimal.js-light": "^2.5.1",
     "dexie": "^4.0.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-hook-form": "^7.54.0",
-    "react-router-dom": "^7.1.0",
-    "zod": "^4.6.7",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
@@ -50,7 +46,6 @@
     "fake-indexeddb": "^6.0.0",
     "globals": "^15.14.0",
     "jsdom": "^25.0.1",
-    "msw": "^2.7.0",
     "openapi-typescript": "^7.4.4",
     "prettier": "^3.4.2",
     "tailwindcss": "^4.0.0",
