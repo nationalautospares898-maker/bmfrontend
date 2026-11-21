@@ -6,7 +6,7 @@
  * failed poll leaves the list exactly as it was rather than clearing it.
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -173,6 +173,66 @@ describe('NotificationBell', () => {
 });
 
 /**
+ * Polling discipline — the two defects this covers both inflate CDN/API request volume
+ * silently, with no visible symptom at the counter:
+ *
+ * 1. A caller passing a non-memoised `onNavigate` (exactly what `AppShell` does, on
+ *    every one of its own renders) used to recreate `load` and therefore tear down and
+ *    restart the poll's `setInterval` on every render — firing an unscheduled, immediate
+ *    request each time rather than waiting for the next real tick.
+ * 2. Nothing paused the 30-second poll when the tab was hidden, so a counter PC left on
+ *    with a background tab spent one request every 30 seconds for as long as it sat
+ *    there, 24 hours a day.
+ */
+describe('NotificationBell: polling discipline', () => {
+  it('does not issue an extra request merely because the caller passes a new onNavigate function on every render', async () => {
+    mocks.list.mockResolvedValue({ notifications: [] });
+    const { rerender } = render(<NotificationBell onNavigate={() => {}} />);
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+
+    // Simulates `AppShell` re-rendering (e.g. in response to this bell's own
+    // `onItemsChanged`) and handing down a brand-new inline `onNavigate` each time,
+    // without ever advancing the poll timer.
+    for (let i = 0; i < 5; i += 1) {
+      rerender(<NotificationBell onNavigate={() => {}} />);
+    }
+
+    // No awaited microtask should have fired a second request: the fix makes `load`
+    // referentially stable regardless of `onNavigate` identity, so the poll effect
+    // never re-runs just because the parent re-rendered.
+    await Promise.resolve();
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not poll while the tab is hidden, and refreshes immediately when it becomes visible again', async () => {
+    vi.useFakeTimers();
+    mocks.list.mockResolvedValue({ notifications: [] });
+    render(<NotificationBell />);
+    await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden',
+    });
+    void act(() => document.dispatchEvent(new Event('visibilitychange')));
+
+    // Two ticks' worth of time pass while hidden: a correctly-paused poll issues
+    // nothing, where the un-paused version would have issued two more requests.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+    void act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+
+    vi.useRealTimers();
+  });
+});
+
+/**
  * Device-style (OS/browser) notifications (owner request, 2026-11-11).
  *
  * jsdom has no `Notification` global, so each test installs a small fake and tears it
@@ -282,6 +342,36 @@ describe('NotificationBell: device notifications', () => {
 
     FakeNotification.instances[0]?.onclick?.();
     expect(onNavigate).toHaveBeenCalledWith('stock', 'prod-9');
+  });
+
+  it('a device notification click calls the latest onNavigate, not one captured before a re-render', async () => {
+    // `AppShell` hands this component a brand-new `onNavigate` closure on every one of
+    // its own renders. `load`'s device-notification click handler is created once (see
+    // NotificationBell.tsx's own doc on why) and must still reach whichever `onNavigate`
+    // is current when the click actually happens, not whichever was current when the
+    // poll that created the notification ran.
+    vi.useFakeTimers();
+    FakeNotification.permission = 'granted';
+    mocks.list.mockResolvedValueOnce({ notifications: [] });
+    const firstOnNavigate = vi.fn();
+    const { rerender } = render(<NotificationBell onNavigate={firstOnNavigate} />);
+    await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+
+    const secondOnNavigate = vi.fn();
+    rerender(<NotificationBell onNavigate={secondOnNavigate} />);
+
+    mocks.list.mockResolvedValueOnce({
+      notifications: [
+        notification({ id: 'n-new', kind: 'low_stock', entity_id: 'prod-9' }),
+      ],
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+
+    FakeNotification.instances[0]?.onclick?.();
+
+    expect(secondOnNavigate).toHaveBeenCalledWith('stock', 'prod-9');
+    expect(firstOnNavigate).not.toHaveBeenCalled();
   });
 
   it('offers "Enable" only while permission is still undecided', async () => {

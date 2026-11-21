@@ -112,6 +112,22 @@ export function NotificationBell({
    */
   const hasLoadedOnce = useRef(false);
 
+  /**
+   * `AppShell` passes `onNavigate` as a fresh inline function on every one of its own
+   * renders (it is not memoised, and must not need to be just to satisfy this
+   * component). `load` used to list `onNavigate` as a dependency, which meant it was
+   * recreated on every such render; the poll effect below depended on `load` itself,
+   * so it tore down and restarted its `setInterval` — and fired an immediate,
+   * unscheduled `load()` — every single time. Because this bell's own `onItemsChanged`
+   * callback feeds the result of every poll straight back into `AppShell`'s state,
+   * every successful poll caused exactly the re-render that triggered the next one:
+   * a request loop bounded only by network latency, not by `POLL_INTERVAL_MS`. A ref
+   * breaks that cycle — `load` reads the latest callback without needing to change
+   * identity when it does.
+   */
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
+
   const load = useCallback(async () => {
     try {
       const response = await notificationsApi.list();
@@ -126,7 +142,10 @@ export function NotificationBell({
             deviceNotifications.show(n.id, n.title, {
               ...(n.body ? { body: n.body } : {}),
               ...(target
-                ? { onClick: () => onNavigate?.(target, n.entity_id ?? undefined) }
+                ? {
+                    onClick: () =>
+                      onNavigateRef.current?.(target, n.entity_id ?? undefined),
+                  }
                 : {}),
             });
           }
@@ -138,12 +157,26 @@ export function NotificationBell({
       // A failed poll must not spam the owner with an error every 30 seconds — it
       // just tries again next tick, and keeps whatever list was last shown.
     }
-  }, [onNavigate]);
+  }, []);
 
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(), POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    // Hidden tabs never poll — a counter PC that is never closed should not keep
+    // spending a request every 30 seconds on a tab nobody is looking at (and on this
+    // app's single-counter shape, "nobody looking" usually means "another tab, or the
+    // till itself, is the one actually in front of the cashier"). Becoming visible
+    // again loads immediately rather than waiting out whatever was left of the
+    // previous interval, so the bell is never stale for longer than a glance back at
+    // the tab.
+    const tick = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    tick();
+    const timer = window.setInterval(tick, POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
   }, [load]);
 
   useEffect(() => {
