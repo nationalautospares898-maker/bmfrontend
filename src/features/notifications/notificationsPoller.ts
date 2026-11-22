@@ -124,6 +124,40 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let deferred: ReturnType<typeof setTimeout> | null = null;
 let listenersAttached = false;
 
+/**
+ * Set once this tab learns that the build it is running has been superseded.
+ *
+ * ## Why a running tab needs an off switch at all
+ *
+ * `vite.config.ts` sets `skipWaiting: false` and `clientsClaim: false` (ADR-031),
+ * deliberately: a forced reload mid-sale is worse than running a version behind. The
+ * consequence is that an open tab keeps executing **its own** bundle until somebody
+ * closes it or accepts the update prompt — indefinitely, on a counter PC that is never
+ * closed.
+ *
+ * That is survivable when the old build is merely out of date. It is not survivable
+ * when the old build is *defective in its request behaviour*, which is exactly what
+ * happened: the bundle before `45570db` re-fetched on every response (a `useEffect`
+ * whose dependency changed on every parent render), looping at network round-trip speed
+ * — roughly eight requests a second from one tab, which is what exhausted the CDN
+ * budget. Deploying the fix could not stop it, because the tabs doing it never loaded
+ * the fix.
+ *
+ * So detection and reload are separated here, and only the safe half is automatic:
+ *
+ * * **Stopping the poll is automatic.** It cancels nothing the user is doing, touches
+ *   no draft and no session — the worst case is a bell that stops refreshing in a tab
+ *   whose replacement is already downloaded and waiting.
+ * * **Reloading stays a prompt**, exactly as before (`swUpdate.applyUpdate`).
+ *
+ * A defective build therefore goes quiet within one update check even if nobody is at
+ * the counter to click anything.
+ */
+let stale = false;
+
+/** Aborts the request in flight when this tab is declared stale. */
+let inFlightAbort: AbortController | null = null;
+
 function isVisible(): boolean {
   // `document` is absent in a non-DOM context; treat that as "do not fetch" rather than
   // throwing, matching how `renewal.ts` guards the same listener.
@@ -148,6 +182,7 @@ function intervalFromHint(seconds: unknown): number {
 function schedule(delayMs: number): void {
   if (timer !== null) clearTimeout(timer);
   timer = null;
+  if (stale) return;
   if (listeners.size === 0) return;
   timer = setTimeout(() => {
     timer = null;
@@ -166,6 +201,10 @@ function schedule(delayMs: number): void {
  * "show me" is exactly the interaction that deserves a fetch.
  */
 export function refreshNotifications(): Promise<void> {
+  // A superseded build asks for nothing further, whatever triggers it — the scheduled
+  // timer, a visibility change, a reconnect, or the bell being opened. The replacement
+  // build will fetch on its own first subscribe.
+  if (stale) return Promise.resolve();
   if (inFlight) return inFlight;
   if (!isVisible()) return Promise.resolve();
 
@@ -192,9 +231,15 @@ export function refreshNotifications(): Promise<void> {
   }
   lastStartedAt = now;
 
+  const abort = new AbortController();
+  inFlightAbort = abort;
   inFlight = (async () => {
     try {
-      const response = await notificationsApi.list();
+      const response = await notificationsApi.list(50, abort.signal);
+      // Declared stale while this was in flight: publish nothing and, crucially, arm
+      // nothing. `schedule` already refuses, but returning here keeps the listeners
+      // from being handed a payload by a build that is being retired.
+      if (stale) return;
       // The server's answer to "when could the next scheduled notification exist".
       schedule(intervalFromHint(response.next_check_after_seconds));
       // A response that arrives after the last subscriber has gone is dropped rather
@@ -207,9 +252,13 @@ export function refreshNotifications(): Promise<void> {
       // interval before trying again. It deliberately does not retry sooner — the
       // request layer has already retried the transport (`api/client.ts`), and a retry
       // here is how a flaky connection turns into a request loop.
+      //
+      // An abort caused by this tab being declared stale lands here too, and must not
+      // re-arm: `schedule` refuses while `stale`, so the retirement is final.
       schedule(MAX_CHECK_INTERVAL_MS);
     } finally {
       inFlight = null;
+      if (inFlightAbort === abort) inFlightAbort = null;
     }
   })();
 
@@ -290,8 +339,94 @@ export function subscribeToNotifications(listener: Listener): () => void {
   };
 }
 
+/**
+ * The channel one tab uses to tell the others that the build they share is obsolete.
+ *
+ * Every tab on the origin runs the same bundle, so a discovery by one is true for all —
+ * but each tab has its own service-worker update timing, so without this the quietest
+ * tab could keep polling long after a sibling has been told. `BroadcastChannel` rather
+ * than the Web Lock used elsewhere: this is a one-way announcement, not a mutual
+ * exclusion, and there is nothing to hold.
+ *
+ * Absent in older browsers, where each tab simply discovers it independently — the
+ * degraded behaviour is "slower", never "wrong".
+ */
+const STALE_CHANNEL = 'bm-client-stale';
+let staleChannel: BroadcastChannel | null = null;
+
+function staleBroadcast(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === 'undefined') return null;
+  if (staleChannel === null) {
+    staleChannel = new BroadcastChannel(STALE_CHANNEL);
+    staleChannel.onmessage = () => {
+      // Announced by a sibling. Retire locally without re-announcing, so two tabs
+      // cannot bounce the message between them.
+      markClientStale({ announce: false });
+    };
+  }
+  return staleChannel;
+}
+
+/**
+ * Retire this tab's notification feed: no further requests, ever, from this build.
+ *
+ * Called when the service worker reports that a newer build is waiting
+ * (`app/swUpdate.ts`). It deliberately does **not** reload, prompt, clear the session or
+ * touch a draft — see the note on `stale` for why stopping and reloading are separate
+ * decisions. The bell keeps rendering whatever it last received; it simply stops asking
+ * for more.
+ *
+ * Idempotent, so repeated update events and a sibling's broadcast cost nothing.
+ */
+export function markClientStale(options: { announce?: boolean } = {}): void {
+  const announce = options.announce ?? true;
+  if (!stale) {
+    stale = true;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (deferred !== null) {
+      clearTimeout(deferred);
+      deferred = null;
+    }
+    // Stop the listeners too: a visibility change or reconnect in a retired tab should
+    // not even reach the guard.
+    if (listenersAttached && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (typeof window !== 'undefined') window.removeEventListener('online', onOnline);
+      listenersAttached = false;
+    }
+    inFlightAbort?.abort();
+    inFlightAbort = null;
+  }
+  if (announce) {
+    try {
+      staleBroadcast()?.postMessage({ type: 'stale' });
+    } catch {
+      // A closed or unavailable channel must never break the retirement itself.
+    }
+  }
+}
+
+/** Whether this tab has retired its feed. Exposed for tests and diagnostics. */
+export function isClientStale(): boolean {
+  return stale;
+}
+
 /** Exposed for tests only, so one test's state does not leak into the next. */
 export function resetNotificationsPoller(): void {
+  stale = false;
+  inFlightAbort = null;
+  if (staleChannel !== null) {
+    staleChannel.onmessage = null;
+    try {
+      staleChannel.close();
+    } catch {
+      // Already closed.
+    }
+    staleChannel = null;
+  }
   listeners.clear();
   if (timer !== null) clearTimeout(timer);
   timer = null;

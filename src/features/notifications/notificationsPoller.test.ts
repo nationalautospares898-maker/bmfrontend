@@ -31,6 +31,8 @@ import {
   MAX_CHECK_INTERVAL_MS,
   MIN_CHECK_INTERVAL_MS,
   MIN_FETCH_INTERVAL_MS,
+  isClientStale,
+  markClientStale,
   refreshNotifications,
   resetNotificationsPoller,
   subscribeToNotifications,
@@ -565,5 +567,97 @@ describe('notificationsPoller — hidden tabs, failures and cleanup', () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(seen).toHaveLength(0);
+  });
+});
+
+/**
+ * Version enforcement: retiring a superseded build's feed.
+ *
+ * The 2026-11-23 storm was not stopped by deploying its fix, and could not have been:
+ * `skipWaiting: false` / `clientsClaim: false` (ADR-031, deliberately) mean an open tab
+ * keeps running its own bundle until somebody closes it. A counter PC that is never
+ * closed therefore kept looping at round-trip speed against the production API with the
+ * corrected build already sitting in the service worker's `waiting` slot.
+ *
+ * These assert the off switch that closes that gap — and, just as importantly, that it
+ * stays confined to the notification feed.
+ */
+describe('a superseded build retires its feed', () => {
+  it('stops every future request, whatever triggers it', async () => {
+    setVisibility('visible');
+    const unsubscribe = subscribeToNotifications(() => {});
+    await vi.advanceTimersByTimeAsync(200);
+    const beforeRetirement = mocks.list.mock.calls.length;
+    expect(beforeRetirement).toBeGreaterThan(0);
+
+    markClientStale();
+
+    // Every trigger the feed has, driven hard, well past the 5-second floor so the
+    // floor cannot be what is doing the work.
+    for (let i = 0; i < 20; i += 1) {
+      void refreshNotifications();
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(10_000);
+    }
+    // And far past the scheduled check, which must not have been re-armed.
+    await vi.advanceTimersByTimeAsync(MAX_CHECK_INTERVAL_MS * 2);
+
+    expect(mocks.list.mock.calls.length).toBe(beforeRetirement);
+    unsubscribe();
+  });
+
+  it('is idempotent, so repeated update events cost nothing', async () => {
+    setVisibility('visible');
+    const unsubscribe = subscribeToNotifications(() => {});
+    await vi.advanceTimersByTimeAsync(200);
+    const settled = mocks.list.mock.calls.length;
+
+    for (let i = 0; i < 5; i += 1) markClientStale();
+    await vi.advanceTimersByTimeAsync(MAX_CHECK_INTERVAL_MS);
+
+    expect(isClientStale()).toBe(true);
+    expect(mocks.list.mock.calls.length).toBe(settled);
+    unsubscribe();
+  });
+
+  it('does not publish a payload that arrives after retirement', async () => {
+    setVisibility('visible');
+    respondAfter(500);
+    const received: Notification[][] = [];
+    const unsubscribe = subscribeToNotifications((items) => received.push(items));
+
+    // Retire while the first request is still in flight.
+    await vi.advanceTimersByTimeAsync(100);
+    markClientStale();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(received).toHaveLength(0);
+    unsubscribe();
+  });
+
+  it('a new subscriber in a retired tab does not resurrect the feed', async () => {
+    setVisibility('visible');
+    markClientStale();
+
+    const unsubscribe = subscribeToNotifications(() => {});
+    await vi.advanceTimersByTimeAsync(MAX_CHECK_INTERVAL_MS * 2);
+
+    expect(mocks.list).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it('resets cleanly, so retirement cannot leak into the next tab or test', async () => {
+    markClientStale();
+    expect(isClientStale()).toBe(true);
+
+    resetNotificationsPoller();
+    expect(isClientStale()).toBe(false);
+
+    setVisibility('visible');
+    const unsubscribe = subscribeToNotifications(() => {});
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.list.mock.calls.length).toBeGreaterThan(0);
+    unsubscribe();
   });
 });

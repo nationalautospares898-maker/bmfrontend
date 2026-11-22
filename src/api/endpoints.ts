@@ -915,9 +915,17 @@ export const adminCounters = {
 // --- notifications (Feature A.1/A.2) -------------------------------------------
 
 export const notifications = {
-  list(limit = 50): Promise<NotificationListResponse> {
+  /**
+   * `signal` lets the poller abandon a request it no longer wants an answer to — the
+   * one case being a tab that has just learned its own build is obsolete, where the
+   * response would only re-arm a timer belonging to code that is about to be replaced.
+   */
+  list(limit = 50, signal?: AbortSignal): Promise<NotificationListResponse> {
     return data(
-      api.get<NotificationListResponse>('/notifications', { params: { limit } }),
+      api.get<NotificationListResponse>('/notifications', {
+        params: { limit },
+        ...(signal ? { signal } : {}),
+      }),
     );
   },
   dismiss(notificationId: string): Promise<{ status: string }> {

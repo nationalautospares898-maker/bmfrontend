@@ -34,6 +34,8 @@
  * all.
  */
 
+import { markClientStale } from '@/features/notifications/notificationsPoller';
+
 type RegisterSW = (options?: {
   onNeedRefresh?: () => void;
   onRegistered?: (registration: ServiceWorkerRegistration | undefined) => void;
@@ -59,6 +61,19 @@ export function initUpdatePrompt(registerSW: RegisterSW): void {
   apply = registerSW({
     onNeedRefresh() {
       needsRefresh = true;
+      // A newer build is downloaded and waiting, so this tab's bundle is now known to
+      // be superseded. Retire its notification feed immediately rather than waiting for
+      // somebody to accept the prompt.
+      //
+      // This is the safeguard for the 2026-11-23 request storm: the bundle before
+      // `45570db` re-fetched on every response and looped at round-trip speed, and
+      // `skipWaiting: false` (correctly) meant deploying the fix could not stop a tab
+      // already running it. A defective build now goes quiet within one update check,
+      // with nobody at the counter needing to do anything.
+      //
+      // Stopping the feed is the *only* automatic action. Reloading remains
+      // `applyUpdate()`, user-initiated, so an unsaved bill is never interrupted.
+      markClientStale();
       publish();
     },
     onRegistered(registration) {
