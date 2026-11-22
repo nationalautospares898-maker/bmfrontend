@@ -337,3 +337,62 @@ body {
     width: 4%;
   }
 }
+
+/* --- notifications -----------------------------------------------------------
+ *
+ * The notification presentation only (owner request, 2026-11-22). Nothing here is
+ * reachable from any other screen: every selector is a `nas-notification-*` class used
+ * exclusively by `features/notifications/`.
+ *
+ * Motion is ≤ 150 ms and only ever on *appearance*, never looping and never on anything
+ * the cashier is reading (§10: motion ≤ 200 ms, no decorative animation). The global
+ * `prefers-reduced-motion` block near the top of this file already reduces every
+ * animation here to a non-event, so there is no second opt-out to maintain.
+ */
+
+@keyframes nas-notification-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.375rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nas-notification-panel {
+  animation: nas-notification-panel-in 140ms ease-out;
+}
+
+@keyframes nas-notification-badge-in {
+  from {
+    transform: scale(0.7);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* The badge appearing is the one moment worth drawing the eye to — a count that changed
+   while the owner was looking elsewhere. One short pop, not a pulse: a badge that
+   throbbed continuously would be exactly the decorative animation §10 rules out, and it
+   would still be throbbing an hour later. */
+.nas-notification-badge {
+  animation: nas-notification-badge-in 140ms ease-out;
+}
+
+/* Cards fade in rather than sliding: a list that re-orders itself as new items arrive
+   is harder to read than one that simply has another row in it. */
+@keyframes nas-notification-card-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.nas-notification-card {
+  animation: nas-notification-card-in 120ms ease-out;
+}

@@ -2048,6 +2048,13 @@ export interface paths {
          *     No specific permission: these are notices about the business the caller is already
          *     signed in to, and gating "stock has run out" behind a reports permission would mean
          *     the person at the counter is the one person who cannot be told.
+         *
+         *     `next_check_after_seconds` is what let the client stop polling every 30 seconds
+         *     (owner request, 2026-11-22). The server already knows when the next scheduled
+         *     notification is due — it owns the schedules — so it says so, and the client sleeps
+         *     exactly that long instead of guessing a fixed interval. Computed by
+         *     `reminders.next_due_in_seconds`, which derives it from the same `reminder_schedules`
+         *     rows the firing logic reads, so there is no cadence written down in two places.
          */
         get: operations["list_notifications_api_v1_notifications_get"];
         put?: never;
@@ -3709,6 +3716,8 @@ export interface components {
         NotificationListOut: {
             /** Notifications */
             notifications: components["schemas"]["NotificationOut"][];
+            /** Next Check After Seconds */
+            next_check_after_seconds: number;
         };
         /** NotificationOut */
         NotificationOut: {

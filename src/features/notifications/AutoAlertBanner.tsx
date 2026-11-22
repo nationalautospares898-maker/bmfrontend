@@ -14,11 +14,15 @@
  *
  * ## One feed, not a second poll
  *
- * This renders `items` as given — it does not fetch anything itself. `AppShell`
- * passes it the exact same list `NotificationBell` already polls every 30 seconds
- * (`NotificationBell`'s `onItemsChanged`), so the app makes one `GET /notifications`
- * call, not two, no matter how many places show the result (cross-cutting
- * requirement: avoid notification polling overload).
+ * This renders `items` as given — it does not fetch anything itself. `AppShell` passes
+ * it the exact same list `NotificationBell` already receives (`NotificationBell`'s
+ * `onItemsChanged`), so the app makes one `GET /notifications` call, not two, no matter
+ * how many places show the result (cross-cutting requirement: avoid notification
+ * polling overload).
+ *
+ * When that one call happens is `notificationsPoller`'s business, and since 2026-11-22
+ * it is no longer a 30-second timer: the feed refreshes on the owner's own interactions
+ * and otherwise sleeps until the server says a scheduled notification is due.
  *
  * ## "Hide" is local and never touches the server
  *
@@ -29,7 +33,7 @@
  * *this banner*, remembered in IndexedDB via `db/meta.ts` — **not** `localStorage` or
  * `sessionStorage`, which `tests/structural/rules.test.ts` (rule 3 of §4) forbids
  * everywhere in this codebase, access token or not — so a hidden alert does not
- * reappear the moment the next 30-second poll runs. It is still sitting in the bell,
+ * reappear the moment the next refresh runs. It is still sitting in the bell,
  * untouched, exactly as a dismiss never would be if it weren't a dismiss. Hidden ids
  * are pruned to whatever is still in `items` on every update, so this never grows
  * unbounded and a resolved notification's id does not linger forever.
@@ -40,14 +44,15 @@ import { useEffect, useState } from 'react';
 import type { Notification } from '@/api/types';
 import { Button, Panel } from '@/components/primitives';
 import { getHiddenAlertIds, setHiddenAlertIds } from '@/db/meta';
+import { NOTIFICATIONS } from '@/lib/strings';
 
 /** Only the most urgent few, on screen at once — the rest are one bell click away. */
 const MAX_VISIBLE = 3;
 
 const SEVERITY_BADGE: Record<string, string> = {
-  critical: 'bg-red-100 text-red-900',
-  warning: 'bg-amber-100 text-amber-900',
-  info: 'bg-slate-100 text-slate-700',
+  critical: 'bg-red-50 text-red-900 ring-1 ring-red-200',
+  warning: 'bg-amber-50 text-amber-900 ring-1 ring-amber-200',
+  info: 'bg-slate-100 text-slate-700 ring-1 ring-slate-200',
 };
 
 /** Which screen a notification's own "Go to" action should open, if any. Mirrors
@@ -135,14 +140,20 @@ export function AutoAlertBanner({ items, onNavigate }: AutoAlertBannerProps) {
         const target = screenFor(n.kind);
         return (
           <Panel key={n.id} tone={n.severity === 'critical' ? 'danger' : 'warning'}>
+            {/* The alert's own appearance, brought into line with the redesigned panel
+                (2026-11-22): the severity reads as a **word** on a chip rather than the
+                raw API value ("critical"/"warning"), and the title carries the weight.
+                `Panel`'s tone, padding and role are untouched — the banner's placement,
+                height cap, scrolling and `role="group"` behaviour are all as they were,
+                because those were solving a different problem and solving it correctly. */}
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <span
-                  className={`mr-2 rounded px-1 text-xs font-medium ${SEVERITY_BADGE[n.severity] ?? SEVERITY_BADGE.info}`}
+                  className={`mr-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.75rem] font-medium ${SEVERITY_BADGE[n.severity] ?? SEVERITY_BADGE.info}`}
                 >
-                  {n.severity}
+                  {NOTIFICATIONS.severityLabel(n.severity)}
                 </span>
-                <span className="font-medium">{n.title}</span>
+                <span className="font-semibold">{n.title}</span>
                 {n.body ? <p className="text-sm text-slate-600">{n.body}</p> : null}
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
@@ -151,7 +162,7 @@ export function AutoAlertBanner({ items, onNavigate }: AutoAlertBannerProps) {
                     variant="quiet"
                     onClick={() => onNavigate?.(target, n.entity_id ?? undefined)}
                   >
-                    Go to
+                    {NOTIFICATIONS.goTo}
                   </Button>
                 ) : null}
                 <Button

@@ -9,27 +9,29 @@ import type { StockBalance } from '@/api/types';
 import { parseMoney } from '@/lib/money';
 
 /**
- * Is this item below **its own** minimum?
+ * Is this item at or below **its own** minimum?
  *
- * `<`, not `<=`: the owner's rule is that an item is running low once its stock "goes
- * below the minimum quantity", so a part with a minimum of 4 and 4 on the shelf is *at*
- * its minimum, not under it. The same comparison runs server-side in
- * `InventoryService.balances(low_stock_only=True)`, `ProductView.is_low_stock` and
- * `ReportService.stock_position`, so the badge, the filter and the report agree.
+ * ⚠️ **`<=`, changed from `<` on 2026-11-22 by owner decision.** A part with a minimum
+ * of 10 and 10 on the shelf **is** low: `reorder_level` means *reorder when you reach
+ * this*, so reaching it is the moment that matters.
+ *
+ * This used to be one of two rules. The listing surfaces compared `<` while the
+ * post-sale warning and the notification producers compared `<=`, so the Stock screen
+ * and the notification bell could disagree about the same part — and a part sold down to
+ * exactly its minimum was alerted and then silently un-alerted. There is now **one**
+ * rule, and this is the client's copy of it. The server's copies are
+ * `InventoryService.balances(low_stock_only=True)`, `ProductView.is_low_stock`,
+ * `ReportService.stock_position`, `domain/notifications/low_stock.py` and
+ * `SalesService._low_stock_warnings`, all `<=`. They move together or not at all; the
+ * authority is `ProductView.is_low_stock`'s docstring.
  *
  * The threshold is **per product** (`products.reorder_level`), set item by item — never
  * one figure applied to the whole catalogue.
  *
  * A product with **no** minimum set is never low. A missing minimum is not a minimum of
  * zero, which is why the screen renders "Not set" for it rather than "0".
- *
- * ⚠️ The post-sale `LOW_STOCK_AFTER_SALE` warning deliberately uses `<=` instead. It is
- * documented as firing when stock "fell **to or** below" the level
- * (`../../bmbackend/docs/API-SPECIFICATION.md §4.3`) and answers a different question —
- * *reorder this soon* after a sale, rather than *this is short right now*. Do not
- * "fix" the difference by aligning one to the other.
  */
 export function isLow(row: StockBalance): boolean {
   if (row.reorder_level === null || row.reorder_level === undefined) return false;
-  return parseMoney(row.quantity).lt(parseMoney(row.reorder_level));
+  return parseMoney(row.quantity).lte(parseMoney(row.reorder_level));
 }

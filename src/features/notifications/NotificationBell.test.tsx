@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Notification } from '@/api/types';
 import { NotificationBell } from './NotificationBell';
-import { resetNotificationsPoller } from './notificationsPoller';
+import { MAX_CHECK_INTERVAL_MS, resetNotificationsPoller } from './notificationsPoller';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -44,6 +44,20 @@ function notification(overrides: Partial<Notification> = {}): Notification {
     read_at: null,
     ...overrides,
   };
+}
+
+/**
+ * Advance to the feed's next scheduled check.
+ *
+ * These tests are about device notifications firing on a *later* payload, not about the
+ * cadence — but they have to get a second payload somehow. There is no 30-second
+ * interval any more (owner request, 2026-11-22): the feed sleeps for as long as the
+ * server's `next_check_after_seconds` says, and these mocks send no hint, so the
+ * fallback ceiling is the wait. The cadence itself is tested in
+ * `notificationsPoller.test.ts`, which is where it belongs.
+ */
+async function advanceToNextCheck(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(MAX_CHECK_INTERVAL_MS + 1_000);
 }
 
 beforeEach(() => {
@@ -294,7 +308,7 @@ describe('NotificationBell: device notifications', () => {
         notification({ id: 'n-new', title: 'Brake Shoe Set is running low' }),
       ],
     });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceToNextCheck();
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
 
     expect(FakeNotification.instances).toHaveLength(1);
@@ -310,7 +324,7 @@ describe('NotificationBell: device notifications', () => {
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
 
     mocks.list.mockResolvedValueOnce({ notifications: [notification({ id: 'n-new' })] });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceToNextCheck();
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
 
     expect(FakeNotification.instances).toHaveLength(0);
@@ -324,9 +338,9 @@ describe('NotificationBell: device notifications', () => {
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
 
     mocks.list.mockResolvedValue({ notifications: [notification({ id: 'n-new' })] });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceToNextCheck();
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceToNextCheck();
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(3));
 
     expect(FakeNotification.instances).toHaveLength(1);
@@ -345,7 +359,7 @@ describe('NotificationBell: device notifications', () => {
         notification({ id: 'n-new', kind: 'low_stock', entity_id: 'prod-9' }),
       ],
     });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceToNextCheck();
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
 
     FakeNotification.instances[0]?.onclick?.();
@@ -373,7 +387,7 @@ describe('NotificationBell: device notifications', () => {
         notification({ id: 'n-new', kind: 'low_stock', entity_id: 'prod-9' }),
       ],
     });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceToNextCheck();
     await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
 
     FakeNotification.instances[0]?.onclick?.();

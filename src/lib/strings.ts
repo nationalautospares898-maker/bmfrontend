@@ -473,11 +473,18 @@ export const STOCK = {
   noReference: '—',
   lowStockHeading: 'Running low',
   lowStockListLabel: 'Items running low',
-  lowStockEmpty: 'Nothing is below its minimum quantity.',
+  lowStockEmpty: 'Nothing has reached its minimum quantity.',
   lowStockLine: (current: string, minimum: string) =>
     `${current} left, minimum ${minimum}`,
-  /** The boundary, said out loud, because "below" and "at or below" are not the same. */
-  lowStockRule: 'An item is listed here once its stock falls below its own Min Qty.',
+  /**
+   * The boundary, said out loud, because "below" and "at or below" are not the same.
+   *
+   * ⚠️ Changed 2026-11-22 by owner decision, together with the comparison itself: an
+   * item with 10 on the shelf and a minimum of 10 **is** listed. This sentence is what
+   * tells the owner that, so it has to move whenever `isLow` does.
+   */
+  lowStockRule:
+    'An item is listed here once its stock reaches or falls below its own Min Qty.',
 
   // --- the day's stock movement report -----------------------------------------
   //
@@ -863,12 +870,41 @@ export const NOTIFICATIONS = {
   close: 'Close',
   loading: 'Loading…',
   empty: 'Nothing needs your attention right now.',
+  /** Second line of the empty state — the panel redesign gives it room to say more. */
+  emptySubtitle: 'Low stock, pending bills and saved orders will show up here.',
   goTo: 'Go to',
   acknowledge: 'Acknowledge',
   snooze: 'Snooze 1 hour',
   dismiss: 'Dismiss',
   dismissLabel: (title: string) => `Dismiss: ${title}`,
   actionFailed: 'Could not update that notification. Try again.',
+  /** The severity word shown on each card. Status is never colour alone (§10). */
+  severityLabel: (severity: string) =>
+    severity === 'critical'
+      ? 'Urgent'
+      : severity === 'warning'
+        ? 'Needs attention'
+        : 'For information',
+  /** Section headings in the redesigned panel, so a long list stays scannable. */
+  groupUrgent: 'Urgent',
+  groupAttention: 'Needs attention',
+  groupInfo: 'For information',
+  /**
+   * A section heading carries its own count — "Urgent · 2" tells the owner how much
+   * there is of the worst thing without scrolling. It also keeps the heading distinct
+   * from the per-card chip, which says the bare severity word; the two saying exactly
+   * the same thing on the same screen was just noise.
+   */
+  groupHeading: (label: string, count: number) => `${label} · ${count}`,
+  /** Badge text past the point where an exact count stops being useful. */
+  badgeOverflow: '99+',
+  countSummary: (count: number) =>
+    count === 1 ? '1 notification' : `${count} notifications`,
+  /** Relative timestamps on each card. */
+  justNow: 'Just now',
+  minutesAgo: (n: number) => (n === 1 ? '1 minute ago' : `${n} minutes ago`),
+  hoursAgo: (n: number) => (n === 1 ? '1 hour ago' : `${n} hours ago`),
+  daysAgo: (n: number) => (n === 1 ? 'Yesterday' : `${n} days ago`),
   /** Device-style (OS/browser) notifications (owner request, 2026-11-11) — on top of,
    *  never instead of, this in-app panel, which stays the fallback. */
   enableDevice: 'Get alerts on this device, even when you are not looking at this tab',

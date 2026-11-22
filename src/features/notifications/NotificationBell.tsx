@@ -16,14 +16,21 @@
  * performed the actual fix may `resolve`), this screen just uses whichever word the
  * owner would use for what they are about to do.
  *
- * ## Why this polls instead of pushing
+ * ## How notifications get here
  *
- * No websocket, no SSE — this is a single-counter shop application, and a 30-second
- * poll is indistinguishable from "live" at that scale while adding no server process
- * to operate. Polling also means a notification raised by the worker between polls
- * survives a refresh exactly like any other server state, which a client-only timer
- * would not (the owner's explicit requirement for Feature A.5's reminders, which
- * surface through this same bell).
+ * Not on a 30-second timer any more (owner request, 2026-11-22). `notificationsPoller`
+ * fetches when the person does something that could have made the list stale — signing
+ * in, returning to the tab, reconnecting, **opening this panel** — and otherwise sleeps
+ * for exactly as long as the server says the next scheduled notification is away. This
+ * component does not decide when a request happens; it subscribes, renders, and asks for
+ * one refresh when the panel is opened.
+ *
+ * ## What this component owns and what it delegates
+ *
+ * It owns the bell, the badge, the notification state and the lifecycle actions.
+ * `NotificationPanel` owns the panel's appearance, grouping and popover behaviour. The
+ * split keeps the state logic testable without a DOM full of presentation, and keeps the
+ * presentation replaceable without touching the single-flight contract underneath it.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -31,13 +38,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { notifications as notificationsApi } from '@/api/endpoints';
 import { ApiError, describeError } from '@/api/errors';
 import type { Notification } from '@/api/types';
-import { Busy, Button, Dialog, Panel } from '@/components/primitives';
+import { Panel } from '@/components/primitives';
 import * as deviceNotifications from '@/lib/deviceNotifications';
 import { NOTIFICATIONS } from '@/lib/strings';
-import { subscribeToNotifications } from './notificationsPoller';
+import { NotificationPanel, type NotificationScreen } from './NotificationPanel';
+import { refreshNotifications, subscribeToNotifications } from './notificationsPoller';
 
 /** Which screen a notification's own "Go to" action should open, if any. */
-function screenFor(kind: string): 'stock' | 'credit-bills' | 'orders' | null {
+function screenFor(kind: string): NotificationScreen | null {
   switch (kind) {
     case 'low_stock':
     case 'stock_reminder':
@@ -52,12 +60,6 @@ function screenFor(kind: string): 'stock' | 'credit-bills' | 'orders' | null {
   }
 }
 
-const SEVERITY_BADGE: Record<string, string> = {
-  critical: 'bg-red-100 text-red-900',
-  warning: 'bg-amber-100 text-amber-900',
-  info: 'bg-slate-100 text-slate-700',
-};
-
 export interface NotificationBellProps {
   /**
    * Opens the named screen and closes the panel — wired to `AppShell`'s `setScreen`.
@@ -67,16 +69,16 @@ export interface NotificationBellProps {
    * screen can highlight that one row rather than only opening onto the general list.
    * `undefined` when a notification's kind has no single entity to jump to.
    */
-  onNavigate?: (screen: 'stock' | 'credit-bills' | 'orders', entityId?: string) => void;
+  onNavigate?: (screen: NotificationScreen, entityId?: string) => void;
   /** Opens the reminder-management dialog (Feature A.5), if the caller offers one. */
   onManageReminders?: () => void;
   /**
    * Mirrors this bell's own `items` up to whoever renders it (NAS-NEW-04), so an
    * always-on-screen alert banner can show the same active notifications without a
-   * second poll of its own — this bell already has the one poll the whole app needs
-   * (`POLL_INTERVAL_MS`), and the banner is just another view of the same data,
-   * including this component's own optimistic removals on dismiss/acknowledge/snooze.
-   * Called with the same value every time `items` changes, nothing else.
+   * second fetch of its own — this bell already has the one feed the whole app needs,
+   * and the banner is just another view of the same data, including this component's
+   * own optimistic removals on dismiss/acknowledge/snooze. Called with the same value
+   * every time `items` changes, nothing else.
    */
   onItemsChanged?: (items: Notification[] | null) => void;
 }
@@ -95,18 +97,21 @@ export function NotificationBell({
       deviceNotifications.currentPermission(),
     );
 
+  /** The bell button, so the panel can anchor to it and return focus to it. */
+  const bellRef = useRef<HTMLButtonElement | null>(null);
+
   /**
    * Which active ids have already been shown as a **device** notification this
-   * session, so a poll that re-fetches the same still-open alert never shows it
-   * twice. A ref, not state: it must survive every poll without itself triggering a
-   * re-render, and it is read and written only inside `load()`.
+   * session, so a fetch that re-reads the same still-open alert never shows it
+   * twice. A ref, not state: it must survive every update without itself triggering a
+   * re-render, and it is read and written only inside `receive()`.
    */
   const deviceShown = useRef<Set<string>>(new Set());
   /**
-   * False until the first poll resolves. The first poll's results are each business's
+   * False until the first payload arrives. That payload is the business's
    * **already-existing** state, not a new event — logging in to five pre-existing
    * low-stock alerts must not detonate five OS popups at once. Only an id that
-   * appears in a **later** poll, having not been in an earlier one, is an event this
+   * appears in a **later** payload, having not been in an earlier one, is an event this
    * session actually witnessed happen.
    */
   const hasLoadedOnce = useRef(false);
@@ -115,10 +120,10 @@ export function NotificationBell({
    * `AppShell` passes `onNavigate` as a fresh inline function on every one of its own
    * renders (it is not memoised, and must not need to be just to satisfy this
    * component), so nothing this component schedules may depend on its identity. The
-   * original defect was exactly that: the poll's `useEffect` depended on a callback
-   * rebuilt from `onNavigate`, so every parent re-render tore the interval down and
-   * fired an immediate, unscheduled request — and since every poll fed its result back
-   * to `AppShell` via `onItemsChanged`, every poll caused the re-render that triggered
+   * original defect was exactly that: the fetch's `useEffect` depended on a callback
+   * rebuilt from `onNavigate`, so every parent re-render tore the subscription down and
+   * fired an immediate, unscheduled request — and since every fetch fed its result back
+   * to `AppShell` via `onItemsChanged`, every fetch caused the re-render that triggered
    * the next one. A ref breaks that cycle: the latest callback is readable without
    * anything needing to change identity when it does.
    */
@@ -126,13 +131,8 @@ export function NotificationBell({
   onNavigateRef.current = onNavigate;
 
   /**
-   * Handle one polled payload. Stable identity (no dependencies) so the subscription
-   * effect below runs exactly once per mount, whatever the parent re-renders.
-   *
-   * *When* a request happens is not this component's decision — `notificationsPoller`
-   * owns the timer, the visibility trigger, single-flight and the floor between
-   * requests, at module scope where a remount cannot reset them. This component only
-   * renders what arrives.
+   * Handle one payload. Stable identity (no dependencies) so the subscription effect
+   * below runs exactly once per mount, whatever the parent re-renders.
    */
   const receive = useCallback((incoming: Notification[]) => {
     setItems(incoming);
@@ -169,6 +169,18 @@ export function NotificationBell({
     setDevicePermission(await deviceNotifications.requestPermission());
   }
 
+  /**
+   * Opening the panel is an explicit "show me", so it asks for a refresh — one of the
+   * interaction triggers that replaced the unconditional timer. The poller's floor means
+   * opening and closing it repeatedly cannot turn into a stream of requests.
+   */
+  function togglePanel(): void {
+    setOpen((wasOpen) => {
+      if (!wasOpen) void refreshNotifications();
+      return !wasOpen;
+    });
+  }
+
   async function act(
     action: (id: string) => Promise<{ status: string }>,
     notificationId: string,
@@ -190,122 +202,74 @@ export function NotificationBell({
   }
 
   const count = items?.length ?? 0;
+  const hasCritical = Boolean(items?.some((n) => n.severity === 'critical'));
 
   return (
-    <>
-      <Button
-        variant="secondary"
+    // `relative` so the panel can anchor to the bell rather than to the viewport.
+    <div className="relative">
+      <button
+        ref={bellRef}
+        type="button"
         aria-label={NOTIFICATIONS.bellLabel(count)}
-        onClick={() => setOpen(true)}
-        className="relative"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={togglePanel}
+        // A 40px target (§10), square, with the badge overhanging the corner rather
+        // than crowding the glyph.
+        className={`relative inline-flex h-10 w-10 items-center justify-center rounded-lg border text-lg transition-colors duration-150 ${
+          open
+            ? 'border-nas-navy bg-slate-100'
+            : 'border-slate-300 bg-white hover:bg-slate-50'
+        }`}
       >
-        {NOTIFICATIONS.bellIcon}
+        <span aria-hidden>{NOTIFICATIONS.bellIcon}</span>
         {count > 0 ? (
           <span
-            className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-semibold text-white"
             aria-hidden
+            // `ring-white` lifts the badge off the bell's own border so the digits stay
+            // legible at a glance. Red only for a genuinely urgent item; the navy
+            // carries an ordinary count, so red keeps meaning something.
+            className={`nas-notification-badge absolute -right-1.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[0.6875rem] font-bold leading-none text-white ring-2 ring-white ${
+              hasCritical ? 'bg-red-600' : 'bg-nas-navy'
+            }`}
           >
-            {count > 99 ? '99+' : count}
+            {count > 99 ? NOTIFICATIONS.badgeOverflow : count}
           </span>
         ) : null}
-      </Button>
+      </button>
 
-      <Dialog
+      <NotificationPanel
         open={open}
-        title={NOTIFICATIONS.panelTitle}
-        onDismiss={() => setOpen(false)}
-        actions={
-          <>
-            {onManageReminders ? (
-              <Button variant="quiet" onClick={onManageReminders}>
-                {NOTIFICATIONS.manageReminders}
-              </Button>
-            ) : null}
-            <Button onClick={() => setOpen(false)}>{NOTIFICATIONS.close}</Button>
-          </>
-        }
-      >
-        {error ? <Panel tone="danger">{error}</Panel> : null}
-        {devicePermission === 'default' ? (
-          <Panel tone="info">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>{NOTIFICATIONS.enableDevice}</span>
-              <Button variant="secondary" onClick={() => void enableDeviceAlerts()}>
-                {NOTIFICATIONS.enableDeviceAction}
-              </Button>
+        items={items}
+        error={error}
+        busyId={busyId}
+        returnFocusTo={bellRef}
+        onClose={() => setOpen(false)}
+        onNavigate={(screen, entityId) => onNavigate?.(screen, entityId)}
+        onAcknowledge={(id) => void act((n) => notificationsApi.acknowledge(n), id)}
+        onSnooze={(id) => void act((n) => notificationsApi.snooze(n, 60), id)}
+        onDismiss={(id) => void act((n) => notificationsApi.dismiss(n), id)}
+        onManageReminders={onManageReminders}
+        screenFor={screenFor}
+        devicePrompt={
+          devicePermission === 'default' ? (
+            <div className="p-3">
+              <Panel tone="info">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{NOTIFICATIONS.enableDevice}</span>
+                  <button
+                    type="button"
+                    onClick={() => void enableDeviceAlerts()}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+                  >
+                    {NOTIFICATIONS.enableDeviceAction}
+                  </button>
+                </div>
+              </Panel>
             </div>
-          </Panel>
-        ) : null}
-        {items === null ? (
-          <Busy label={NOTIFICATIONS.loading} />
-        ) : items.length === 0 ? (
-          <Panel tone="info">{NOTIFICATIONS.empty}</Panel>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {items.map((n) => {
-              const target = screenFor(n.kind);
-              return (
-                <li
-                  key={n.id}
-                  className="flex flex-col gap-1 rounded border border-slate-200 p-2"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span
-                        className={`mr-2 rounded px-1 text-xs font-medium ${SEVERITY_BADGE[n.severity] ?? SEVERITY_BADGE.info}`}
-                      >
-                        {n.severity}
-                      </span>
-                      <span className="font-medium">{n.title}</span>
-                      {n.body ? <p className="text-sm text-slate-600">{n.body}</p> : null}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {target ? (
-                      <Button
-                        variant="quiet"
-                        disabled={busyId === n.id}
-                        onClick={() => {
-                          onNavigate?.(target, n.entity_id ?? undefined);
-                          setOpen(false);
-                        }}
-                      >
-                        {NOTIFICATIONS.goTo}
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="quiet"
-                      busy={busyId === n.id}
-                      onClick={() =>
-                        void act((id) => notificationsApi.acknowledge(id), n.id)
-                      }
-                    >
-                      {NOTIFICATIONS.acknowledge}
-                    </Button>
-                    <Button
-                      variant="quiet"
-                      disabled={busyId === n.id}
-                      onClick={() =>
-                        void act((id) => notificationsApi.snooze(id, 60), n.id)
-                      }
-                    >
-                      {NOTIFICATIONS.snooze}
-                    </Button>
-                    <Button
-                      variant="quiet"
-                      busy={busyId === n.id}
-                      onClick={() => void act((id) => notificationsApi.dismiss(id), n.id)}
-                      aria-label={NOTIFICATIONS.dismissLabel(n.title)}
-                    >
-                      {NOTIFICATIONS.dismiss}
-                    </Button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Dialog>
-    </>
+          ) : null
+        }
+      />
+    </div>
   );
 }
