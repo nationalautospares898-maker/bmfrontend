@@ -18,8 +18,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
+  COOKIE_ROUTES,
   api,
+  baseUrlFor,
   configureAuth,
+  credentialsFor,
   lastRefreshFailedInTransport,
   refreshSession,
   resetAuthState,
@@ -860,5 +863,105 @@ describe('the client cannot send a query parameter the route does not declare', 
     // which is exactly why it survived unnoticed as a loaded gun behind a status filter
     // the screen was already half built for.
     expect(url.searchParams.has('status')).toBe(false);
+  });
+});
+
+/**
+ * The routing policy: which destination each endpoint is served from, and which
+ * credential it carries.
+ *
+ * This is the contract that keeps notification traffic off Vercel's CDN while leaving
+ * the refresh cookie same-origin. It is asserted rather than reviewed because getting
+ * it wrong is silent in both directions: a cookie route sent direct dies at the next
+ * token expiry (Safari blocks the third-party cookie outright), and a bearer route left
+ * on the proxy quietly keeps billing CDN requests.
+ *
+ * `VITE_API_BASE_URL` is unset under vitest, so `DIRECT_BASE` collapses to the proxy
+ * base. These therefore assert the *policy* — which base each path resolves through and
+ * what credential it carries — not the literal production hostname, which only exists
+ * in a production build. The browser suite asserts the hostname on the wire.
+ */
+describe('API routing policy', () => {
+  const COOKIE = ['/auth/login', '/auth/refresh', '/auth/logout'];
+
+  // Every other endpoint group the client exposes, sampled across each feature area.
+  const BEARER = [
+    '/notifications',
+    '/notifications/abc:acknowledge',
+    '/notifications/abc:dismiss',
+    '/notifications/abc:snooze',
+    '/reminders',
+    '/reminders/abc',
+    '/auth/me',
+    '/auth/change-password',
+    '/auth/unattended',
+    '/sync/bootstrap',
+    '/sync/catalog',
+    '/sync/operations',
+    '/sales:finalize',
+    '/invoices',
+    '/invoices/abc/print-payload',
+    '/invoices/abc:amend',
+    '/drafts',
+    '/inventory/balances',
+    '/inventory/adjustments',
+    '/products/search',
+    '/customers',
+    '/credit/customers',
+    '/payments',
+    '/orders',
+    '/reports/daily-sales',
+    '/admin/counters',
+    '/imports',
+  ];
+
+  it('sends the cookie on exactly the three cookie-dependent routes', () => {
+    for (const path of COOKIE) {
+      expect(credentialsFor(path), path).toBe('include');
+    }
+  });
+
+  it('omits credentials on every bearer-only route', () => {
+    for (const path of BEARER) {
+      expect(credentialsFor(path), path).toBe('omit');
+    }
+  });
+
+  it('keeps the cookie routes on the same-origin proxy base', () => {
+    for (const path of COOKIE) {
+      expect(baseUrlFor(path), path).toBe('/api/v1');
+    }
+  });
+
+  it('routes bearer-only paths through the direct base', () => {
+    // Unset in tests, so the direct base equals the proxy base; what matters here is
+    // that these do NOT take the cookie branch, which the credentials assertions above
+    // prove independently of the base's value.
+    for (const path of BEARER) {
+      expect(baseUrlFor(path), path).toBe(baseUrlFor('/notifications'));
+    }
+  });
+
+  it('the cookie-route set is exactly the three the backend reads a cookie in', () => {
+    // `api/v1/auth.py` reads `bm_refresh` at :237 (refresh) and :257 (logout); `login`
+    // sets it. If a fourth endpoint ever starts reading the cookie, this fails and the
+    // policy must be revisited deliberately rather than by accident.
+    expect([...COOKIE_ROUTES].sort()).toEqual(COOKIE.sort());
+  });
+
+  it('every notification and reminder operation is bearer-only — the CDN requirement', () => {
+    const notificationOps = BEARER.filter(
+      (p) => p.startsWith('/notifications') || p.startsWith('/reminders'),
+    );
+    expect(notificationOps.length).toBeGreaterThanOrEqual(6);
+    for (const path of notificationOps) {
+      expect(credentialsFor(path), path).toBe('omit');
+      expect(COOKIE_ROUTES.has(path), path).toBe(false);
+    }
+  });
+
+  it('normalises a path without a leading slash', () => {
+    expect(credentialsFor('auth/refresh')).toBe('include');
+    expect(credentialsFor('notifications')).toBe('omit');
   });
 });

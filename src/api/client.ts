@@ -32,8 +32,94 @@ import {
 } from './session';
 import { uuidv7 } from '@/lib/ids';
 
-/** Only `VITE_`-prefixed public configuration exists; never a secret (NFR-FE-SEC-001). */
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
+// --- the routing policy -------------------------------------------------------
+//
+// Two destinations, chosen per endpoint by **which credential the request carries**:
+//
+//   * **VERCEL PROXY** (`/api/v1`, relative → same-origin → `vercel.json`'s rewrite).
+//     Only the three endpoints that read or write the `bm_refresh` cookie.
+//   * **DIRECT RAILWAY** (`VITE_API_BASE_URL`). Everything else, which authenticates
+//     with a bearer header and sends no cookie.
+//
+// ## Why the split falls exactly here
+//
+// The backend reads a cookie in exactly two places — `api/v1/auth.py:237` (`refresh`)
+// and `:257` (`logout`) — and `deps.py` resolves every other request from the
+// `Authorization` header alone. `REFRESH_COOKIE_PATH = "/api/v1/auth"` means the browser
+// would not send `bm_refresh` to any other path *even same-origin*. So the bearer
+// endpoints are already cookie-free, and moving them changes nothing about
+// authentication. `login` joins the two cookie routes because it **sets** the cookie,
+// and a `Set-Cookie` on a cross-site response is a third-party cookie write.
+//
+// ## Why this is not simply `path.startsWith('/auth/')`
+//
+// `/auth/me`, `/auth/change-password` and `/auth/unattended` live under the same prefix
+// and are bearer-only. A prefix test would keep three endpoints on the proxy for no
+// reason. The policy is therefore an explicit, auditable set — and a test asserts the
+// set matches the endpoints the backend actually reads a cookie in.
+//
+// ## Why the cookie routes must stay same-origin
+//
+// `bmfrontend-seven.vercel.app` and `bmbackend-production.up.railway.app` sit under
+// `vercel.app` and `up.railway.app`, which are both public suffixes — so they are
+// **cross-site**, not merely cross-origin. A `SameSite=Lax` cookie is never sent between
+// them, which is precisely the misconfiguration that produced the owner's
+// "it logs me out every 13 minutes". Relaxing to `SameSite=None` would also make
+// `bm_refresh` a **third-party** cookie, which Safari's ITP blocks outright today — so
+// the session would die at every access-token expiry with no recovery. Keeping these
+// three same-origin avoids both, and leaves `SameSite=Lax` (which `auth.py` documents as
+// *the* CSRF control) completely untouched.
+
+/** Relative, so these always resolve to the page's own origin and keep the cookie. */
+const PROXY_BASE = '/api/v1';
+
+/**
+ * Where bearer-only traffic goes.
+ *
+ * Only `VITE_`-prefixed public configuration exists; never a secret
+ * (NFR-FE-SEC-001) — this holds a public hostname.
+ *
+ * **Fail-safe by construction:** if the variable is absent or blank, this collapses to
+ * `PROXY_BASE` and every request behaves exactly as it did before direct routing
+ * existed. A missing variable therefore degrades to the previous working architecture
+ * rather than to a broken one, which is also what makes rollback "unset it and
+ * redeploy".
+ */
+const DIRECT_BASE = (import.meta.env.VITE_API_BASE_URL || PROXY_BASE).replace(/\/$/, '');
+
+/**
+ * The endpoints that depend on the `bm_refresh` cookie, and the only ones that may be
+ * proxied. Kept as data rather than a predicate so a test can compare it against the
+ * backend's actual cookie readers.
+ */
+export const COOKIE_ROUTES: ReadonlySet<string> = new Set([
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/logout',
+]);
+
+/** Normalised so `auth/login` and `/auth/login` cannot disagree. */
+function isCookieRoute(path: string): boolean {
+  return COOKIE_ROUTES.has(path.startsWith('/') ? path : `/${path}`);
+}
+
+/** The base a given endpoint is served from. Exported for the routing tests. */
+export function baseUrlFor(path: string): string {
+  return isCookieRoute(path) ? PROXY_BASE : DIRECT_BASE;
+}
+
+/**
+ * `include` only where a cookie is actually wanted.
+ *
+ * `omit` on the direct routes is not cosmetic: it is what makes them **CSRF-immune by
+ * construction**. CSRF requires an *ambient* credential the browser attaches by itself;
+ * with none attached there is nothing for a cross-site page to abuse, and it cannot set
+ * an `Authorization` header cross-origin without passing a preflight against an explicit
+ * allow-list. It also guarantees that no cookie can leak to the API origin by accident.
+ */
+export function credentialsFor(path: string): RequestCredentials {
+  return isCookieRoute(path) ? 'include' : 'omit';
+}
 
 /**
  * Timeouts, from §7.
@@ -237,7 +323,7 @@ export function resetAuthState(): void {
 // --- request plumbing ---------------------------------------------------------
 
 function buildUrl(path: string, params?: RequestOptions['params']): string {
-  const url = `${BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const url = `${baseUrlFor(path)}${path.startsWith('/') ? path : `/${path}`}`;
   if (!params) return url;
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -356,8 +442,9 @@ async function attemptRequest(
       method,
       headers: buildHeaders(options, hasBody, isFormData),
       body: hasBody ? (isFormData ? body : JSON.stringify(body)) : null,
-      // The refresh cookie rides along; it is `HttpOnly` and never read here.
-      credentials: 'include',
+      // `include` on the three cookie routes, where the `HttpOnly` refresh cookie rides
+      // along and is never read here; `omit` everywhere else. See `credentialsFor`.
+      credentials: credentialsFor(path),
       signal: timeoutController.signal,
     });
   } catch {
