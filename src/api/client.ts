@@ -70,8 +70,26 @@ import { uuidv7 } from '@/lib/ids';
 // three same-origin avoids both, and leaves `SameSite=Lax` (which `auth.py` documents as
 // *the* CSRF control) completely untouched.
 
-/** Relative, so these always resolve to the page's own origin and keep the cookie. */
-const PROXY_BASE = '/api/v1';
+/**
+ * Where the three cookie routes go.
+ *
+ * Relative by default, so they resolve to the page's own origin and the `SameSite=Lax`
+ * cookie is sent — which is the whole point of the split, and is what `vercel.json`'s
+ * `/api/:path*` rewrite forwards to Railway in production.
+ *
+ * **Overridable, because "relative" silently assumes a proxy exists.** It does in
+ * production and in the dev-proxy topology, and it does *not* when the app is served
+ * from one origin and the API runs at an absolute URL with nothing in between — which
+ * is exactly how the full-stack acceptance suite runs (`BM_E2E_API_URL`, with the built
+ * app on a `vite preview` port). There the relative path resolves to the preview server,
+ * `POST /auth/login` 404s, and every test fails at sign-in having never reached the
+ * billing grid. `playwright.config.ts` therefore sets this alongside
+ * `VITE_API_BASE_URL`.
+ *
+ * Production leaves it unset: the Vercel rewrite is the proxy, and the cookie must stay
+ * same-origin.
+ */
+const PROXY_BASE = (import.meta.env.VITE_AUTH_BASE_URL || '/api/v1').replace(/\/$/, '');
 
 /**
  * Where bearer-only traffic goes.

@@ -77,9 +77,14 @@ describe('rule 3 — money arithmetic lives only in src/lib/money.ts (ADR-013)',
 });
 
 describe('rule 1 — no secret may exist in this repository (NFR-SEC-012)', () => {
-  it('only the four allow-listed VITE_ variables are referenced', () => {
+  it('only the allow-listed VITE_ variables are referenced', () => {
     const allowed = new Set([
       'VITE_API_BASE_URL',
+      // Base for the three cookie-bearing auth routes. Unset in production, where they
+      // must stay same-origin for the SameSite=Lax refresh cookie; set by the
+      // acceptance suite, where app and API sit on different origins with no proxy.
+      // A public hostname, never a secret -- which is what this rule guards.
+      'VITE_AUTH_BASE_URL',
       'VITE_APP_VERSION',
       'VITE_SENTRY_DSN',
       'VITE_ENABLE_DEVTOOLS',

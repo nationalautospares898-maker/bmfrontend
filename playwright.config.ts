@@ -89,6 +89,16 @@ export default defineConfig({
         : process.env.BM_E2E_API_URL
           ? {
               VITE_API_BASE_URL: `${process.env.BM_E2E_API_URL.replace(/\/$/, '')}/api/v1`,
+              // The three cookie-bearing auth routes default to a **relative** base, so
+              // that in production they stay same-origin and the `SameSite=Lax` refresh
+              // cookie is sent through Vercel's rewrite. That default assumes a proxy
+              // exists — and in this topology none does: the built app is served by
+              // `vite preview` on its own port while the API is at an absolute URL. The
+              // relative path would resolve to the preview server, `POST /auth/login`
+              // would 404, and every spec would fail at sign-in. Pointing the auth base
+              // at the same backend restores a working sign-in without weakening the
+              // production arrangement, which leaves this unset.
+              VITE_AUTH_BASE_URL: `${process.env.BM_E2E_API_URL.replace(/\/$/, '')}/api/v1`,
             }
           : {}),
     },
