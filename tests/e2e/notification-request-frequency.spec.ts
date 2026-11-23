@@ -267,3 +267,59 @@ test.describe('notification response caching', () => {
     expect(headers['last-modified']).toBeUndefined();
   });
 });
+
+/**
+ * Routing: no notification or reminder request may use the page's own origin.
+ *
+ * The acceptance topology is what makes this assertable at runtime rather than by
+ * reading source: the built app is served from the preview port while the API lives at
+ * `BM_E2E_API_URL`, so "went to the API origin" and "went to the page origin" are
+ * distinguishable on the wire — exactly as `bmfrontend-seven.vercel.app` and
+ * `bmbackend-production.up.railway.app` are in production.
+ *
+ * It exists because a relative notification URL is invisible in every other check: the
+ * app works perfectly, the tests pass, and the only symptom is a CDN bill. That is the
+ * shape the November incident had.
+ */
+test.describe('notification routing', () => {
+  test('every notification and reminder request leaves the page origin', async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+
+    const pageOrigin = new URL(`http://localhost:${process.env.BM_E2E_PORT ?? 4273}`)
+      .origin;
+    const offenders: string[] = [];
+    const seen: string[] = [];
+
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (!/\/api\/v1\/(notifications|reminders)/.test(url.pathname)) return;
+      seen.push(`${request.method()} ${url.origin}${url.pathname}`);
+      if (url.origin === pageOrigin) {
+        offenders.push(`${request.method()} ${url.href}`);
+      }
+    });
+
+    await signIn(page);
+    // Drive every notification trigger the feed has: mount, an explicit open, and a
+    // lifecycle action if anything is listed.
+    await bell(page).click();
+    await expect(page.getByRole('dialog', { name: 'Notifications' })).toBeVisible();
+    await page.waitForTimeout(6_000);
+    await bell(page).click();
+    await page.waitForTimeout(2_000);
+
+    console.log(`[routing] notification/reminder requests observed: ${seen.length}`);
+    for (const entry of seen) console.log(`[routing]   ${entry}`);
+
+    expect(
+      offenders,
+      `these used the page origin instead of the API origin — in production that is the ` +
+        `Vercel CDN being billed for notification traffic:\n${offenders.join('\n')}`,
+    ).toEqual([]);
+    // And prove the listener was actually wired to something, so a silent zero cannot
+    // pass for compliance.
+    expect(seen.length).toBeGreaterThan(0);
+  });
+});
